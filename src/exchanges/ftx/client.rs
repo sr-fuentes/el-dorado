@@ -1,9 +1,9 @@
 use reqwest::Client;
 
 pub struct FtxRest {
-    header: &'static str,
-    endpoint: &'static str,
-    client: Client,
+    pub header: &'static str,
+    pub endpoint: &'static str,
+    pub client: Client,
 }
 
 impl FtxRest {
@@ -32,7 +32,9 @@ impl FtxRest {
         Self::new(Self::US_ENDPOINT, Self::US_HEADER)
     }
 
-    pub fn test(&self) {
-        println!("Called success.");
-    }
+    pub fn get() {}
+
+    pub fn post() {}
+
+    pub fn request() {}
 }

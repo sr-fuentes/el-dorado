@@ -1,3 +1,2 @@
-pub mod client;
-
-pub use client::FtxRest;
+mod client;
+mod markets;
