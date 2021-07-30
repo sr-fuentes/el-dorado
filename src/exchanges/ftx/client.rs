@@ -1,12 +1,12 @@
 use reqwest::Client;
 
-pub struct FtxRest {
+pub struct RestClient {
     pub header: &'static str,
     pub endpoint: &'static str,
     pub client: Client,
 }
 
-impl FtxRest {
+impl RestClient {
     pub const INTL_ENDPOINT: &'static str = "https://ftx.com/api";
     pub const US_ENDPOINT: &'static str = "https://ftx.us/api";
     pub const INTL_HEADER: &'static str = "FTX";
