@@ -1,6 +1,16 @@
-use reqwest::Client;
+use reqwest::{Client, Method};
+use serde::{Deserialize, Serialize};
+use super::Market;
 
-pub struct RestClient {
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+#[serde(untagged)]
+pub enum RestResponse {
+    Result {success: bool, result: Vec<Market>},
+    Error {success: bool, error: String},
+}
+
+pub struct RestClient { 
     pub header: &'static str,
     pub endpoint: &'static str,
     pub client: Client,
@@ -32,9 +42,68 @@ impl RestClient {
         Self::new(Self::US_ENDPOINT, Self::US_HEADER)
     }
 
-    pub fn get() {}
+    //async fn get() -> Result<()> {}
 
     pub fn post() {}
 
-    pub fn request() {}
+    pub async fn request(&self) -> Result<(), reqwest::Error> {
+        let response = self.client
+            .request(Method::GET, "https://ftx.us/api/markets")
+            .send()
+            .await?;
+
+        let _markets: RestResponse = response
+            .json()
+            .await?;
+        
+        // let response: String = self
+        //     .client
+        //     .request(Method::GET, "https://ftx.us/api/markets")
+        //     .send()
+        //     .await?
+        //     .text()
+        //     .await?;
+
+        // use std::fs::File;
+        // use std::io::prelude::*;
+        // let mut file = File::create("response.json").unwrap();
+        // file.write_all(response.as_bytes()).unwrap();
+        // panic!("{:#?}", response);
+
+        Ok(())
+        
+
+        // match response {
+        //     Response::Result { result, .. } => Ok(result),
+        //     Response::Error { error, .. } => Err(Error::Api(error)),
+        // }
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use serde::de::{DeserializeOwned, DeserializeSeed};
+
+    use crate::exchanges::ftx::{Market, Markets, RestClient, markets};
+
+    #[test]
+    fn new_intl_fn_returns_client_with_intl_header_and_endpoint() {
+        let client = RestClient::new_intl();
+        assert_eq!(client.header, "FTX");
+        assert_eq!(client.endpoint, "https://ftx.com/api");
+    }
+
+    #[test]
+    fn new_us_fn_returns_client_with_us_header_and_endpoint() {
+        let client = RestClient::new_us();
+        assert_eq!(client.header, "FTXUS");
+        assert_eq!(client.endpoint, "https://ftx.us/api");
+    }
+
+    // #[tokio::test]
+    // async fn request_fn_prints_response() {
+    //     let client = RestClient::new_us();
+    //     client.request().await.expect("Reqwest error.");
+    // }
 }

@@ -1,7 +1,8 @@
+use el_dorado::exchanges::ftx::RestClient;
 
 #[tokio::main]
 async fn main() {
-    // let client = ftx::client::FtxRest::new_us();
-    // println!("{}", client.endpoint);
-    // client.get_markets();
+    let client = RestClient::new_us();
+    println!("{}", client.endpoint);
+    //client.request().await;
 }
