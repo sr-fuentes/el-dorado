@@ -1,6 +1,6 @@
 use reqwest::{Client, Method};
 use serde::{Deserialize, Serialize};
-use super::Market;
+use super::{Market, RestError};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -46,16 +46,23 @@ impl RestClient {
 
     pub fn post() {}
 
-    pub async fn request(&self) -> Result<(), reqwest::Error> {
+    pub async fn request(&self) -> Result<Vec<Market>, RestError> {
         let response = self.client
             .request(Method::GET, "https://ftx.us/api/markets")
             .send()
-            .await?;
+            .await?; // reqwest::Error if request fails
 
-        let _markets: RestResponse = response
+        let markets: RestResponse = response
             .json()
-            .await?;
+            .await?; // reqwest::Error if serde deserialize fails
+
+        match markets {
+            RestResponse::Result {result, .. } => Ok(result),
+            RestResponse::Error { error, .. } => Err(RestError::Api(error)),
+        }
         
+        // Write text response to file to derive struct fields:
+        //
         // let response: String = self
         //     .client
         //     .request(Method::GET, "https://ftx.us/api/markets")
@@ -69,14 +76,6 @@ impl RestClient {
         // let mut file = File::create("response.json").unwrap();
         // file.write_all(response.as_bytes()).unwrap();
         // panic!("{:#?}", response);
-
-        Ok(())
-        
-
-        // match response {
-        //     Response::Result { result, .. } => Ok(result),
-        //     Response::Error { error, .. } => Err(Error::Api(error)),
-        // }
     }
 }
 
@@ -101,9 +100,10 @@ mod tests {
         assert_eq!(client.endpoint, "https://ftx.us/api");
     }
 
-    // #[tokio::test]
-    // async fn request_fn_prints_response() {
-    //     let client = RestClient::new_us();
-    //     client.request().await.expect("Reqwest error.");
-    // }
+    #[tokio::test]
+    async fn request_fn_prints_response() {
+        let client = RestClient::new_us();
+        let markets = client.request().await.expect("Reqwest error.");
+        println!("markets: {:?}", markets);
+    }
 }
