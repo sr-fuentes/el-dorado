@@ -43,7 +43,7 @@ impl RestClient {
         Self::new(Self::US_ENDPOINT, Self::US_HEADER)
     }
 
-    async fn get<T: DeserializeOwned>(
+    pub async fn get<T: DeserializeOwned>(
         &self,
         path: &str,
         params: Option<Value>,
@@ -108,14 +108,14 @@ mod tests {
         assert_eq!(client.endpoint, "https://ftx.us/api");
     }
 
-    #[tokio::test]
-    async fn get_fn_prints_response() {
-        let client = RestClient::new_us();
-        // Send GET request to /markets endpoint
-        let markets = client
-            .get::<Vec<Market>>("/markets", None)
-            .await
-            .expect("Reqwest error.");
-        println!("markets: {:?}", markets);
-    }
+    // #[tokio::test]
+    // async fn get_fn_prints_response() {
+    //     let client = RestClient::new_us();
+    //     // Send GET request to /markets endpoint
+    //     let markets = client
+    //         .get::<Vec<Market>>("/markets", None)
+    //         .await
+    //         .expect("Reqwest error.");
+    //     println!("markets: {:?}", markets);
+    // }
 }

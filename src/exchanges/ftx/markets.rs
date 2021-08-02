@@ -1,5 +1,5 @@
+use super::{RestClient, RestError};
 use serde::{Deserialize, Serialize};
-//use super::RestClient;
 
 // Sample
 // '{"success":true,"result":[
@@ -54,12 +54,17 @@ pub struct Market {
     volume_usd24h: f64,
 }
 
-// impl RestClient {
-//     // Add `/market` specific API endpoints
-//     pub async fn get_markets(&self) -> Vec<Market> {
-//         self.get("/markets", None).await
-//     }
-// }
+impl RestClient {
+    // Add `/market` specific API endpoints
+    pub async fn get_markets(&self) -> Result<Vec<Market>, RestError> {
+        self.get("/markets", None).await
+    }
+
+    pub async fn get_market(&self, market_name: &str) -> Result<Market, RestError> {
+        self.get(&format!("/markets/{}", market_name), None)
+            .await
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -94,5 +99,22 @@ mod tests {
         "#;
         let deserialized: Market = serde_json::from_str(market_json).unwrap();
         println!("deserialized: {:?}", deserialized);
+    }
+
+    #[tokio::test]
+    async fn get_markets_returns_all_markets_successfully() {
+        let client = RestClient::new_us();
+        let _markets = client.get_markets().await.expect("Failed to get markets.");
+    }
+
+    #[tokio::test]
+    async fn get_market_returns_specific_market_successfully() {
+        let client = RestClient::new_us();
+        let market_name = "BTC/USD";
+        let market = client
+            .get_market(&market_name)
+            .await
+            .expect("Failed to get BTC/USD market.");
+        println!("{:?}", market)
     }
 }
