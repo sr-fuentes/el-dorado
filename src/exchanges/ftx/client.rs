@@ -1,7 +1,7 @@
 use super::RestError;
 use reqwest::{Client, Method};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -59,34 +59,46 @@ impl RestClient {
         path: &str,
         params: Option<Value>,
     ) -> Result<T, RestError> {
-        let response = self
-            .client
-            .request(method, format!("{}{}", self.endpoint, path))
-            .send()
-            .await?; // reqwest::Error if request fails
+        // let params = params.map(|value| {
+        //     if let Value::Object(map) = value {
+        //         map.into_iter()
+        //             .filter(|(_, v)| v != &Value::Null)
+        //             .collect::<Map<String, Value>>()
+        //     } else {
+        //         panic!("Invalid params.");
+        //     }
+        // });
 
-        let contents: RestResponse<T> = response.json().await?; // reqwest::Error if serde deserialize fails
+        // let response = self
+        //     .client
+        //     .request(method, format!("{}{}", self.endpoint, path))
+        //     .query(&params)
+        //     .send()
+        //     .await?; // reqwest::Error if request fails
 
-        match contents {
-            RestResponse::Result { result, .. } => Ok(result),
-            RestResponse::Error { error, .. } => Err(RestError::Api(error)),
-        }
+        // let contents: RestResponse<T> = response.json().await?; // reqwest::Error if serde deserialize fails
+
+        // match contents {
+        //     RestResponse::Result { result, .. } => Ok(result),
+        //     RestResponse::Error { error, .. } => Err(RestError::Api(error)),
+        // }
 
         // Write text response to file to derive struct fields:
         //
-        // let response: String = self
-        //     .client
-        //     .request(Method::GET, "https://ftx.us/api/markets")
-        //     .send()
-        //     .await?
-        //     .text()
-        //     .await?;
+        let response: String = self
+            .client
+            .request(Method::GET, "https://ftx.us/api/markets/BTC/USD/candles")
+            .query(&[("resolution", 86400)])
+            .send()
+            .await?
+            .text()
+            .await?;
 
-        // use std::fs::File;
-        // use std::io::prelude::*;
-        // let mut file = File::create("response.json").unwrap();
-        // file.write_all(response.as_bytes()).unwrap();
-        // panic!("{:#?}", response);
+        use std::fs::File;
+        use std::io::prelude::*;
+        let mut file = File::create("response.json").unwrap();
+        file.write_all(response.as_bytes()).unwrap();
+        panic!("{:#?}", response);
     }
 }
 
@@ -108,14 +120,9 @@ mod tests {
         assert_eq!(client.endpoint, "https://ftx.us/api");
     }
 
-    // #[tokio::test]
-    // async fn get_fn_prints_response() {
-    //     let client = RestClient::new_us();
-    //     // Send GET request to /markets endpoint
-    //     let markets = client
-    //         .get::<Vec<Market>>("/markets", None)
-    //         .await
-    //         .expect("Reqwest error.");
-    //     println!("markets: {:?}", markets);
-    // }
+    #[tokio::test]
+    async fn get_fn_prints_response() {
+        let client = RestClient::new_us();
+        let resp = client.request::<Market>(reqwest::Method::GET, "/test", None).await;
+    }
 }
