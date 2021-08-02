@@ -1,9 +1,9 @@
 mod client;
+mod error;
 mod markets;
 mod stats;
-mod error;
 
-pub use markets::*;
 pub use client::*;
-pub use stats::*;
 pub use error::*;
+pub use markets::*;
+pub use stats::*;

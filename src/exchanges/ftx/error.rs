@@ -1,7 +1,7 @@
 #[derive(Debug)]
 pub enum RestError {
     Reqwest(reqwest::Error),
-    Api(String)
+    Api(String),
 }
 
 impl From<reqwest::Error> for RestError {
@@ -9,4 +9,3 @@ impl From<reqwest::Error> for RestError {
         RestError::Reqwest(e)
     }
 }
-
