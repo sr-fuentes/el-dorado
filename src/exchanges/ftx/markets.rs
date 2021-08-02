@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 //use super::RestClient;
 
-// Sample 
+// Sample
 // '{"success":true,"result":[
 // {
 // "name":"AAVE/USD",
@@ -40,7 +40,7 @@ pub struct Market {
     bid: f64,
     ask: f64,
     price: f64,
-    #[serde(rename="type")]
+    #[serde(rename = "type")]
     market_type: String,
     base_currency: Option<String>,
     quote_currency: Option<String>,
@@ -54,7 +54,6 @@ pub struct Market {
     volume_usd24h: f64,
 }
 
-pub type Markets = Vec<Market>;
 // impl RestClient {
 //     // Add `/market` specific API endpoints
 //     pub async fn get_markets(&self) -> Vec<Market> {
@@ -67,7 +66,7 @@ mod tests {
     use crate::exchanges::ftx::*;
 
     #[test]
-    fn serde_deserializes_the_market_struct () {
+    fn serde_deserializes_the_market_struct() {
         let market_json = r#"
         {
             "name":"AAVE/USD",

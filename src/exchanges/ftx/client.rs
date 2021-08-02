@@ -1,16 +1,17 @@
+use super::RestError;
 use reqwest::{Client, Method};
-use serde::{Deserialize, Serialize};
-use super::{Market, RestError};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 #[serde(untagged)]
-pub enum RestResponse {
-    Result {success: bool, result: Vec<Market>},
-    Error {success: bool, error: String},
+pub enum RestResponse<T> {
+    Result { success: bool, result: T },
+    Error { success: bool, error: String },
 }
 
-pub struct RestClient { 
+pub struct RestClient {
     pub header: &'static str,
     pub endpoint: &'static str,
     pub client: Client,
@@ -42,25 +43,35 @@ impl RestClient {
         Self::new(Self::US_ENDPOINT, Self::US_HEADER)
     }
 
-    //async fn get() -> Result<()> {}
+    async fn get<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        params: Option<Value>,
+    ) -> Result<T, RestError> {
+        self.request(Method::GET, path, params).await
+    }
 
-    pub fn post() {}
+    // pub fn post(&self, &url, &params) {}
 
-    pub async fn request(&self) -> Result<Vec<Market>, RestError> {
-        let response = self.client
-            .request(Method::GET, "https://ftx.us/api/markets")
+    pub async fn request<T: DeserializeOwned>(
+        &self,
+        method: Method,
+        path: &str,
+        params: Option<Value>,
+    ) -> Result<T, RestError> {
+        let response = self
+            .client
+            .request(method, format!("{}{}", self.endpoint, path))
             .send()
             .await?; // reqwest::Error if request fails
 
-        let markets: RestResponse = response
-            .json()
-            .await?; // reqwest::Error if serde deserialize fails
+        let contents: RestResponse<T> = response.json().await?; // reqwest::Error if serde deserialize fails
 
-        match markets {
-            RestResponse::Result {result, .. } => Ok(result),
+        match contents {
+            RestResponse::Result { result, .. } => Ok(result),
             RestResponse::Error { error, .. } => Err(RestError::Api(error)),
         }
-        
+
         // Write text response to file to derive struct fields:
         //
         // let response: String = self
@@ -79,12 +90,9 @@ impl RestClient {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use serde::de::{DeserializeOwned, DeserializeSeed};
-
-    use crate::exchanges::ftx::{Market, Markets, RestClient, markets};
+    use crate::exchanges::ftx::{Market, RestClient};
 
     #[test]
     fn new_intl_fn_returns_client_with_intl_header_and_endpoint() {
@@ -101,9 +109,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn request_fn_prints_response() {
+    async fn get_fn_prints_response() {
         let client = RestClient::new_us();
-        let markets = client.request().await.expect("Reqwest error.");
+        // Send GET request to /markets endpoint
+        let markets = client
+            .get::<Vec<Market>>("/markets", None)
+            .await
+            .expect("Reqwest error.");
         println!("markets: {:?}", markets);
     }
 }
