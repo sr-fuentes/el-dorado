@@ -1,7 +1,7 @@
 use super::{RestClient, RestError};
-use chrono::{serde::ts_nanoseconds, DateTime, Utc};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -63,7 +63,7 @@ pub struct Candle {
 
 mod ts_micro_fractions {
     use chrono::{DateTime, TimeZone, Utc};
-    use serde::{self, Deserialize, Deserializer, Serializer};
+    use serde::{self, Deserialize, Deserializer};
 
     pub fn deserialize<'de, D>(d: D) -> Result<DateTime<Utc>, D::Error>
     where
@@ -93,7 +93,7 @@ impl RestClient {
         self.get(
             &format!("/markets/{}/orderbook", market_name),
             Some(json!({
-                "depth": depth,
+                "depth": depth, // Max 100, default 20. API will cap at 100 if higher value supplied
             })),
         )
         .await
@@ -102,20 +102,44 @@ impl RestClient {
     pub async fn get_trades(
         &self,
         market_name: &str,
-        params: Option<Value>,
+        limit: Option<u32>,
+        start_time: Option<DateTime<Utc>>,
+        end_time: Option<DateTime<Utc>>,
     ) -> Result<Vec<Trade>, RestError> {
-        self.get(&format!("/markets/{}/trades", market_name), params)
-            .await
+        self.get(
+            &format!("/markets/{}/trades", market_name),
+            Some(json!({
+                "limit": limit, // Supports pagination for values over 100
+                "start_time": start_time.map(|t| t.timestamp()), // API takes time in unix seconds
+                "end_time": end_time.map(|t| t.timestamp()), // API takes time in unix seconds
+            }))
+        )
+        .await
     }
 
-    pub async fn get_candles() {
-        todo!();
+    pub async fn get_candles(
+        &self,
+        market_name: &str,
+        resolution: Option<u32>,
+        start_time: Option<DateTime<Utc>>,
+        end_time: Option<DateTime<Utc>>,
+    ) -> Result<Vec<Candle>, RestError> {
+        self.get(
+            &format!("/markets/{}/candles", market_name),
+            Some(json!({
+                "resolution": resolution, // Window length in seconds (15, 60, 300, 900, 3600, 14400, 86400)
+                "start_time": start_time.map(|t| t.timestamp()), // Timestamp in seconds
+                "end_time": end_time.map(|t| t.timestamp()), // Timestamp in seconds
+            }))
+        )
+        .await
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::exchanges::ftx::*;
+    use chrono::Utc;
 
     #[test]
     fn serde_deserializes_the_market_struct() {
@@ -164,27 +188,6 @@ mod tests {
             .expect("Failed to get BTC/USD market.");
         println!("{:?}", market);
         assert_eq!(market.name, market_name);
-    }
-
-    #[test]
-    fn serde_deserializes_the_trade_struct() {
-        let trade_json = r#"
-        {
-            "id": 6371425,
-            "price": 39737.0,
-            "size": 0.0006,
-            "side": "sell",
-            "liquidation": false,
-            "time": "2021-08-02T03:37:32.722725+00:00"
-        }
-        "#;
-        let deserialized: Trade = serde_json::from_str(trade_json).unwrap();
-        println!("deserialized: {:?}", deserialized);
-        let ts = deserialized.time;
-        println!("Timestamp seconds: {:?}", ts.timestamp());
-        println!("Timestamp micros: {:?}", ts.timestamp_subsec_micros());
-        println!("Timestamp nanos: {:?}", ts.timestamp_subsec_nanos());
-        println!("Timestamp millis: {:?}", ts.timestamp_subsec_millis());
     }
 
     #[test]
@@ -259,6 +262,47 @@ mod tests {
             .await
             .expect("Failed to load BTC/USD orderbook.");
         println!("Orderbook: {:?}", orderbook);
+    }
+
+    #[test]
+    fn serde_deserializes_the_trade_struct() {
+        let trade_json = r#"
+        {
+            "id": 6371425,
+            "price": 39737.0,
+            "size": 0.0006,
+            "side": "sell",
+            "liquidation": false,
+            "time": "2021-08-02T03:37:32.722725+00:00"
+        }
+        "#;
+        let deserialized: Trade = serde_json::from_str(trade_json).unwrap();
+        println!("deserialized: {:?}", deserialized);
+        let ts = deserialized.time;
+        println!("Timestamp seconds: {:?}", ts.timestamp());
+        println!("Timestamp micros: {:?}", ts.timestamp_subsec_micros());
+        println!("Timestamp nanos: {:?}", ts.timestamp_subsec_nanos());
+        println!("Timestamp millis: {:?}", ts.timestamp_subsec_millis());
+    }
+
+    #[tokio::test]
+    async fn get_trades_without_params_returns_trades() {
+        let client = RestClient::new_us();
+        let trades = client
+            .get_trades("BTC/USD", None, None, None)
+            .await
+            .expect("Failed to load BTC/USD trades.");
+        println!("Trades: {:?}", trades);
+    }
+
+    #[tokio::test]
+    async fn get_trades_with_params_returns_trades() {
+        let client = RestClient::new_us();
+        let trades = client
+            .get_trades("BTC/USD", Some(10), None, Some(Utc::now()))
+            .await
+            .expect("Failed to get last 10 BTC/USD trades.");
+        println!("Trades: {:?}", trades);
     }
 
     #[test]
