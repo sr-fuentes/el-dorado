@@ -7,5 +7,3 @@ pub struct Latency {
     p50: f64,
     request_count: i32,
 }
-
-pub type Latencies = Vec<Latency>;

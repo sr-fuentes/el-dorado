@@ -1,7 +1,7 @@
 use super::{RestClient, RestError};
+use chrono::{serde::ts_nanoseconds, DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use chrono::{DateTime, Utc, serde::ts_nanoseconds};
+use serde_json::{json, Value};
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -62,17 +62,15 @@ pub struct Candle {
 }
 
 mod ts_micro_fractions {
-    use chrono::{DateTime, Utc, TimeZone};
-    use serde::{self, Deserialize, Serializer, Deserializer};
+    use chrono::{DateTime, TimeZone, Utc};
+    use serde::{self, Deserialize, Deserializer, Serializer};
 
-    pub fn deserialize<'de, D>(
-        d: D,
-    ) -> Result<DateTime<Utc>, D::Error>
+    pub fn deserialize<'de, D>(d: D) -> Result<DateTime<Utc>, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let fract_micros = f64::deserialize(d)?;
-        let nts = (fract_micros * 1_000_f64) as i64 * 1_000;
+        let micro_fracts = f64::deserialize(d)?;
+        let nts = (micro_fracts * 1_000_f64) as i64 * 1_000;
         Ok(Utc.timestamp_nanos(nts))
     }
 }
@@ -84,22 +82,35 @@ impl RestClient {
     }
 
     pub async fn get_market(&self, market_name: &str) -> Result<Market, RestError> {
-        self.get(&format!("/markets/{}", market_name), None)
+        self.get(&format!("/markets/{}", market_name), None).await
+    }
+
+    pub async fn get_orderbook(
+        &self,
+        market_name: &str,
+        depth: Option<u32>,
+    ) -> Result<Orderbook, RestError> {
+        self.get(
+            &format!("/markets/{}/orderbook", market_name),
+            Some(json!({
+                "depth": depth,
+            })),
+        )
+        .await
+    }
+
+    pub async fn get_trades(
+        &self,
+        market_name: &str,
+        params: Option<Value>,
+    ) -> Result<Vec<Trade>, RestError> {
+        self.get(&format!("/markets/{}/trades", market_name), params)
             .await
-    }
-
-    pub async fn get_orderbook() {
-        todo!();
-    }
-
-    pub async fn get_trades(&self, market_name: &str, params: Option<Value>) -> Result<Vec<Trade>, RestError> {
-        self.get(&format!("/markets/{}/trades", market_name), params).await
     }
 
     pub async fn get_candles() {
         todo!();
     }
-
 }
 
 #[cfg(test)]
@@ -174,11 +185,7 @@ mod tests {
         println!("Timestamp micros: {:?}", ts.timestamp_subsec_micros());
         println!("Timestamp nanos: {:?}", ts.timestamp_subsec_nanos());
         println!("Timestamp millis: {:?}", ts.timestamp_subsec_millis());
-
     }
-
-    // #[tokio::test]
-    // fn get_candles
 
     #[test]
     fn serde_deserializes_the_orderbook_struct() {
@@ -232,6 +239,26 @@ mod tests {
         "#;
         let deserialized: Orderbook = serde_json::from_str(orderbook_json).unwrap();
         println!("deserialized: {:?}", deserialized);
+    }
+
+    #[tokio::test]
+    async fn get_orderbook_without_params_returns_orderbook() {
+        let client = RestClient::new_us();
+        let orderbook = client
+            .get_orderbook("BTC/USD", None)
+            .await
+            .expect("Failed to get orderbook.");
+        println!("Orderbook: {:?}", orderbook);
+    }
+
+    #[tokio::test]
+    async fn get_orderbook_with_params_returns_orderbook() {
+        let client = RestClient::new_us();
+        let orderbook = client
+            .get_orderbook("BTC/USD", Some(300))
+            .await
+            .expect("Failed to load BTC/USD orderbook.");
+        println!("Orderbook: {:?}", orderbook);
     }
 
     #[test]
