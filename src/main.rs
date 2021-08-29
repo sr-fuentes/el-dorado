@@ -18,5 +18,7 @@ async fn main() {
     // 2) Listen to live websocket trade feed
     //  a) Read from websocket and write to local disk
 
+    // 3) Calculate candles & metrics on an interval basis
+
     todo!();
 }
