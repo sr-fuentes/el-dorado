@@ -104,7 +104,7 @@ impl RestClient {
 
 #[cfg(test)]
 mod tests {
-    use crate::exchanges::ftx::{Market, RestClient};
+    use crate::exchanges::ftx::RestClient;
 
     #[test]
     fn new_intl_fn_returns_client_with_intl_header_and_endpoint() {
@@ -118,13 +118,5 @@ mod tests {
         let client = RestClient::new_us();
         assert_eq!(client.header, "FTXUS");
         assert_eq!(client.endpoint, "https://ftx.us/api");
-    }
-
-    #[tokio::test]
-    async fn get_fn_prints_response() {
-        let client = RestClient::new_us();
-        let resp = client
-            .request::<Market>(reqwest::Method::GET, "/test", None)
-            .await;
     }
 }

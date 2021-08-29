@@ -40,7 +40,7 @@ pub struct Orderbook {
 #[derive(Clone, Deserialize, Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Trade {
-    pub id: i64,
+    pub id: u64,
     pub price: f64,
     pub size: f64,
     pub side: String,
