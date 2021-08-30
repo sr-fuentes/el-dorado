@@ -1,4 +1,5 @@
 use el_dorado::configuration::get_configuration;
+use sqlx::PgPool;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -23,5 +24,10 @@ async fn main() -> std::io::Result<()> {
     // Load configuration
     let configuration = get_configuration().expect("Failed to read configuration.");
     println!("Configuration: {:?}", configuration);
+
+    // Create db connection
+    let connection_pool = PgPool::connect(&configuration.database.connection_string())
+        .await
+        .expect("Failed to connect to Postgres.");
     Ok(())
 }
