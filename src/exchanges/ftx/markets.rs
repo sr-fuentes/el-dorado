@@ -112,7 +112,7 @@ impl RestClient {
                 "limit": limit, // Supports pagination for values over 100
                 "start_time": start_time.map(|t| t.timestamp()), // API takes time in unix seconds
                 "end_time": end_time.map(|t| t.timestamp()), // API takes time in unix seconds
-            }))
+            })),
         )
         .await
     }
@@ -130,7 +130,7 @@ impl RestClient {
                 "resolution": resolution, // Window length in seconds (15, 60, 300, 900, 3600, 14400, 86400)
                 "start_time": start_time.map(|t| t.timestamp()), // Timestamp in seconds
                 "end_time": end_time.map(|t| t.timestamp()), // Timestamp in seconds
-            }))
+            })),
         )
         .await
     }

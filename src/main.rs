@@ -1,14 +1,14 @@
-use el_dorado::exchanges::ftx::RestClient;
+use el_dorado::configuration::get_configuration;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> std::io::Result<()> {
     // Load telemetry
     // Load configuration
     // Build app
     // Run app
 
     // Build App that can :
-    
+
     // 1) Run Backfill Hist Trades
     //  a) Determine Start Time, End Time
     //  b) Backfill missing trades
@@ -20,5 +20,8 @@ async fn main() {
 
     // 3) Calculate candles & metrics on an interval basis
 
-    todo!();
+    // Load configuration
+    let configuration = get_configuration().expect("Failed to read configuration.");
+    println!("Configuration: {:?}", configuration);
+    Ok(())
 }
