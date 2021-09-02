@@ -1,3 +1,4 @@
+use el_dorado::startup::run;
 use el_dorado::configuration::get_configuration;
 use sqlx::PgPool;
 
