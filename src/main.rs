@@ -1,4 +1,3 @@
-use el_dorado::startup::run;
 use el_dorado::configuration::get_configuration;
 use sqlx::PgPool;
 
@@ -30,5 +29,7 @@ async fn main() -> std::io::Result<()> {
     let connection_pool = PgPool::connect(&configuration.database.connection_string())
         .await
         .expect("Failed to connect to Postgres.");
+    
+    // Get asset
     Ok(())
 }
