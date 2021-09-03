@@ -2,7 +2,8 @@
 /*
 Create Markets Table
 This table will hold market data from multiple exchanges and save the state of validated
-and raw trades and candles as well as metadata on the market and its status.
+and raw trades and candles as well as metadata on the market and its status. Initial market
+data will be fetched from exchange API and updated by the app.
 */
 CREATE TABLE markets(
     market_id uuid NOT NULL,
