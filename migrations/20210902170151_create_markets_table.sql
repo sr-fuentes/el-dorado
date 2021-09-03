@@ -25,5 +25,5 @@ CREATE TABLE markets(
     first_validated_candle timestamptz,
     last_validated_candle timestamptz,
     last_update_ts timestamptz NOT NULL,
-    last_update_ip_address INET NOT NULL
-)
+    last_update_ip_address inet NOT NULL
+);

@@ -7,8 +7,10 @@ CREATE TABLE exchanges(
     exchange_id uuid NOT NULL,
     PRIMARY KEY (exchange_id),
     exchange_name TEXT NOT NULL,
-    rank INT NOT NULL,
+    exchange_rank INT NOT NULL,
     is_spot BOOLEAN NOT NULL,
     is_derivitive  BOOLEAN NOT NULL,
     exchange_status TEXT NOT NULL,
-)
+    added_date timestamptz NOT NULL,
+    last_refresh_date timestamptz NOT NULL
+);
