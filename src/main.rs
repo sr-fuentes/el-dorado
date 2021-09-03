@@ -1,10 +1,10 @@
 use el_dorado::configuration::get_configuration;
+use el_dorado::markets::get_market;
 use sqlx::PgPool;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     // Load telemetry
-    // Load configuration
     // Build app
     // Run app
 
@@ -30,6 +30,13 @@ async fn main() -> std::io::Result<()> {
         .await
         .expect("Failed to connect to Postgres.");
     
-    // Get asset
+    // Get market
+    let market_id = get_market();
+    println!("Market Id: {}", market_id);
+
+    // Create tasks
+
+    // Await tasks
+
     Ok(())
 }
