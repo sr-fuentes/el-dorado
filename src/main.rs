@@ -1,5 +1,5 @@
 use el_dorado::configuration::get_configuration;
-use el_dorado::markets::get_market;
+use el_dorado::exchanges::{add};
 use sqlx::PgPool;
 use clap::App;
 
@@ -22,6 +22,16 @@ async fn main() -> std::io::Result<()> {
 
     // 3) Calculate candles & metrics on an interval basis
 
+
+    // Load configuration
+    let configuration = get_configuration().expect("Failed to read configuration.");
+    println!("Configuration: {:?}", configuration);
+
+    // Create db connection
+    let connection_pool = PgPool::connect(&configuration.database.connection_string())
+        .await
+        .expect("Failed to connect to Postgres.");
+        
     // Load clap commands and arguments
     let matches = App::new("El Dorado")
         .version("1.0")
@@ -39,29 +49,15 @@ async fn main() -> std::io::Result<()> {
         )
         .get_matches();
 
-    println!("Matches: {:?}", matches);
-
+    // Match subcommand and route
     match matches.subcommand_name() {
-        Some("add") => println!("Add was used."),
-        Some("refresh") => println!("Refresh was used."),
-        Some("edit") => println!("Edit was used."),
-        Some("run") => println!("Run was used."),
-        None => println!("No subcommand was used."),
-        _ => println!("Some other subcommand was used"),
+        Some("add") => add(&connection_pool).await,
+        Some("refresh") => println!("Refresh is not yet implemented."),
+        Some("edit") => println!("Edit is not yet implemented."),
+        Some("run") => println!("Run is not yet implemented."),
+        None => println!("Please run with subcommands: `add` `refresh` `edit` or `run`."),
+        _ => unreachable!(), // CLAP will error out before running this arm
     }
-
-    // Load configuration
-    let configuration = get_configuration().expect("Failed to read configuration.");
-    println!("Configuration: {:?}", configuration);
-
-    // Create db connection
-    let connection_pool = PgPool::connect(&configuration.database.connection_string())
-        .await
-        .expect("Failed to connect to Postgres.");
-    
-    // Get market
-    let market_id = get_market();
-    println!("Market Id: {}", market_id);
 
     // Create tasks
 
