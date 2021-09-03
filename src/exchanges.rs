@@ -6,7 +6,7 @@ pub mod ftx;
 #[derive(Debug)]
 struct Exchange {exchange_id: Uuid, exchange_name: String}
 
-pub async fn add(pg_pool: &PgPool) {
+pub async fn add(pool: &PgPool) {
     // Get input from user for exchange to add
 
     // Compare imput to existing exchanges in table
