@@ -1,3 +1,4 @@
+use crate::markets::pull_markets_from_exchange;
 use crate::utilities::get_input;
 use chrono::Utc;
 use sqlx::PgPool;
@@ -42,9 +43,9 @@ pub async fn add(pool: &PgPool) {
     }
 
     // Fetch markets for new exchange
-    match exchange.exchange_name.as_str() {
-        "ftxus" => todo!(), // fetch ftxus markets,
-        "ftx" => todo!(), // fetch ftx markets,
+    let markets = match exchange.exchange_name.as_str() {
+        "ftxus" => pull_markets_from_exchange("ftxus").await, // fetch ftxus markets,
+        "ftx" => pull_markets_from_exchange("ftx").await,     // fetch ftx markets,
         _ => {
             println!(
                 "{:?} exchange not yet supported.",
@@ -52,7 +53,7 @@ pub async fn add(pool: &PgPool) {
             );
             return;
         }
-    }
+    };
 
     // Insert markets of new exchange into database
 }
