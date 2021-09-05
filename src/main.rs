@@ -1,10 +1,10 @@
-use el_dorado::configuration::get_configuration;
-use el_dorado::exchanges::{add};
-use sqlx::PgPool;
 use clap::App;
+use el_dorado::configuration::get_configuration;
+use el_dorado::exchanges::add;
+use sqlx::PgPool;
 
 #[tokio::main]
-async fn main() -> std::io::Result<()> {
+async fn main() {
     // Load telemetry
     // Build app
     // Run app
@@ -22,7 +22,6 @@ async fn main() -> std::io::Result<()> {
 
     // 3) Calculate candles & metrics on an interval basis
 
-
     // Load configuration
     let configuration = get_configuration().expect("Failed to read configuration.");
     println!("Configuration: {:?}", configuration);
@@ -31,22 +30,14 @@ async fn main() -> std::io::Result<()> {
     let connection_pool = PgPool::connect(&configuration.database.connection_string())
         .await
         .expect("Failed to connect to Postgres.");
-        
+
     // Load clap commands and arguments
     let matches = App::new("El Dorado")
         .version("1.0")
-        .subcommand(App::new("add")
-                .about("add new exchange to app")
-        )
-        .subcommand(App::new("refresh")
-                .about("refresh markets for exchange")
-        )
-        .subcommand(App::new("edit")
-                .about("edit exchange information")
-        )
-        .subcommand(App::new("run")
-                .about("run el-dorado for a market")
-        )
+        .subcommand(App::new("add").about("add new exchange to app"))
+        .subcommand(App::new("refresh").about("refresh markets for exchange"))
+        .subcommand(App::new("edit").about("edit exchange information"))
+        .subcommand(App::new("run").about("run el-dorado for a market"))
         .get_matches();
 
     // Match subcommand and route
@@ -62,6 +53,4 @@ async fn main() -> std::io::Result<()> {
     // Create tasks
 
     // Await tasks
-
-    Ok(())
 }

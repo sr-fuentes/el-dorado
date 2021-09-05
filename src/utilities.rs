@@ -1,4 +1,4 @@
-use std::io;
+use std::io::{self, Write};
 
 pub fn get_input<U: std::str::FromStr>(prompt: &str) -> U {
     loop {
@@ -7,12 +7,11 @@ pub fn get_input<U: std::str::FromStr>(prompt: &str) -> U {
         // Reads the input from STDIN and places it in the String
         println!("{}", prompt);
         // Flush stdout to get on same line as prompt.
-        let _ = io::stdout()
-            .flush()
-            .expect("Failed to flush stdout.");
-        io::stdin().read_line(&mut input)
+        let _ = io::stdout().flush().expect("Failed to flush stdout.");
+        io::stdin()
+            .read_line(&mut input)
             .expect("Failed to read input.");
-        
+
         // Convert to another type
         // If successful, bind to a new variable named input.
         // If failed, restart loop.

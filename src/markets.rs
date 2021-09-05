@@ -1,6 +1,5 @@
-use sqlx::PgPool;
 use serde::Deserialize;
-
+use sqlx::PgPool;
 
 pub fn get_market() -> String {
     "TEST".to_string()
@@ -17,4 +16,3 @@ fn update_ftxus_markets() {}
 fn get_exchanges() {}
 
 fn get_markets() {}
-
