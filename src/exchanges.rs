@@ -55,7 +55,17 @@ pub async fn add(pool: &PgPool) {
         }
     };
 
-    // Insert markets of new exchange into database
+    // Insert markets of new exchange into database if returned successfully
+    let markets = match markets {
+        Ok(markets) => markets,
+        Err(err) => {
+            println!("Could not fetch markets from new exchange, try to refresh later.");
+            println!("Err: {:?}", err);
+            return;
+        }
+    };
+
+    println!("Markets pulled: {:?}.", markets);
 }
 
 pub async fn fetch_exchanges(pool: &PgPool) -> Result<Vec<Exchange>, sqlx::Error> {
