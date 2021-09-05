@@ -24,10 +24,15 @@ pub async fn add(pool: &PgPool) {
         .await
         .expect("Could not fetch exchanges.");
 
-    // Compare input to existing exchanges in table
-    println!("Num of existing exchanges: {}", exchanges.len());
-    if exchanges.contains(&exchange) {
-        println!("{:?} has already been added.", exchange);
+    // Compare input to existing exchanges in table and add if new
+    if exchanges
+        .iter()
+        .any(|e| e.exchange_name == exchange.exchange_name)
+    {
+        println!(
+            "{:?} has already been added and is in the database.",
+            exchange.exchange_name
+        );
         return;
     } else {
         println!("Adding {:?} to the database.", exchange);
@@ -36,7 +41,20 @@ pub async fn add(pool: &PgPool) {
             .expect("Failed to insert new exchange.");
     }
 
-    // If exchange does not exists, get remaining inputs and insert into db
+    // Fetch markets for new exchange
+    match exchange.exchange_name.as_str() {
+        "ftxus" => todo!(), // fetch ftxus markets,
+        "ftx" => todo!(), // fetch ftx markets,
+        _ => {
+            println!(
+                "{:?} exchange not yet supported.",
+                exchange.exchange_name.as_str()
+            );
+            return;
+        }
+    }
+
+    // Insert markets of new exchange into database
 }
 
 pub async fn fetch_exchanges(pool: &PgPool) -> Result<Vec<Exchange>, sqlx::Error> {
@@ -49,9 +67,7 @@ pub async fn fetch_exchanges(pool: &PgPool) -> Result<Vec<Exchange>, sqlx::Error
     )
     .fetch_all(pool)
     .await?;
-
     println!("Rows: {:?}", rows);
-
     Ok(rows)
 }
 
