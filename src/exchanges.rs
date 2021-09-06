@@ -25,7 +25,7 @@ pub async fn add(pool: &PgPool) {
         .await
         .expect("Could not fetch exchanges.");
 
-    // Compare input to existing exchanges in table and add if new
+    // Compare input to existing exchanges in db and add if new
     if exchanges
         .iter()
         .any(|e| e.exchange_name == exchange.exchange_name)
@@ -37,7 +37,7 @@ pub async fn add(pool: &PgPool) {
         return;
     } else {
         println!("Adding {:?} to the database.", exchange);
-        let _ = insert_new_exchange(pool, &exchange)
+        insert_new_exchange(pool, &exchange)
             .await
             .expect("Failed to insert new exchange.");
     }
