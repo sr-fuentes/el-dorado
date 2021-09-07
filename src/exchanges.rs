@@ -1,4 +1,4 @@
-use crate::markets::pull_markets_from_exchange;
+use crate::markets::{fetch_markets, insert_new_market, pull_usd_markets_from_ftx};
 use crate::utilities::get_input;
 use chrono::Utc;
 use sqlx::PgPool;
@@ -6,10 +6,10 @@ use uuid::Uuid;
 
 pub mod ftx;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Exchange {
-    exchange_id: Uuid,
-    exchange_name: String,
+    pub exchange_id: Uuid,
+    pub exchange_name: String,
 }
 
 pub async fn add(pool: &PgPool) {
@@ -42,10 +42,10 @@ pub async fn add(pool: &PgPool) {
             .expect("Failed to insert new exchange.");
     }
 
-    // Fetch markets for new exchange
+    // Fetch markets from new exchange
     let markets = match exchange.exchange_name.as_str() {
-        "ftxus" => pull_markets_from_exchange("ftxus").await, // fetch ftxus markets,
-        "ftx" => pull_markets_from_exchange("ftx").await,     // fetch ftx markets,
+        "ftxus" => pull_usd_markets_from_ftx("ftxus").await, // fetch ftxus markets,
+        "ftx" => pull_usd_markets_from_ftx("ftx").await,     // fetch ftx markets,
         _ => {
             println!(
                 "{:?} exchange not yet supported.",
@@ -54,8 +54,6 @@ pub async fn add(pool: &PgPool) {
             return;
         }
     };
-
-    // Insert markets of new exchange into database if returned successfully
     let markets = match markets {
         Ok(markets) => markets,
         Err(err) => {
@@ -64,8 +62,25 @@ pub async fn add(pool: &PgPool) {
             return;
         }
     };
+    println!("Markets pulled from exchange: {:?}.", markets);
 
-    println!("Markets pulled: {:?}.", markets);
+    // Fetch existing markets for exchange
+    // There should be none but this function can be used to refresh markets too
+    let market_ids = fetch_markets(pool, &exchange)
+        .await
+        .expect("Could not fetch exchanges.");
+    println!("Markets pull from db: {:?}", market_ids);
+
+    // Insert market into db if not already there
+    for market in markets.iter() {
+        if market_ids.iter().any(|m| m.market_name == market.name) {
+            println!("{} already in markets table.", market.name);
+        } else {
+            insert_new_market(pool, &exchange, &market)
+                .await
+                .expect("Failed to insert market.");
+        }
+    }
 }
 
 pub async fn fetch_exchanges(pool: &PgPool) -> Result<Vec<Exchange>, sqlx::Error> {
