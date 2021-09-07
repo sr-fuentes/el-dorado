@@ -81,6 +81,14 @@ pub async fn add(pool: &PgPool) {
                 .expect("Failed to insert market.");
         }
     }
+
+    // Create tables for new exchanges (trades, candles, etc)
+    create_exchange_tables(pool, &exchange)
+        .await
+        .expect(&format!(
+            "Could not create new tables for exchange {}.",
+            exchange.exchange_name
+        ));
 }
 
 pub async fn fetch_exchanges(pool: &PgPool) -> Result<Vec<Exchange>, sqlx::Error> {
@@ -119,10 +127,31 @@ pub async fn insert_new_exchange(pool: &PgPool, exchange: &Exchange) -> Result<(
     Ok(())
 }
 
+pub async fn create_exchange_tables(pool: &PgPool, exchange: &Exchange) -> Result<(), sqlx::Error> {
+    // Create trades, trades_ws, and candles tables
+    let ftx_sql = format!(
+        r#"
+        CREATE TABLE IF NOT EXISTS {}_trades (
+            market_id uuid NOT NULL,
+            trade_id BIGINT NOT NULL,
+            price FLOAT NOT NULL,
+            size FLOAT NOT NULL,
+            side TEXT NOT NULL,
+            liquidation BOOLEAN,
+            time timestamptz NOT NULL)
+        "#,
+        exchange.exchange_name
+    );
+    sqlx::query(&ftx_sql).execute(pool).await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::configuration::get_configuration;
+    use crate::exchanges::ftx::*;
+    use crate::historical::insert_ftx_trades;
 
     #[tokio::test]
     async fn fetch_exchanges_returns_all_exchanges() {
@@ -164,5 +193,42 @@ mod tests {
         assert!(exchanges
             .iter()
             .any(|e| e.exchange_name == dup_exchange.exchange_name));
+    }
+
+    #[tokio::test]
+    async fn create_dynamic_exchange_tables_works() {
+        // Load configuration
+        let configuration = get_configuration().expect("Failed to read configuration.");
+        println!("Configuration: {:?}", configuration);
+
+        // Create db connection
+        let connection_pool = PgPool::connect(&configuration.database.connection_string())
+            .await
+            .expect("Failed to connect to Postgres.");
+
+        // Create exchange struct
+        let exchange = Exchange {
+            exchange_id: Uuid::new_v4(),
+            exchange_name: "ftx".to_string(),
+        };
+
+        // Create db tables
+        create_exchange_tables(&connection_pool, &exchange)
+            .await
+            .expect("Failed to create tables.");
+
+        // Create rest client
+        let client = RestClient::new_us();
+
+        // Get last 10 BTC/USD trades
+        let trades = client
+            .get_trades("BTC/USD", Some(10), None, Some(Utc::now()))
+            .await
+            .expect("Failed to get last 10 BTC/USD trades.");
+
+        insert_ftx_trades(&connection_pool, &exchange, trades).await.expect("Failed to insert trades.");
+        // Assert
+        // Find a way to query db for table to assert that it was created
+        todo!()
     }
 }
