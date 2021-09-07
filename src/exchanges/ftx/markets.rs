@@ -180,8 +180,8 @@ mod tests {
 
     #[tokio::test]
     async fn get_market_returns_specific_market() {
-        let client = RestClient::new_us();
-        let market_name = "BTC/USD";
+        let client = RestClient::new_intl();
+        let market_name = "BTC-PERP ";
         let market = client
             .get_market(&market_name)
             .await
