@@ -62,7 +62,7 @@ pub async fn add(pool: &PgPool) {
             return;
         }
     };
-    println!("Markets pulled from exchange: {:?}.", markets);
+    // println!("Markets pulled from exchange: {:?}.", markets);
 
     // Fetch existing markets for exchange
     // There should be none but this function can be used to refresh markets too
@@ -129,20 +129,47 @@ pub async fn insert_new_exchange(pool: &PgPool, exchange: &Exchange) -> Result<(
 
 pub async fn create_exchange_tables(pool: &PgPool, exchange: &Exchange) -> Result<(), sqlx::Error> {
     // Create trades, trades_ws, and candles tables
-    let ftx_sql = format!(
+    let tables = ["trades_rest", "trades_ws", "trades_validated"];
+    for table in tables {
+        let sql = format!(
+            r#"
+            CREATE TABLE IF NOT EXISTS {}_{} (
+                market_id uuid NOT NULL,
+                trade_id BIGINT NOT NULL,
+                price FLOAT NOT NULL,
+                size FLOAT NOT NULL,
+                side TEXT NOT NULL,
+                liquidation BOOLEAN,
+                time timestamptz NOT NULL)
+            "#,
+            exchange.exchange_name, table
+        );
+        sqlx::query(&sql).execute(pool).await?;
+    }
+    let sql = format!(
         r#"
-        CREATE TABLE IF NOT EXISTS {}_trades (
-            market_id uuid NOT NULL,
-            trade_id BIGINT NOT NULL,
-            price FLOAT NOT NULL,
-            size FLOAT NOT NULL,
-            side TEXT NOT NULL,
-            liquidation BOOLEAN,
-            time timestamptz NOT NULL)
+            CREATE TABLE IF NOT EXISTS {}_candles (
+                datetime timestamptz NOT NULL,
+                PRIMARY KEY (datetime),
+                open FLOAT NOT NULL,
+                high FLOAT NOT NULL,
+                low FLOAT NOT NULL,
+                close FLOAT NOT NULL,
+                volume FLOAT NOT NULL,
+                volume_net FLOAT NOT NULL,
+                volume_liquidation FLOAT NOT NULL,
+                volume_liquidation_net FLOAT NOT NULL,
+                value FLOAT NOT NULL,
+                trade_count BIGINT NULL,
+                liquidation_count BIGINT NOT NULL,
+                last_trade_ts timestamptz NOT NULL,
+                last_trade_id TEXT NOT NULL,
+                candle_status TEXT NOT NULL
+            )
         "#,
         exchange.exchange_name
     );
-    sqlx::query(&ftx_sql).execute(pool).await?;
+    sqlx::query(&sql).execute(pool).await?;
     Ok(())
 }
 
@@ -151,7 +178,7 @@ mod tests {
     use super::*;
     use crate::configuration::get_configuration;
     use crate::exchanges::ftx::*;
-    use crate::historical::{insert_ftx_trades, insert_ftxus_trades};
+    use crate::historical::{insert_ftxus_trades};
 
     #[tokio::test]
     async fn fetch_exchanges_returns_all_exchanges() {
