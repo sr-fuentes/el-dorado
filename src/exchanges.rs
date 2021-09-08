@@ -151,7 +151,7 @@ mod tests {
     use super::*;
     use crate::configuration::get_configuration;
     use crate::exchanges::ftx::*;
-    use crate::historical::insert_ftx_trades;
+    use crate::historical::{insert_ftx_trades, insert_ftxus_trades};
 
     #[tokio::test]
     async fn fetch_exchanges_returns_all_exchanges() {
@@ -209,7 +209,7 @@ mod tests {
         // Create exchange struct
         let exchange = Exchange {
             exchange_id: Uuid::new_v4(),
-            exchange_name: "ftx".to_string(),
+            exchange_name: "ftxus".to_string(),
         };
 
         // Create db tables
@@ -221,14 +221,23 @@ mod tests {
         let client = RestClient::new_us();
 
         // Get last 10 BTC/USD trades
+        let markets = fetch_markets(&connection_pool, &exchange)
+            .await
+            .expect("Failed to fetch markets.");
+        let market = markets
+            .iter()
+            .find(|m| m.market_name == "BTC/USD")
+            .expect("Failed to grab BTC/USD market.");
         let trades = client
-            .get_trades("BTC/USD", Some(10), None, Some(Utc::now()))
+            .get_trades(&market.market_name, Some(10), None, Some(Utc::now()))
             .await
             .expect("Failed to get last 10 BTC/USD trades.");
 
-        insert_ftx_trades(&connection_pool, &exchange, trades).await.expect("Failed to insert trades.");
+        insert_ftxus_trades(&connection_pool, &market, &exchange, trades)
+            .await
+            .expect("Failed to insert trades.");
         // Assert
         // Find a way to query db for table to assert that it was created
-        todo!()
+        //todo!()
     }
 }

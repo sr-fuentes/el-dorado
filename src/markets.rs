@@ -42,7 +42,7 @@ pub async fn fetch_markets(
     )
     .fetch_all(pool)
     .await?;
-    println!("Rows: {:?}", rows);
+    // println!("Rows: {:?}", rows);
     Ok(rows)
 }
 
