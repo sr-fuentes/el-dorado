@@ -42,7 +42,7 @@ pub async fn insert_ftxus_trades(
             r#"
                 INSERT INTO {}_trades (
                     market_id, trade_id, price, size, side, liquidation, time)
-                VALUES ($1,$2,$3,$4,$5,$6,$7)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,
             exchange.exchange_name,
         );
