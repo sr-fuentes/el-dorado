@@ -136,8 +136,8 @@ pub async fn create_exchange_tables(pool: &PgPool, exchange: &Exchange) -> Resul
             CREATE TABLE IF NOT EXISTS {}_{} (
                 market_id uuid NOT NULL,
                 trade_id BIGINT NOT NULL,
-                price FLOAT NOT NULL,
-                size FLOAT NOT NULL,
+                price NUMERIC NOT NULL,
+                size NUMERIC NOT NULL,
                 side TEXT NOT NULL,
                 liquidation BOOLEAN,
                 time timestamptz NOT NULL)
@@ -178,7 +178,7 @@ mod tests {
     use super::*;
     use crate::configuration::get_configuration;
     use crate::exchanges::ftx::*;
-    use crate::historical::{insert_ftxus_trades};
+    use crate::historical::insert_ftxus_trades;
 
     #[tokio::test]
     async fn fetch_exchanges_returns_all_exchanges() {

@@ -1,5 +1,6 @@
 use super::{RestClient, RestError};
 use chrono::{DateTime, Utc};
+use rust_decimal::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -41,8 +42,8 @@ pub struct Orderbook {
 #[serde(rename_all = "camelCase")]
 pub struct Trade {
     pub id: i64,
-    pub price: f64,
-    pub size: f64,
+    pub price: Decimal,
+    pub size: Decimal,
     pub side: String,
     pub liquidation: bool,
     pub time: DateTime<Utc>,
