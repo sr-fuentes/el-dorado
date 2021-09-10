@@ -40,7 +40,7 @@ pub async fn insert_ftxus_trades(
     for trade in trades.iter() {
         let sql = format!(
             r#"
-                INSERT INTO {}_trades_rest (
+                INSERT INTO trades_{}_rest (
                     market_id, trade_id, price, size, side, liquidation, time)
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,

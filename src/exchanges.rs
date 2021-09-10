@@ -14,6 +14,8 @@ pub struct Exchange {
 
 pub async fn add(pool: &PgPool) {
     // Get input from user for exchange to add
+    // TODO: implemenet new and parse functions for Exchange and 
+    // parse / validated input
     let exchange: String = get_input("Enter Exchange to Add:");
     let exchange = Exchange {
         exchange_id: Uuid::new_v4(),
@@ -129,11 +131,11 @@ pub async fn insert_new_exchange(pool: &PgPool, exchange: &Exchange) -> Result<(
 
 pub async fn create_exchange_tables(pool: &PgPool, exchange: &Exchange) -> Result<(), sqlx::Error> {
     // Create trades, trades_ws, and candles tables
-    let tables = ["trades_rest", "trades_ws", "trades_validated"];
+    let tables = ["est", "ws", "validated"];
     for table in tables {
         let sql = format!(
             r#"
-            CREATE TABLE IF NOT EXISTS {}_{} (
+            CREATE TABLE IF NOT EXISTS trades_{}_{} (
                 market_id uuid NOT NULL,
                 trade_id BIGINT NOT NULL,
                 price NUMERIC NOT NULL,
@@ -148,7 +150,7 @@ pub async fn create_exchange_tables(pool: &PgPool, exchange: &Exchange) -> Resul
     }
     let sql = format!(
         r#"
-            CREATE TABLE IF NOT EXISTS {}_candles (
+            CREATE TABLE IF NOT EXISTS candles_15T_{} (
                 datetime timestamptz NOT NULL,
                 PRIMARY KEY (datetime),
                 open FLOAT NOT NULL,
