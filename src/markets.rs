@@ -1,6 +1,7 @@
 use crate::exchanges::ftx::*;
 use crate::exchanges::Exchange;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
+use rust_decimal::prelude::*;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -8,6 +9,32 @@ use uuid::Uuid;
 pub struct MarketId {
     pub market_id: Uuid,
     pub market_name: String,
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+pub struct Candle {
+    pub datetime: DateTime<Utc>,
+    pub open: Decimal,
+    pub high: Decimal,
+    pub low: Decimal,
+    pub close: Decimal,
+    pub volume: Decimal,
+    pub volume_net: Decimal,
+    pub volume_liquidation: Decimal,
+    pub value: Decimal,
+    pub trade_count: i64,
+    pub liquidation_count: i64,
+    pub last_trade_ts: DateTime<Utc>,
+    pub last_trade_id: String,
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+pub struct CandleTest {
+    pub open: Decimal,
+    pub high: Decimal,
+    pub low: Decimal,
+    pub close: Decimal,
+    pub volume: Decimal,
 }
 
 pub async fn pull_usd_markets_from_ftx(exchange: &str) -> Result<Vec<Market>, RestError> {

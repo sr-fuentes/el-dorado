@@ -14,7 +14,7 @@ pub struct Exchange {
 
 pub async fn add(pool: &PgPool) {
     // Get input from user for exchange to add
-    // TODO: implemenet new and parse functions for Exchange and 
+    // TODO: implemenet new and parse functions for Exchange and
     // parse / validated input
     let exchange: String = get_input("Enter Exchange to Add:");
     let exchange = Exchange {
