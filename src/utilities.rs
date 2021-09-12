@@ -34,7 +34,7 @@ pub fn make_candles(trades: Vec<Trade>, seconds: i32) -> Vec<CandleTest> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{DateTime, TimeZone, Utc};
+    use chrono::{DateTime, DurationRound, Duration, TimeZone, Utc};
     use rust_decimal::prelude::*;
     use rust_decimal_macros::dec;
 
@@ -82,6 +82,93 @@ mod tests {
         // Sort trades by time
         trades.sort_by(|t1, t2| t1.time.cmp(&t2.time));
         println!("Trades Sorted by Time:\n {:?}", trades);
+
+        let candle = trades.iter().fold(
+            (
+                trades
+                    .first()
+                    .expect("Cannot create candle without trades.")
+                    .price,
+                Decimal::MIN,
+                Decimal::MAX,
+                dec!(0),
+                dec!(0),
+                0,
+            ),
+            |(o, h, l, c, v, n), t| {
+                (
+                    o,
+                    h.max(t.price),
+                    l.min(t.price),
+                    t.price,
+                    v + t.size,
+                    n + 1,
+                )
+            },
+        );
+        println!("Open, High, Low, Close, Volume & Count: {:?}", candle);
+    }
+
+    #[test]
+    pub fn build_range_from_vec_trades() {
+        // Arrange
+        // Create vec of trades
+        let mut trades: Vec<Trade> = Vec::new();
+        trades.push(Trade {
+            id: 1,
+            price: Decimal::new(702, 1),
+            size: Decimal::new(23, 1),
+            side: "sell".to_string(),
+            liquidation: false,
+            time: Utc.timestamp(1524886322, 0),
+        });
+        trades.push(Trade {
+            id: 2,
+            price: Decimal::new(752, 1),
+            size: Decimal::new(64, 1),
+            side: "buy".to_string(),
+            liquidation: false,
+            time: Utc.timestamp(1524887322, 0),
+        });
+        trades.push(Trade {
+            id: 3,
+            price: Decimal::new(810, 1),
+            size: Decimal::new(4, 1),
+            side: "buy".to_string(),
+            liquidation: true,
+            time: Utc.timestamp(1524888322, 0),
+        });
+        trades.push(Trade {
+            id: 4,
+            price: Decimal::new(767, 1),
+            size: Decimal::new(13, 1),
+            side: "sell".to_string(),
+            liquidation: false,
+            time: Utc.timestamp(1524889322, 0),
+        });
+        // Sort trades by time
+        trades.sort_by(|t1, t2| t1.time.cmp(&t2.time));
+        println!("Trades Sorted by Time:\n {:?}", trades);
+
+        // Get first and last trade
+        let first_trade = trades.first().expect("There is no first trade.");
+        let last_trade = trades.last().expect("There is no last trade.");
+
+        println!("First and last trade times {} - {}.", first_trade.time, last_trade.time);
+
+        // Get floors of first and last trades
+        let floor_start = first_trade.time.duration_trunc(Duration::seconds(900)).unwrap();
+        let floor_end = last_trade.time.duration_trunc(Duration::seconds(900)).unwrap();
+        println!("Start and end floors {} - {}.", floor_start, floor_end);
+
+        // Create Vec<DateTime> for range by 15T
+        let mut dr_start = floor_start.clone();
+        let mut date_range = Vec::new();
+        while dr_start <= floor_end {
+            date_range.push(dr_start);
+            dr_start = dr_start + Duration::seconds(900);
+        }
+        println!("DateRange: {:?}", date_range);
 
         let candle = trades.iter().fold(
             (
