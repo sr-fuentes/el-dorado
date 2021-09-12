@@ -30,6 +30,7 @@ pub struct Candle {
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct CandleTest {
+    pub datetime: DateTime<Utc>,
     pub open: Decimal,
     pub high: Decimal,
     pub low: Decimal,

@@ -34,7 +34,8 @@ pub fn make_candles(trades: Vec<Trade>, seconds: i32) -> Vec<CandleTest> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{DateTime, DurationRound, Duration, TimeZone, Utc};
+    use crate::markets::CandleTest;
+    use chrono::{DateTime, Duration, DurationRound, TimeZone, Utc};
     use rust_decimal::prelude::*;
     use rust_decimal_macros::dec;
 
@@ -154,11 +155,20 @@ mod tests {
         let first_trade = trades.first().expect("There is no first trade.");
         let last_trade = trades.last().expect("There is no last trade.");
 
-        println!("First and last trade times {} - {}.", first_trade.time, last_trade.time);
+        println!(
+            "First and last trade times {} - {}.",
+            first_trade.time, last_trade.time
+        );
 
         // Get floors of first and last trades
-        let floor_start = first_trade.time.duration_trunc(Duration::seconds(900)).unwrap();
-        let floor_end = last_trade.time.duration_trunc(Duration::seconds(900)).unwrap();
+        let floor_start = first_trade
+            .time
+            .duration_trunc(Duration::seconds(900))
+            .unwrap();
+        let floor_end = last_trade
+            .time
+            .duration_trunc(Duration::seconds(900))
+            .unwrap();
         println!("Start and end floors {} - {}.", floor_start, floor_end);
 
         // Create Vec<DateTime> for range by 15T
@@ -169,6 +179,33 @@ mod tests {
             dr_start = dr_start + Duration::seconds(900);
         }
         println!("DateRange: {:?}", date_range);
+
+        // // For each item in daterange, create candle
+        // let candles = date_range.iter().fold(dec!(0), |v, dr| {
+        //     trades.drain_filter(|t| t.time.duration_trunc(Duration::seconds(900)) == dr).iter().fold(dec!(0), |v, t| v + t.size)
+
+        // };
+        let mut dr_start = floor_start.clone();
+        let candle = trades
+            .iter()
+            .filter(|t| t.time.duration_trunc(Duration::seconds(900)).unwrap() == dr_start)
+            .fold(dec!(0), |v, t| v + t.size);
+        println!("DT * V: {:?} & {:?}", dr_start, candle);
+
+        let candles = date_range
+            .iter()
+            .fold(Vec::new(), |mut v, d| {
+                v.push(
+                trades
+                .iter()
+                .filter(|t| t.time.duration_trunc(Duration::seconds(900)).unwrap() == *d)
+                .fold(dec!(0), |v, t| v + t.size)
+                );
+                v
+            });
+        println!("Candles: {:?}", candles);
+            
+        println!("DT * V: {:?} & {:?}", dr_start, candle);
 
         let candle = trades.iter().fold(
             (
