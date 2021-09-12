@@ -145,7 +145,7 @@ mod tests {
             size: Decimal::new(13, 1),
             side: "sell".to_string(),
             liquidation: false,
-            time: Utc.timestamp(1524889322, 0),
+            time: Utc.timestamp(1524892322, 0),
         });
         // Sort trades by time
         trades.sort_by(|t1, t2| t1.time.cmp(&t2.time));
@@ -185,7 +185,7 @@ mod tests {
         //     trades.drain_filter(|t| t.time.duration_trunc(Duration::seconds(900)) == dr).iter().fold(dec!(0), |v, t| v + t.size)
 
         // };
-        let mut dr_start = floor_start.clone();
+        let dr_start = floor_start.clone();
         let candle = trades
             .iter()
             .filter(|t| t.time.duration_trunc(Duration::seconds(900)).unwrap() == dr_start)
@@ -194,25 +194,70 @@ mod tests {
 
         let candles = date_range
             .iter()
-            .fold(Vec::new(), |mut v, d| {
-                v.push(
-                trades
-                .iter()
-                .filter(|t| t.time.duration_trunc(Duration::seconds(900)).unwrap() == *d)
-                .fold(dec!(0), |v, t| v + t.size)
-                );
-                v
+            .fold((Vec::new(), dec!(0)), |(mut v, l), d| {
+                let filtered_trades: Vec<Trade> = trades
+                    .iter()
+                    .filter(|t| t.time.duration_trunc(Duration::seconds(900)).unwrap() == *d)
+                    .cloned()
+                    .collect();
+                println!("Filtered trades: {:?}", filtered_trades);
+                let candle = match filtered_trades.len() {
+                    0 => {
+                        let candle = CandleTest {
+                            datetime: *d,
+                            open: l,
+                            high: l,
+                            low: l,
+                            close: l,
+                            volume: dec!(0),
+                        };
+                        candle
+                    }
+                    _ => {
+                        let candle = filtered_trades.iter().fold(
+                            (
+                                filtered_trades
+                                    .first()
+                                    .expect("No trade to make candle.")
+                                    .price,
+                                Decimal::MIN,
+                                Decimal::MAX,
+                                dec!(0),
+                                dec!(0),
+                                0,
+                            ),
+                            |(o, h, l, c, v, n), t| {
+                                (
+                                    o,
+                                    h.max(t.price),
+                                    l.min(t.price),
+                                    t.price,
+                                    v + t.size,
+                                    n + 1,
+                                )
+                            },
+                        );
+                        let candle = CandleTest {
+                            datetime: *d,
+                            open: candle.0,
+                            high: candle.1,
+                            low: candle.2,
+                            close: candle.3,
+                            volume: candle.4,
+                        };
+                        candle
+                    }
+                };
+                v.push(candle);
+                (v, candle.close)
             });
         println!("Candles: {:?}", candles);
-            
+
         println!("DT * V: {:?} & {:?}", dr_start, candle);
 
         let candle = trades.iter().fold(
             (
-                trades
-                    .first()
-                    .expect("Cannot create candle without trades.")
-                    .price,
+                trades.first().expect("No trade to make candle.").price,
                 Decimal::MIN,
                 Decimal::MAX,
                 dec!(0),

@@ -28,7 +28,7 @@ pub struct Candle {
     pub last_trade_id: String,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct CandleTest {
     pub datetime: DateTime<Utc>,
     pub open: Decimal,
