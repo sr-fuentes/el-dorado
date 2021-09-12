@@ -11,23 +11,6 @@ pub struct MarketId {
     pub market_name: String,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
-pub struct Candle {
-    pub datetime: DateTime<Utc>,
-    pub open: Decimal,
-    pub high: Decimal,
-    pub low: Decimal,
-    pub close: Decimal,
-    pub volume: Decimal,
-    pub volume_net: Decimal,
-    pub volume_liquidation: Decimal,
-    pub value: Decimal,
-    pub trade_count: i64,
-    pub liquidation_count: i64,
-    pub last_trade_ts: DateTime<Utc>,
-    pub last_trade_id: String,
-}
-
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct CandleTest {
     pub datetime: DateTime<Utc>,
