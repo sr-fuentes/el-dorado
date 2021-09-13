@@ -20,6 +20,9 @@ pub struct Candle {
     pub last_trade_id: String,
 }
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+pub struct Candles(Vec<Candle>);
+
 impl Candle {
     // Takes a Vec of Trade and aggregates into a Candle with the Datetime = the
     // datetime passed as argument. Candle built from trades in the order they are in
@@ -41,7 +44,7 @@ impl Candle {
                 datetime,                                                // last_trade_ts
                 "".to_string(),                                          // last_trade_id
             ),
-            |(o, h, l, c, v, vn, vl, a, n, ln, ts, id), t| {
+            |(o, h, l, _c, v, vn, vl, a, n, ln, _ts, _id), t| {
                 (
                     o,
                     h.max(t.price),
@@ -108,9 +111,7 @@ impl Candle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{DateTime, TimeZone, Utc};
-    use rust_decimal::prelude::*;
-    use rust_decimal_macros::dec;
+    use chrono::{TimeZone, Utc};
 
     pub fn sample_trades() -> Vec<Trade> {
         let mut trades: Vec<Trade> = Vec::new();

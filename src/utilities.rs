@@ -26,8 +26,6 @@ pub fn get_input<U: std::str::FromStr>(prompt: &str) -> U {
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -35,7 +33,6 @@ mod tests {
     use chrono::{DateTime, Duration, DurationRound, TimeZone, Utc};
     use rust_decimal::prelude::*;
     use rust_decimal_macros::dec;
-
 
     #[test]
     pub fn build_range_from_vec_trades() {
