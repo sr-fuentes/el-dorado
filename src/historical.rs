@@ -1,9 +1,7 @@
 use crate::exchanges::ftx::*;
 use crate::exchanges::Exchange;
 use crate::markets::MarketId;
-use chrono::Utc;
 use sqlx::PgPool;
-use uuid::Uuid;
 
 // pub async fn insert_ftx_trades(
 //     pool: &PgPool,
