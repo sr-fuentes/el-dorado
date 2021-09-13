@@ -21,6 +21,10 @@ pub struct Candle {
 }
 
 impl Candle {
+    // Takes a Vec of Trade and aggregates into a Candle with the Datetime = the
+    // datetime passed as argument. Candle built from trades in the order they are in
+    // the Vec, sort before calling this function otherwise Open / Close / Datetime may
+    // be incorrect.
     pub fn new_from_trades(datetime: DateTime<Utc>, trades: Vec<Trade>) -> Self {
         let candle_tuple = trades.iter().fold(
             (
@@ -80,5 +84,71 @@ impl Candle {
             last_trade_ts,
             last_trade_id,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{DateTime, TimeZone, Utc};
+    use rust_decimal::prelude::*;
+    use rust_decimal_macros::dec;
+
+    pub fn sample_trades() -> Vec<Trade> {
+        let mut trades: Vec<Trade> = Vec::new();
+        trades.push(Trade {
+            id: 1,
+            price: Decimal::new(702, 1),
+            size: Decimal::new(23, 1),
+            side: "sell".to_string(),
+            liquidation: false,
+            time: Utc.timestamp(1524886322, 0),
+        });
+        trades.push(Trade {
+            id: 2,
+            price: Decimal::new(752, 1),
+            size: Decimal::new(64, 1),
+            side: "buy".to_string(),
+            liquidation: false,
+            time: Utc.timestamp(1524887322, 0),
+        });
+        trades.push(Trade {
+            id: 3,
+            price: Decimal::new(810, 1),
+            size: Decimal::new(4, 1),
+            side: "buy".to_string(),
+            liquidation: true,
+            time: Utc.timestamp(1524888322, 0),
+        });
+        trades.push(Trade {
+            id: 4,
+            price: Decimal::new(767, 1),
+            size: Decimal::new(13, 1),
+            side: "sell".to_string(),
+            liquidation: false,
+            time: Utc.timestamp(1524889322, 0),
+        });
+        trades
+    }
+
+    #[test]
+    pub fn new_from_last_returns_candle_populated_from_last_trade() {
+        let mut trades = sample_trades();
+        let last_trade = trades.pop().unwrap();
+        let candle = Candle::new_from_last(
+            last_trade.time,
+            last_trade.price,
+            last_trade.time,
+            last_trade.id.to_string(),
+        );
+        println!("Candle: {:?}", candle);
+    }
+
+    #[test]
+    pub fn new_from_trades_returns_candle() {
+        let mut trades = sample_trades();
+        let first_trade = trades.first().unwrap();
+        let candle = Candle::new_from_trades(first_trade.time, trades);
+        println!("Candle: {:?}", candle);
     }
 }
