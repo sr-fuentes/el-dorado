@@ -28,21 +28,37 @@ impl Candle {
     pub fn new_from_trades(datetime: DateTime<Utc>, trades: Vec<Trade>) -> Self {
         let candle_tuple = trades.iter().fold(
             (
-                trades.first().expect("No trade to make candle.").price,
-                Decimal::MIN,
-                Decimal::MAX,
-                dec!(0),
-                dec!(0),
-                0,
+                trades.first().expect("No trade to make candle.").price, // open
+                Decimal::MIN,                                            // high
+                Decimal::MAX,                                            // low
+                dec!(0),                                                 // close
+                dec!(0),                                                 // volume
+                dec!(0),                                                 // volume_net
+                dec!(0),                                                 // volume_liquidation
+                dec!(0),                                                 // value
+                0,                                                       // count
+                0,                                                       // liquidation_count,
+                datetime,                                                // last_trade_ts
+                "".to_string(),                                          // last_trade_id
             ),
-            |(o, h, l, c, v, n), t| {
+            |(o, h, l, c, v, vn, vl, a, n, ln, ts, id), t| {
                 (
                     o,
                     h.max(t.price),
                     l.min(t.price),
                     t.price,
                     v + t.size,
+                    if t.side == "sell" {
+                        vn + (t.size * dec!(-1))
+                    } else {
+                        vn + t.size
+                    },
+                    if t.liquidation { vl + t.size } else { vl },
+                    a + (t.size * t.price),
                     n + 1,
+                    if t.liquidation { ln + 1 } else { ln },
+                    t.time,
+                    t.id.to_string(),
                 )
             },
         );
@@ -53,16 +69,18 @@ impl Candle {
             low: candle_tuple.2,
             close: candle_tuple.3,
             volume: candle_tuple.4,
-            volume_net: candle_tuple.4,         // todo!
-            volume_liquidation: candle_tuple.4, // todo!
-            value: candle_tuple.4,              // todo!
-            trade_count: 0,                     // todo!
-            liquidation_count: 0,               // todo!
-            last_trade_ts: datetime,            // todo!
-            last_trade_id: "TODO".to_string(),  // todo!
+            volume_net: candle_tuple.5,
+            volume_liquidation: candle_tuple.6,
+            value: candle_tuple.7,
+            trade_count: candle_tuple.8,
+            liquidation_count: candle_tuple.9,
+            last_trade_ts: candle_tuple.10,
+            last_trade_id: candle_tuple.11,
         }
     }
 
+    // This function will build a placeholder trade with 0 volume and
+    // will populate OHLC from the last trade provided.
     pub fn new_from_last(
         datetime: DateTime<Utc>,
         last_trade_price: Decimal,
@@ -146,7 +164,7 @@ mod tests {
 
     #[test]
     pub fn new_from_trades_returns_candle() {
-        let mut trades = sample_trades();
+        let trades = sample_trades();
         let first_trade = trades.first().unwrap();
         let candle = Candle::new_from_trades(first_trade.time, trades);
         println!("Candle: {:?}", candle);
