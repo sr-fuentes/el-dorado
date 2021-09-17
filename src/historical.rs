@@ -114,7 +114,7 @@ pub async fn backfill_ftx(
                     .await
                     .expect("Could not delete trades from db.");
                 // Insert into processed trades
-                insert_ftx_processed_trades();
+                insert_ftx_processed_trades(pool, market, exchange, interval_trades).await.expect("Could not insert processed trades.");
 
                 // Move to next interval start
                 interval_start = interval_start + Duration::seconds(900); // TODO! set to market heartbeat
@@ -207,4 +207,29 @@ pub async fn select_ftx_trades(
     Ok(rows)
 }
 
-
+pub async fn delete_ftx_trades(
+    pool: &PgPool,
+    market: &MarketId,
+    exchange: &Exchange,
+    interval_start: DateTime<Utc>,
+    interval_end: DateTime<Utc>,
+) -> Result<(), sqlx::Error> {
+    let tables = ["rest", "ws"];
+    for table in tables {
+        let sql = format!(
+            r#"
+                DELETE FROM trades_{}_{}
+                WHERE market_id = $1 AND time >= $2 and time <$3
+            "#,
+            exchange.exchange_name,
+            table
+        );
+        sqlx::query(&sql)
+            .bind(market.market_id)
+            .bind(interval_start)
+            .bind(interval_end)
+            .execute(pool)
+            .await?;
+    };
+    Ok(())
+}
