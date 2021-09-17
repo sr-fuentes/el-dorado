@@ -81,6 +81,8 @@ pub async fn backfill_ftx(
                 // if there is at least one element in new_trades vec
                 // Set end of interval to last trade returned for pagination
                 interval_end_or_last_trade = new_trades.first().unwrap().time;
+                let first_trade = new_trades.last().unwrap().time;
+                println!("{} trades returned. First: {}, Last: {}", num_trades, interval_end_or_last_trade, first_trade);
                 println!("New last trade ts: {}", interval_end_or_last_trade);
                 // save trades to db
                 insert_ftxus_trades(pool, market, exchange, new_trades)
@@ -144,7 +146,6 @@ pub async fn insert_ftxus_trades(
             "#,
             exchange.exchange_name,
         );
-        println!("Query: {}", sql);
         sqlx::query(&sql)
             .bind(market.market_id)
             .bind(trade.id)
