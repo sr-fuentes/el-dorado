@@ -1,6 +1,7 @@
 use crate::exchanges::ftx::*;
 use crate::exchanges::Exchange;
 use crate::markets::{fetch_markets, MarketId};
+use crate::candles::{Candle, insert_candle};
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use sqlx::PgPool;
 use tokio::time::sleep;
@@ -47,8 +48,7 @@ pub async fn backfill_ftx(
         _ => panic!("No client exists for {}.", exchange.exchange_name),
     };
 
-    // From start to end fill forward trades in 15m buckets
-    // Each new day create 15 minutes candles
+    // From start to end fill forward trades in 15m buckets and create candle
     // Pagination returns trades in desc order from end timestamp in 100 trade batches
     // Use last trade out of 100 (earliest timestamp) to set as end time for next request for trades
     // Until trades returned is < 100 meaning there are no further trades for interval
@@ -57,10 +57,11 @@ pub async fn backfill_ftx(
     let mut interval_start = start.clone();
     while interval_start < end {
         // Set end of bucket to end of interval
+        let mut interval_end = interval_start + Duration::seconds(900);
         let mut interval_end_or_last_trade = interval_start + Duration::seconds(900);
         println!(
             "Filling trades for interval from {} to {}.",
-            interval_start, interval_end_or_last_trade
+            interval_start, interval_end
         );
         while interval_start < interval_end_or_last_trade {
             // Prevent 429 errors by only requesting 4 per second
@@ -82,7 +83,10 @@ pub async fn backfill_ftx(
                 // Set end of interval to last trade returned for pagination
                 interval_end_or_last_trade = new_trades.first().unwrap().time;
                 let first_trade = new_trades.last().unwrap().time;
-                println!("{} trades returned. First: {}, Last: {}", num_trades, interval_end_or_last_trade, first_trade);
+                println!(
+                    "{} trades returned. First: {}, Last: {}",
+                    num_trades, interval_end_or_last_trade, first_trade
+                );
                 println!("New last trade ts: {}", interval_end_or_last_trade);
                 // save trades to db
                 insert_ftxus_trades(pool, market, exchange, new_trades)
@@ -94,10 +98,24 @@ pub async fn backfill_ftx(
             if num_trades < 100 {
                 // Move trades from _rest to _processed and create candle
                 // Select trades for market between start and end interval
-                // Sort, dedup, create candle
-                // Delete trades for market between start and end interval
-                // Insert into processed trades
+                let mut interval_trades =
+                    select_ftx_trades(pool, market, exchange, interval_start, interval_end)
+                        .await
+                        .expect("Could not fetch trades from db.");
+                // Sort and dedup
+                interval_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
+                interval_trades.dedup_by(|t1, t2| t1.id == t2.id);
+                // Create Candle
+                let new_candle = Candle::new_from_trades(interval_start, interval_trades);
                 // Insert into candles
+                insert_candle(pool, market, exchange, new_candle).await.expect("Could not insert new candle.");
+                // Delete trades for market between start and end interval
+                delete_ftx_trades(pool, market, exchange, interval_start, interval_end)
+                    .await
+                    .expect("Could not delete trades from db.");
+                // Insert into processed trades
+                insert_ftx_processed_trades();
+
                 // Move to next interval start
                 interval_start = interval_start + Duration::seconds(900); // TODO! set to market heartbeat
             };
@@ -159,3 +177,34 @@ pub async fn insert_ftxus_trades(
     }
     Ok(())
 }
+
+pub async fn select_ftx_trades(
+    pool: &PgPool,
+    market: &MarketId,
+    exchange: &Exchange,
+    interval_start: DateTime<Utc>,
+    interval_end: DateTime<Utc>,
+) -> Result<Vec<Trade>, sqlx::Error> {
+    let rows = sqlx::query_as!(
+        Trade,
+        r#"
+        SELECT trade_id as "id!", price as "price!", size as "size!", side as "side!", 
+            liquidation as "liquidation!", time as "time!"
+        FROM trades_ftxus_rest
+        WHERE market_id = $1 AND time >= $2 and time < $3
+        UNION
+        SELECT trade_id as "id!", price as "price!", size as "size!", side as "side!", 
+            liquidation as "liquidation!", time as "time!"
+        FROM trades_ftxus_ws
+        WHERE market_id = $1 AND time >= $2 and time < $3
+        "#,
+        market.market_id,
+        interval_start,
+        interval_end,
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+
