@@ -1,6 +1,6 @@
 use clap::App;
 use el_dorado::configuration::get_configuration;
-use el_dorado::exchanges::add;
+use el_dorado::{exchanges::add, historical::run};
 use sqlx::PgPool;
 
 #[tokio::main]
@@ -45,7 +45,7 @@ async fn main() {
         Some("add") => add(&connection_pool).await,
         Some("refresh") => println!("Refresh is not yet implemented."),
         Some("edit") => println!("Edit is not yet implemented."),
-        Some("run") => println!("Run is not yet implemented."),
+        Some("run") => run(&connection_pool).await,
         None => println!("Please run with subcommands: `add` `refresh` `edit` or `run`."),
         _ => unreachable!(), // CLAP will error out before running this arm
     }
