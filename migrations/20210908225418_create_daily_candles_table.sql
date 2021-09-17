@@ -20,5 +20,6 @@ CREATE TABLE candles_01d (
     trade_count BIGINT NULL,
     liquidation_count BIGINT NOT NULL,
     last_trade_ts timestamptz NOT NULL,
-    last_trade_id TEXT NOT NULL
+    last_trade_id TEXT NOT NULL,
+    market_id uuid NOT NULL
 );

@@ -141,7 +141,7 @@ pub async fn create_exchange_tables(pool: &PgPool, exchange: &Exchange) -> Resul
                 price NUMERIC NOT NULL,
                 size NUMERIC NOT NULL,
                 side TEXT NOT NULL,
-                liquidation BOOLEAN,
+                liquidation BOOLEAN NOT NULL,
                 time timestamptz NOT NULL)
             "#,
             exchange.exchange_name, table
@@ -166,7 +166,8 @@ pub async fn create_exchange_tables(pool: &PgPool, exchange: &Exchange) -> Resul
                 liquidation_count BIGINT NOT NULL,
                 last_trade_ts timestamptz NOT NULL,
                 last_trade_id TEXT NOT NULL,
-                candle_status TEXT NOT NULL
+                candle_status TEXT NOT NULL,
+                market_id uuid NOT NULL
             )
         "#,
         exchange.exchange_name
