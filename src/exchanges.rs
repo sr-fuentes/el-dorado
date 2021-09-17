@@ -131,7 +131,7 @@ pub async fn insert_new_exchange(pool: &PgPool, exchange: &Exchange) -> Result<(
 
 pub async fn create_exchange_tables(pool: &PgPool, exchange: &Exchange) -> Result<(), sqlx::Error> {
     // Create trades, trades_ws, and candles tables
-    let tables = ["est", "ws", "validated"];
+    let tables = ["rest", "ws", "validated"];
     for table in tables {
         let sql = format!(
             r#"
@@ -150,7 +150,7 @@ pub async fn create_exchange_tables(pool: &PgPool, exchange: &Exchange) -> Resul
     }
     let sql = format!(
         r#"
-            CREATE TABLE IF NOT EXISTS candles_15T_{} (
+            CREATE TABLE IF NOT EXISTS candles_15t_{} (
                 datetime timestamptz NOT NULL,
                 PRIMARY KEY (datetime),
                 open FLOAT NOT NULL,

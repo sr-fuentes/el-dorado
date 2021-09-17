@@ -5,7 +5,7 @@ This can be used for end of day calculations, market to market
 and validation of all heartbeat (15T) candles in each {exchange}_candles
 table.
 */
-CREATE TABLE daily_candles (
+CREATE TABLE candles_01d (
     datetime timestamptz NOT NULL,
     PRIMARY KEY (datetime),
     open NUMERIC NOT NULL,
