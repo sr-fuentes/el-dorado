@@ -1,7 +1,10 @@
-use crate::exchanges::ftx::Trade;
+use crate::exchanges::{Exchange, ftx::Trade};
+use crate::markets::MarketId;
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
+use sqlx::PgPool;
+
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct Candle {
@@ -107,6 +110,40 @@ impl Candle {
         }
     }
 }
+
+pub async fn insert_candle(pool: &PgPool, market: &MarketId, exchange: &Exchange, candle: Candle) -> Result<(), sqlx::Error> {
+    let sql = format!(
+        r#"
+            INSERT INTO candles_15T_{} (
+                datetime, open, high, low, close, volume, volume_net, volume_liquidation, 
+                volume_liquidation_net, value, trade_count, liquidation_count, last_trade_ts, 
+                last_trade_id, candle_status, market_id)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+            )
+        "#,
+        exchange.exchange_name,
+    );
+    sqlx::query(&sql)
+        .bind(candle.datetime)
+        .bind(candle.open)
+        .bind(candle.high)
+        .bind(candle.low)
+        .bind(candle.close)
+        .bind(candle.volume)
+        .bind(candle.volume_net)
+        .bind(candle.volume_liquidation)
+        .bind(candle.value)
+        .bind(candle.trade_count)
+        .bind(candle.liquidation_count)
+        .bind(candle.last_trade_ts)
+        .bind(candle.last_trade_id)
+        .bind(market.market_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+
 
 #[cfg(test)]
 mod tests {
