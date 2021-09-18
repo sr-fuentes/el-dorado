@@ -263,7 +263,7 @@ mod tests {
             .await
             .expect("Failed to get last 10 BTC/USD trades.");
 
-        insert_ftxus_trades(&connection_pool, &market, &exchange, trades)
+        insert_ftxus_trades(&connection_pool, &market, &exchange, trades, "rest")
             .await
             .expect("Failed to insert trades.");
         // Assert
