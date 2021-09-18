@@ -131,7 +131,7 @@ pub async fn insert_new_exchange(pool: &PgPool, exchange: &Exchange) -> Result<(
 
 pub async fn create_exchange_tables(pool: &PgPool, exchange: &Exchange) -> Result<(), sqlx::Error> {
     // Create trades, trades_ws, and candles tables
-    let tables = ["rest", "ws", "validated"];
+    let tables = ["rest", "ws", "processed", "validated"];
     for table in tables {
         let sql = format!(
             r#"
