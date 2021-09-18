@@ -165,7 +165,7 @@ pub async fn create_exchange_tables(pool: &PgPool, exchange: &Exchange) -> Resul
                 liquidation_count BIGINT NOT NULL,
                 last_trade_ts timestamptz NOT NULL,
                 last_trade_id TEXT NOT NULL,
-                is_validated TEXT NOT NULL,
+                is_validated BOOLEAN NOT NULL,
                 market_id uuid NOT NULL
             )
         "#,
