@@ -1,10 +1,9 @@
-use crate::exchanges::{Exchange, ftx::Trade};
+use crate::exchanges::{ftx::Trade, Exchange};
 use crate::markets::MarketId;
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use sqlx::PgPool;
-
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct Candle {
@@ -31,7 +30,7 @@ impl Candle {
     // datetime passed as argument. Candle built from trades in the order they are in
     // the Vec, sort before calling this function otherwise Open / Close / Datetime may
     // be incorrect.
-    pub fn new_from_trades(datetime: DateTime<Utc>, trades: Vec<Trade>) -> Self {
+    pub fn new_from_trades(datetime: DateTime<Utc>, trades: &Vec<Trade>) -> Self {
         let candle_tuple = trades.iter().fold(
             (
                 trades.first().expect("No trade to make candle.").price, // open
@@ -111,7 +110,12 @@ impl Candle {
     }
 }
 
-pub async fn insert_candle(pool: &PgPool, market: &MarketId, exchange: &Exchange, candle: Candle) -> Result<(), sqlx::Error> {
+pub async fn insert_candle(
+    pool: &PgPool,
+    market: &MarketId,
+    exchange: &Exchange,
+    candle: Candle,
+) -> Result<(), sqlx::Error> {
     let sql = format!(
         r#"
             INSERT INTO candles_15T_{} (
@@ -142,8 +146,6 @@ pub async fn insert_candle(pool: &PgPool, market: &MarketId, exchange: &Exchange
         .await?;
     Ok(())
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -204,7 +206,7 @@ mod tests {
     pub fn new_from_trades_returns_candle() {
         let trades = sample_trades();
         let first_trade = trades.first().unwrap();
-        let candle = Candle::new_from_trades(first_trade.time, trades);
+        let candle = Candle::new_from_trades(first_trade.time, &trades);
         println!("Candle: {:?}", candle);
     }
 }
