@@ -1,5 +1,4 @@
 use crate::exchanges::ftx::Trade;
-use crate::markets::CandleTest;
 use rust_decimal::prelude::*;
 use std::io::{self, Write};
 
@@ -29,7 +28,6 @@ pub fn get_input<U: std::str::FromStr>(prompt: &str) -> U {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::markets::CandleTest;
     use chrono::{DateTime, Duration, DurationRound, TimeZone, Utc};
     use rust_decimal::prelude::*;
     use rust_decimal_macros::dec;
@@ -116,89 +114,17 @@ mod tests {
             .fold(dec!(0), |v, t| v + t.size);
         println!("DT * V: {:?} & {:?}", dr_start, candle);
 
-        let candles = date_range
-            .iter()
-            .fold((Vec::new(), dec!(0)), |(mut v, l), d| {
-                let filtered_trades: Vec<Trade> = trades
-                    .iter()
-                    .filter(|t| t.time.duration_trunc(Duration::seconds(900)).unwrap() == *d)
-                    .cloned()
-                    .collect();
-                println!("Filtered trades: {:?}", filtered_trades);
-                let candle = match filtered_trades.len() {
-                    0 => {
-                        let candle = CandleTest {
-                            datetime: *d,
-                            open: l,
-                            high: l,
-                            low: l,
-                            close: l,
-                            volume: dec!(0),
-                        };
-                        candle
-                    }
-                    _ => {
-                        let candle = filtered_trades.iter().fold(
-                            (
-                                filtered_trades
-                                    .first()
-                                    .expect("No trade to make candle.")
-                                    .price,
-                                Decimal::MIN,
-                                Decimal::MAX,
-                                dec!(0),
-                                dec!(0),
-                                0,
-                            ),
-                            |(o, h, l, c, v, n), t| {
-                                (
-                                    o,
-                                    h.max(t.price),
-                                    l.min(t.price),
-                                    t.price,
-                                    v + t.size,
-                                    n + 1,
-                                )
-                            },
-                        );
-                        let candle = CandleTest {
-                            datetime: *d,
-                            open: candle.0,
-                            high: candle.1,
-                            low: candle.2,
-                            close: candle.3,
-                            volume: candle.4,
-                        };
-                        candle
-                    }
-                };
-                v.push(candle);
-                (v, candle.close)
-            });
-        println!("Candles: {:?}", candles);
+        // let candles = date_range
+        //     .iter()
+        //     .fold((Vec::new(), dec!(0)), |(mut v, l), d| {
+        //         let filtered_trades: Vec<Trade> = trades
+        //             .iter()
+        //             .filter(|t| t.time.duration_trunc(Duration::seconds(900)).unwrap() == *d)
+        //             .cloned()
+        //             .collect();
+        //         println!("Filtered trades: {:?}", filtered_trades);
 
-        println!("DT * V: {:?} & {:?}", dr_start, candle);
-
-        let candle = trades.iter().fold(
-            (
-                trades.first().expect("No trade to make candle.").price,
-                Decimal::MIN,
-                Decimal::MAX,
-                dec!(0),
-                dec!(0),
-                0,
-            ),
-            |(o, h, l, c, v, n), t| {
-                (
-                    o,
-                    h.max(t.price),
-                    l.min(t.price),
-                    t.price,
-                    v + t.size,
-                    n + 1,
-                )
-            },
-        );
-        println!("Open, High, Low, Close, Volume & Count: {:?}", candle);
+        //         v.push(candle);
+        //     });
     }
 }
