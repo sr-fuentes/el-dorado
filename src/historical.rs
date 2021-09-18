@@ -1,7 +1,7 @@
+use crate::candles::{insert_candle, Candle};
 use crate::exchanges::ftx::*;
 use crate::exchanges::Exchange;
 use crate::markets::{fetch_markets, MarketId};
-use crate::candles::{Candle, insert_candle};
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use sqlx::PgPool;
 use tokio::time::sleep;
@@ -57,7 +57,7 @@ pub async fn backfill_ftx(
     let mut interval_start = start.clone();
     while interval_start < end {
         // Set end of bucket to end of interval
-        let mut interval_end = interval_start + Duration::seconds(900);
+        let interval_end = interval_start + Duration::seconds(900);
         let mut interval_end_or_last_trade = interval_start + Duration::seconds(900);
         println!(
             "Filling trades for interval from {} to {}.",
@@ -89,7 +89,7 @@ pub async fn backfill_ftx(
                 );
                 println!("New last trade ts: {}", interval_end_or_last_trade);
                 // save trades to db
-                insert_ftxus_trades(pool, market, exchange, new_trades)
+                insert_ftxus_trades(pool, market, exchange, new_trades, "rest")
                     .await
                     .expect("Failed to insert ftx trades.");
             };
@@ -106,16 +106,19 @@ pub async fn backfill_ftx(
                 interval_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
                 interval_trades.dedup_by(|t1, t2| t1.id == t2.id);
                 // Create Candle
-                let new_candle = Candle::new_from_trades(interval_start, interval_trades);
+                let new_candle = Candle::new_from_trades(interval_start, &interval_trades);
                 // Insert into candles
-                insert_candle(pool, market, exchange, new_candle).await.expect("Could not insert new candle.");
+                insert_candle(pool, market, exchange, new_candle)
+                    .await
+                    .expect("Could not insert new candle.");
                 // Delete trades for market between start and end interval
                 delete_ftx_trades(pool, market, exchange, interval_start, interval_end)
                     .await
                     .expect("Could not delete trades from db.");
                 // Insert into processed trades
-                insert_ftx_processed_trades(pool, market, exchange, interval_trades).await.expect("Could not insert processed trades.");
-
+                insert_ftxus_trades(pool, market, exchange, interval_trades, "processed")
+                    .await
+                    .expect("Could not insert processed trades.");
                 // Move to next interval start
                 interval_start = interval_start + Duration::seconds(900); // TODO! set to market heartbeat
             };
@@ -154,15 +157,16 @@ pub async fn insert_ftxus_trades(
     market: &MarketId,
     exchange: &Exchange,
     trades: Vec<Trade>,
+    table: &str,
 ) -> Result<(), sqlx::Error> {
     for trade in trades.iter() {
         let sql = format!(
             r#"
-                INSERT INTO trades_{}_rest (
+                INSERT INTO trades_{}_{} (
                     market_id, trade_id, price, size, side, liquidation, time)
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,
-            exchange.exchange_name,
+            exchange.exchange_name, table
         );
         sqlx::query(&sql)
             .bind(market.market_id)
@@ -221,8 +225,7 @@ pub async fn delete_ftx_trades(
                 DELETE FROM trades_{}_{}
                 WHERE market_id = $1 AND time >= $2 and time <$3
             "#,
-            exchange.exchange_name,
-            table
+            exchange.exchange_name, table
         );
         sqlx::query(&sql)
             .bind(market.market_id)
@@ -230,6 +233,6 @@ pub async fn delete_ftx_trades(
             .bind(interval_end)
             .execute(pool)
             .await?;
-    };
+    }
     Ok(())
 }
