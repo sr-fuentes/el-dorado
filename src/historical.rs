@@ -25,7 +25,7 @@ pub async fn run(pool: &PgPool) {
 
     // Get last state of market, return status, start and finish
     let start = Utc.timestamp(1631664000, 0); // 9/15/2021 00:00
-    let end = Utc.timestamp(1631671200, 0); // 9/15/2021 02:00
+    let end = Utc.timestamp(1631671500, 0); // 9/15/2021 02:00
 
     // Clear out _rest table for processed
 
@@ -95,30 +95,35 @@ pub async fn backfill_ftx(
             };
             // If new trades returns less than 100 trades then there are no more trades
             // for that interval, create the candle and process the trades for that period
+            // Do not create candle for last interval (when interval_end is greater than end time)
+            // because the interval_end may not be complete (ie interval_end = 9:15 and current time
+            // is 9:13, you dont want to create the candle because it is not closed yet).
             if num_trades < 100 {
-                // Move trades from _rest to _processed and create candle
-                // Select trades for market between start and end interval
-                let mut interval_trades =
-                    select_ftx_trades(pool, market, exchange, interval_start, interval_end)
+                if interval_end < end {
+                    // Move trades from _rest to _processed and create candle
+                    // Select trades for market between start and end interval
+                    let mut interval_trades =
+                        select_ftx_trades(pool, market, exchange, interval_start, interval_end)
+                            .await
+                            .expect("Could not fetch trades from db.");
+                    // Sort and dedup
+                    interval_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
+                    interval_trades.dedup_by(|t1, t2| t1.id == t2.id);
+                    // Create Candle
+                    let new_candle = Candle::new_from_trades(interval_start, &interval_trades);
+                    // Insert into candles
+                    insert_candle(pool, market, exchange, new_candle)
                         .await
-                        .expect("Could not fetch trades from db.");
-                // Sort and dedup
-                interval_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
-                interval_trades.dedup_by(|t1, t2| t1.id == t2.id);
-                // Create Candle
-                let new_candle = Candle::new_from_trades(interval_start, &interval_trades);
-                // Insert into candles
-                insert_candle(pool, market, exchange, new_candle)
-                    .await
-                    .expect("Could not insert new candle.");
-                // Delete trades for market between start and end interval
-                delete_ftx_trades(pool, market, exchange, interval_start, interval_end)
-                    .await
-                    .expect("Could not delete trades from db.");
-                // Insert into processed trades
-                insert_ftxus_trades(pool, market, exchange, interval_trades, "processed")
-                    .await
-                    .expect("Could not insert processed trades.");
+                        .expect("Could not insert new candle.");
+                    // Delete trades for market between start and end interval
+                    delete_ftx_trades(pool, market, exchange, interval_start, interval_end)
+                        .await
+                        .expect("Could not delete trades from db.");
+                    // Insert into processed trades
+                    insert_ftxus_trades(pool, market, exchange, interval_trades, "processed")
+                        .await
+                        .expect("Could not insert processed trades.");
+                };
                 // Move to next interval start
                 interval_start = interval_start + Duration::seconds(900); // TODO! set to market heartbeat
             };
