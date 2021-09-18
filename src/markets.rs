@@ -11,14 +11,27 @@ pub struct MarketId {
     pub market_name: String,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
-pub struct CandleTest {
-    pub datetime: DateTime<Utc>,
-    pub open: Decimal,
-    pub high: Decimal,
-    pub low: Decimal,
-    pub close: Decimal,
-    pub volume: Decimal,
+#[derive(Debug, PartialEq, Eq)]
+pub struct MarketDetail {
+    pub market_id: Uuid,
+    pub exchange_name: String,
+    pub market_name: String,
+    pub market_type: String,
+    pub base_currency: Option<String>,
+    pub quote_currency: Option<String>,
+    pub underlying: Option<String>,
+    pub market_status: String,
+    pub market_data_status: String,
+    pub first_validated_trade_id: Option<String>,
+    pub first_validated_trade_ts: Option<DateTime<Utc>>,
+    pub last_validated_trade_id: Option<String>,
+    pub last_validated_trade_ts: Option<DateTime<Utc>>,
+    pub candle_base_interval: String,
+    pub candle_base_in_seconds: i32,
+    pub first_validated_candle: Option<DateTime<Utc>>,
+    pub last_validated_candle: Option<DateTime<Utc>>,
+    pub last_update_ts: DateTime<Utc>,
+    pub last_update_ip_address: sqlx::types::ipnetwork::IpNetwork,
 }
 
 pub async fn pull_usd_markets_from_ftx(exchange: &str) -> Result<Vec<Market>, RestError> {
@@ -90,4 +103,21 @@ pub async fn insert_new_market(
     .execute(pool)
     .await?;
     Ok(())
+}
+
+pub async fn select_market_detail(
+    pool: &PgPool,
+    market: &MarketId,
+) -> Result<MarketDetail, sqlx::Error> {
+    let row = sqlx::query_as!(
+        MarketDetail,
+        r#"
+            SELECT * FROM markets
+            WHERE market_id = $1
+        "#,
+        market.market_id,
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(row)
 }
