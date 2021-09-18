@@ -160,6 +160,8 @@ pub async fn insert_ftxus_trades(
     table: &str,
 ) -> Result<(), sqlx::Error> {
     for trade in trades.iter() {
+        // Cannot user sqlx query! macro because table may not exist at
+        // compile time and table name is dynamic to ftx and ftxus.
         let sql = format!(
             r#"
                 INSERT INTO trades_{}_{} (
@@ -189,8 +191,8 @@ pub async fn select_ftx_trades(
     interval_start: DateTime<Utc>,
     interval_end: DateTime<Utc>,
 ) -> Result<Vec<Trade>, sqlx::Error> {
-    let rows = sqlx::query_as!(
-        Trade,
+    // Cannot user query_as! macro because table may not exist at compile time
+    let rows = sqlx::query_as::<_, Trade>(
         r#"
         SELECT trade_id as "id!", price as "price!", size as "size!", side as "side!", 
             liquidation as "liquidation!", time as "time!"
@@ -201,11 +203,11 @@ pub async fn select_ftx_trades(
             liquidation as "liquidation!", time as "time!"
         FROM trades_ftxus_ws
         WHERE market_id = $1 AND time >= $2 and time < $3
-        "#,
-        market.market_id,
-        interval_start,
-        interval_end,
+        "#
     )
+    .bind(market.market_id)
+    .bind(interval_start)
+    .bind(interval_end)
     .fetch_all(pool)
     .await?;
     Ok(rows)

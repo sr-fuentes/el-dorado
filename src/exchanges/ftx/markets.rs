@@ -38,7 +38,7 @@ pub struct Orderbook {
     pub bids: Vec<(f64, f64)>,
 }
 
-#[derive(Clone, Deserialize, Serialize, Debug)]
+#[derive(Clone, Deserialize, Serialize, Debug, sqlx::FromRow)]
 #[serde(rename_all = "camelCase")]
 pub struct Trade {
     pub id: i64,
