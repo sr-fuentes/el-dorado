@@ -194,16 +194,14 @@ pub async fn select_ftx_trades(
     // Cannot user query_as! macro because table may not exist at compile time
     let rows = sqlx::query_as::<_, Trade>(
         r#"
-        SELECT trade_id as "id!", price as "price!", size as "size!", side as "side!", 
-            liquidation as "liquidation!", time as "time!"
+        SELECT trade_id as id, price, size, side, liquidation, time
         FROM trades_ftxus_rest
         WHERE market_id = $1 AND time >= $2 and time < $3
         UNION
-        SELECT trade_id as "id!", price as "price!", size as "size!", side as "side!", 
-            liquidation as "liquidation!", time as "time!"
+        SELECT trade_id as id, price, size, side, liquidation, time
         FROM trades_ftxus_ws
         WHERE market_id = $1 AND time >= $2 and time < $3
-        "#
+        "#,
     )
     .bind(market.market_id)
     .bind(interval_start)

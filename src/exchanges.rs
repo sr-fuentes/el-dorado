@@ -160,13 +160,12 @@ pub async fn create_exchange_tables(pool: &PgPool, exchange: &Exchange) -> Resul
                 volume FLOAT NOT NULL,
                 volume_net FLOAT NOT NULL,
                 volume_liquidation FLOAT NOT NULL,
-                volume_liquidation_net FLOAT NOT NULL,
                 value FLOAT NOT NULL,
                 trade_count BIGINT NULL,
                 liquidation_count BIGINT NOT NULL,
                 last_trade_ts timestamptz NOT NULL,
                 last_trade_id TEXT NOT NULL,
-                candle_status TEXT NOT NULL,
+                is_validated TEXT NOT NULL,
                 market_id uuid NOT NULL
             )
         "#,

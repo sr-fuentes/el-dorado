@@ -119,11 +119,10 @@ pub async fn insert_candle(
     let sql = format!(
         r#"
             INSERT INTO candles_15T_{} (
-                datetime, open, high, low, close, volume, volume_net, volume_liquidation, 
-                volume_liquidation_net, value, trade_count, liquidation_count, last_trade_ts, 
-                last_trade_id, candle_status, market_id)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-            )
+                datetime, open, high, low, close, volume, volume_net, volume_liquidation, value, 
+                trade_count, liquidation_count, last_trade_ts, last_trade_id, is_validated, 
+                market_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         "#,
         exchange.exchange_name,
     );
@@ -141,6 +140,7 @@ pub async fn insert_candle(
         .bind(candle.liquidation_count)
         .bind(candle.last_trade_ts)
         .bind(candle.last_trade_id)
+        .bind(false)
         .bind(market.market_id)
         .execute(pool)
         .await?;
