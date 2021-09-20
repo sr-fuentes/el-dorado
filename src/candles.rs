@@ -156,7 +156,7 @@ pub async fn select_unvalidated_candles(
         r#"
         SELECT * FROM candles_15t_{}
         WHERE market_id = $1 and not is_validated
-        ORDER BY datetime DESC
+        ORDER BY datetime
        "#,
         exchange.exchange_name
     );
@@ -173,19 +173,27 @@ pub async fn validate_candle(
     market: &MarketId,
     candle: &Candle,
 ) -> bool {
-    // Get candle from exchange
-    let exchange_candles = client
+    // Get candle from exchange, start and end = candle start to return one candle
+    let mut exchange_candles = client
         .get_candles(
             &market.market_name,
             Some(900),
             Some(candle.datetime),
-            Some(candle.datetime + Duration::seconds(900)),
+            Some(candle.datetime),
         )
         .await
         .expect("Failed to fetch candles.");
     println!("Unvalidated Candle: {:?}", candle);
     println!("Exchange candles: {:?}", exchange_candles);
-    true
+    let delta = (candle.value / exchange_candles.pop().unwrap().volume) - dec!(1.0);
+    println!("Candle delta: {:?}", delta);
+    // FTX candle validation on FTX Volume = ED Value, FTX sets open = last trade event if the
+    // last trades was in the prior time period. Consider valid if w/in 5 bps of candle value.
+    if delta < dec!(0.0005) {
+        true
+    } else {
+        false
+    }
 }
 
 #[cfg(test)]

@@ -46,9 +46,12 @@ pub async fn run(pool: &PgPool) {
         // validate candle - get candle from exchange, comp volume. if volume matches
         // consider it validated - if not - pull trades
         let is_valid = validate_candle(&client, &exchange, &market, &unvalidated_candle).await;
-        //validate_candle()
-        // update market details
-        // update validated trades
+        if is_valid {
+            // update market details - last validated trade id, last validate trade ts, last validated candle, last updated ts
+            // update validated trades
+        } else {
+            panic!("Invalid candle. TODO - re-validate lower time frame.");
+        }
     }
 
     panic!();
