@@ -1,11 +1,11 @@
-use crate::exchanges::{ftx::Trade, Exchange};
+use crate::exchanges::{ftx::Candle as FtxCandle, ftx::RestClient, ftx::Trade, Exchange};
 use crate::markets::MarketId;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, TimeZone, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use sqlx::PgPool;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, sqlx::FromRow)]
 pub struct Candle {
     pub datetime: DateTime<Utc>,
     pub open: Decimal,
@@ -145,6 +145,47 @@ pub async fn insert_candle(
         .execute(pool)
         .await?;
     Ok(())
+}
+
+pub async fn select_unvalidated_candles(
+    pool: &PgPool,
+    exchange: &Exchange,
+    market: &MarketId,
+) -> Result<Vec<Candle>, sqlx::Error> {
+    let sql = format!(
+        r#"
+        SELECT * FROM candles_15t_{}
+        WHERE market_id = $1 and not is_validated
+        ORDER BY datetime DESC
+       "#,
+        exchange.exchange_name
+    );
+    let rows = sqlx::query_as::<_, Candle>(&sql)
+        .bind(market.market_id)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows)
+}
+
+pub async fn validate_candle(
+    client: &RestClient,
+    exchange: &Exchange,
+    market: &MarketId,
+    candle: &Candle,
+) -> bool {
+    // Get candle from exchange
+    let exchange_candles = client
+        .get_candles(
+            &market.market_name,
+            Some(900),
+            Some(candle.datetime),
+            Some(candle.datetime + Duration::seconds(900)),
+        )
+        .await
+        .expect("Failed to fetch candles.");
+    println!("Unvalidated Candle: {:?}", candle);
+    println!("Exchange candles: {:?}", exchange_candles);
+    true
 }
 
 #[cfg(test)]

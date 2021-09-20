@@ -1,7 +1,7 @@
-use crate::candles::{insert_candle, Candle};
+use crate::candles::{insert_candle, select_unvalidated_candles, validate_candle, Candle};
 use crate::exchanges::ftx::*;
 use crate::exchanges::Exchange;
-use crate::markets::{fetch_markets, MarketId};
+use crate::markets::{fetch_markets, select_market_detail, MarketDetail, MarketId};
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use sqlx::PgPool;
 use tokio::time::sleep;
@@ -14,6 +14,13 @@ pub async fn run(pool: &PgPool) {
         exchange_name: "ftxus".to_string(),
     };
 
+    // Get REST client for exchange
+    let client = match exchange.exchange_name.as_str() {
+        "ftxus" => RestClient::new_us(),
+        "ftx" => RestClient::new_intl(),
+        _ => panic!("No client exists for {}.", exchange.exchange_name),
+    };
+
     // Get input from user for market to run
     let market_ids = fetch_markets(pool, &exchange)
         .await
@@ -24,30 +31,43 @@ pub async fn run(pool: &PgPool) {
         .unwrap();
 
     // Get last state of market, return status, start and finish
+    let market_detail = select_market_detail(pool, &market)
+        .await
+        .expect("Failed to get market detail.");
     let start = Utc.timestamp(1631664000, 0); // 9/15/2021 00:00
     let end = Utc.timestamp(1631671500, 0); // 9/15/2021 02:00
 
-    // Clear out _rest table for processed
+    // Validate / clean up current candles / trades for market
+    let unvalidated_candles = select_unvalidated_candles(pool, &exchange, &market)
+        .await
+        .expect("Could not fetch unvalidated candles.");
+
+    for unvalidated_candle in unvalidated_candles {
+        // validate candle - get candle from exchange, comp volume. if volume matches
+        // consider it validated - if not - pull trades
+        let is_valid = validate_candle(&client, &exchange, &market, &unvalidated_candle).await;
+        //validate_candle()
+        // update market details
+        // update validated trades
+    }
+
+    panic!();
+
+    // Update state of market
 
     // Backfill historical
     // Match exchange for backfill routine
-    backfill_ftx(pool, &exchange, market, start, end).await;
+    backfill_ftx(pool, &client, &exchange, market, start, end).await;
 }
 
 pub async fn backfill_ftx(
     pool: &PgPool,
+    client: &RestClient,
     exchange: &Exchange,
     market: &MarketId,
     start: DateTime<Utc>,
     end: DateTime<Utc>,
 ) {
-    // Get appropriate REST client
-    let client = match exchange.exchange_name.as_str() {
-        "ftxus" => RestClient::new_us(),
-        "ftx" => RestClient::new_intl(),
-        _ => panic!("No client exists for {}.", exchange.exchange_name),
-    };
-
     // From start to end fill forward trades in 15m buckets and create candle
     // Pagination returns trades in desc order from end timestamp in 100 trade batches
     // Use last trade out of 100 (earliest timestamp) to set as end time for next request for trades
