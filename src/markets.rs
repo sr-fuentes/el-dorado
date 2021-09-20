@@ -1,7 +1,8 @@
 use crate::exchanges::ftx::*;
 use crate::exchanges::Exchange;
+use crate::candles::Candle;
+
 use chrono::{DateTime, Utc};
-use rust_decimal::prelude::*;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -11,7 +12,7 @@ pub struct MarketId {
     pub market_name: String,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct MarketDetail {
     pub market_id: Uuid,
     pub exchange_name: String,
@@ -120,4 +121,27 @@ pub async fn select_market_detail(
     .fetch_one(pool)
     .await?;
     Ok(row)
+}
+
+pub async fn update_market_last_validated(
+    pool: &PgPool,
+    market: &MarketId,
+    candle: &Candle,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        r#"
+            UPDATE markets
+            SET (last_validated_trade_id, last_validated_trade_ts, last_validated_candle, 
+                last_update_ts) = ($1, $2, $3, $4)
+            WHERE market_id = $5
+        "#,
+        candle.last_trade_id,
+        candle.last_trade_ts,
+        candle.datetime,
+        Utc::now(),
+        market.market_id
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
 }

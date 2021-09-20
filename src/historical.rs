@@ -1,7 +1,7 @@
 use crate::candles::{insert_candle, select_unvalidated_candles, validate_candle, Candle};
 use crate::exchanges::ftx::*;
 use crate::exchanges::Exchange;
-use crate::markets::{fetch_markets, select_market_detail, MarketDetail, MarketId};
+use crate::markets::*;
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use sqlx::PgPool;
 use tokio::time::sleep;
@@ -48,7 +48,10 @@ pub async fn run(pool: &PgPool) {
         let is_valid = validate_candle(&client, &exchange, &market, &unvalidated_candle).await;
         if is_valid {
             // update market details - last validated trade id, last validate trade ts, last validated candle, last updated ts
+            update_market_last_validated(pool, &market, &unvalidated_candle).await.expect("Could not update market details.");
             // update validated trades
+            // insert_validated_trades();
+            // delete_processed_trades();
         } else {
             panic!("Invalid candle. TODO - re-validate lower time frame.");
         }
