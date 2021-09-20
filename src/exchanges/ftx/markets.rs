@@ -52,14 +52,14 @@ pub struct Trade {
 #[derive(Clone, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Candle {
-    start_time: DateTime<Utc>,
+    pub start_time: DateTime<Utc>,
     #[serde(with = "ts_micro_fractions")]
-    time: DateTime<Utc>,
-    open: f64,
-    high: f64,
-    low: f64,
-    close: f64,
-    volume: f64,
+    pub time: DateTime<Utc>,
+    pub open: Decimal,
+    pub high: Decimal,
+    pub low: Decimal,
+    pub close: Decimal,
+    pub volume: Decimal,
 }
 
 mod ts_micro_fractions {
@@ -140,7 +140,7 @@ impl RestClient {
 #[cfg(test)]
 mod tests {
     use crate::exchanges::ftx::*;
-    use chrono::Utc;
+    use chrono::{TimeZone, Utc};
 
     #[test]
     fn serde_deserializes_the_market_struct() {
@@ -300,7 +300,12 @@ mod tests {
     async fn get_trades_with_params_returns_trades() {
         let client = RestClient::new_us();
         let trades = client
-            .get_trades("BTC/USD", Some(10), None, Some(Utc::now()))
+            .get_trades(
+                "SOL/USD",
+                Some(100),
+                None,
+                Some(Utc.timestamp(1631666701, 0)),
+            )
             .await
             .expect("Failed to get last 10 BTC/USD trades.");
         println!("Trades: {:?}", trades);
