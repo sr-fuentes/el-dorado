@@ -1,5 +1,4 @@
 use crate::exchanges::ftx::Trade;
-use rust_decimal::prelude::*;
 use std::io::{self, Write};
 
 pub fn get_input<U: std::str::FromStr>(prompt: &str) -> U {
