@@ -1,6 +1,6 @@
+use crate::candles::Candle;
 use crate::exchanges::ftx::*;
 use crate::exchanges::Exchange;
-use crate::candles::Candle;
 
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
