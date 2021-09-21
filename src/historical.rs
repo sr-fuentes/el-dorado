@@ -1,6 +1,5 @@
-use crate::candles::{insert_candle, select_unvalidated_candles, validate_candle, Candle};
-use crate::exchanges::ftx::*;
-use crate::exchanges::Exchange;
+use crate::candles::*;
+use crate::exchanges::{Exchange, ftx::RestClient, ftx::Trade};
 use crate::markets::*;
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use sqlx::PgPool;
@@ -47,13 +46,18 @@ pub async fn run(pool: &PgPool) {
         // consider it validated - if not - pull trades
         let is_valid = validate_candle(&client, &exchange, &market, &unvalidated_candle).await;
         if is_valid {
-            // update market details - last validated trade id, last validate trade ts, last validated candle, last updated ts
-            update_market_last_validated(pool, &market, &unvalidated_candle).await.expect("Could not update market details.");
+            // Update market details and candle with validated data
+            update_market_last_validated(pool, &market, &unvalidated_candle)
+                .await
+                .expect("Could not update market details.");
+            update_candle_validation(pool, &market, &unvalidated_candle)
+                .await
+                .expect("Could not update candle validation status.");
             // update validated trades
             // insert_validated_trades();
             // delete_processed_trades();
         } else {
-            panic!("Invalid candle. TODO - re-validate lower time frame.");
+            println!("Invalid candle. TODO - re-validate lower time frame.");
         }
     }
 
@@ -104,7 +108,7 @@ pub async fn backfill_ftx(
             let num_trades = new_trades.len();
             if num_trades > 0 {
                 new_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
-                // unwrap can be used because it will only be called
+                // Unwrap can be used because it will only be called
                 // if there is at least one element in new_trades vec
                 // Set end of interval to last trade returned for pagination
                 interval_end_or_last_trade = new_trades.first().unwrap().time;
@@ -114,7 +118,14 @@ pub async fn backfill_ftx(
                     num_trades, interval_end_or_last_trade, first_trade
                 );
                 println!("New last trade ts: {}", interval_end_or_last_trade);
-                // save trades to db
+                // FTX trades API takes time in seconds, set end timestamp to seconds
+                // rounded up to retrieve all other trades in that subsecond. This could lead to a
+                // endless loop if there are more than 100 trades in a second, in that case move the
+                // end to the floor of the seconds. Ie if last trades is 02.35 seconds, set to 03
+                // unless the first trades is 02.36 seconds as all 100 trades are in the 02 second
+                // period, then set end to 02.
+
+                // Save trades to db
                 insert_ftxus_trades(pool, market, exchange, new_trades, "rest")
                     .await
                     .expect("Failed to insert ftx trades.");
