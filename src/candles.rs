@@ -1,5 +1,5 @@
 use crate::exchanges::{ftx::Candle as FtxCandle, ftx::RestClient, ftx::Trade, Exchange};
-use crate::markets::MarketId;
+use crate::markets::{MarketDetail, MarketId};
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
@@ -194,6 +194,26 @@ pub async fn validate_candle(
     } else {
         false
     }
+}
+
+pub async fn update_candle_validation(
+    pool: &PgPool,
+    market: &MarketId,
+    candle: &Candle,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        r#"
+            UPDATE candles_15t_ftxus
+            SET is_validated = True
+            WHERE datetime = $1
+            AND market_id = $2
+        "#,
+        candle.datetime,
+        market.market_id,
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 #[cfg(test)]
