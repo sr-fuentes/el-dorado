@@ -1,9 +1,8 @@
 use crate::candles::*;
-use crate::exchanges::{Exchange, ftx::RestClient, ftx::Trade};
+use crate::exchanges::{ftx::RestClient, ftx::Trade, Exchange};
 use crate::markets::*;
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use sqlx::PgPool;
-use tokio::time::sleep;
 use uuid::Uuid;
 
 pub async fn run(pool: &PgPool) {
@@ -29,13 +28,6 @@ pub async fn run(pool: &PgPool) {
         .find(|m| m.market_name == "SOL/USD")
         .unwrap();
 
-    // Get last state of market, return status, start and finish
-    let market_detail = select_market_detail(pool, &market)
-        .await
-        .expect("Failed to get market detail.");
-    let start = Utc.timestamp(1631664000, 0); // 9/15/2021 00:00
-    let end = Utc.timestamp(1631671500, 0); // 9/15/2021 02:00
-
     // Validate / clean up current candles / trades for market
     let unvalidated_candles = select_unvalidated_candles(pool, &exchange, &market)
         .await
@@ -53,17 +45,43 @@ pub async fn run(pool: &PgPool) {
             update_candle_validation(pool, &market, &unvalidated_candle)
                 .await
                 .expect("Could not update candle validation status.");
-            // update validated trades
-            // insert_validated_trades();
-            // delete_processed_trades();
+            // Update validated trades and move from processed to validated
+            let validated_trades = select_ftx_trades(
+                pool,
+                &market,
+                &exchange,
+                unvalidated_candle.datetime,
+                unvalidated_candle.datetime + Duration::seconds(900),
+                true,
+            )
+            .await
+            .expect("Could not fetch validated trades.");
+            insert_ftxus_trades(pool, &market, &exchange, validated_trades, "validated")
+                .await
+                .expect("Could not insert validated trades.");
+            delete_ftx_trades(
+                pool,
+                &market,
+                &exchange,
+                unvalidated_candle.datetime,
+                unvalidated_candle.datetime + Duration::seconds(900),
+                true,
+            )
+            .await
+            .expect("Could not delete processed trades.");
         } else {
-            println!("Invalid candle. TODO - re-validate lower time frame.");
+            panic!("Invalid candle. TODO - re-validate lower time frame.");
         }
     }
 
     panic!();
 
-    // Update state of market
+    // Get last state of market, return status, start and finish
+    let market_detail = select_market_detail(pool, &market)
+        .await
+        .expect("Failed to get market detail.");
+    let start = Utc.timestamp(1631664000, 0); // 9/15/2021 00:00
+    let end = Utc.timestamp(1631671500, 0); // 9/15/2021 02:00
 
     // Backfill historical
     // Match exchange for backfill routine
@@ -95,7 +113,7 @@ pub async fn backfill_ftx(
         );
         while interval_start < interval_end_or_last_trade {
             // Prevent 429 errors by only requesting 4 per second
-            sleep(tokio::time::Duration::from_millis(250)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
             let mut new_trades = client
                 .get_trades(
                     market.market_name.as_str(),
@@ -139,10 +157,16 @@ pub async fn backfill_ftx(
                 if interval_end < end {
                     // Move trades from _rest to _processed and create candle
                     // Select trades for market between start and end interval
-                    let mut interval_trades =
-                        select_ftx_trades(pool, market, exchange, interval_start, interval_end)
-                            .await
-                            .expect("Could not fetch trades from db.");
+                    let mut interval_trades = select_ftx_trades(
+                        pool,
+                        market,
+                        exchange,
+                        interval_start,
+                        interval_end,
+                        false,
+                    )
+                    .await
+                    .expect("Could not fetch trades from db.");
                     // Sort and dedup
                     interval_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
                     interval_trades.dedup_by(|t1, t2| t1.id == t2.id);
@@ -153,7 +177,7 @@ pub async fn backfill_ftx(
                         .await
                         .expect("Could not insert new candle.");
                     // Delete trades for market between start and end interval
-                    delete_ftx_trades(pool, market, exchange, interval_start, interval_end)
+                    delete_ftx_trades(pool, market, exchange, interval_start, interval_end, false)
                         .await
                         .expect("Could not delete trades from db.");
                     // Insert into processed trades
@@ -232,9 +256,16 @@ pub async fn select_ftx_trades(
     exchange: &Exchange,
     interval_start: DateTime<Utc>,
     interval_end: DateTime<Utc>,
+    is_processed: bool,
 ) -> Result<Vec<Trade>, sqlx::Error> {
     // Cannot user query_as! macro because table may not exist at compile time
-    let rows = sqlx::query_as::<_, Trade>(
+    let sql = if is_processed {
+        r#"
+        SELECT trade_id as id, price, size, side, liquidation, time
+        FROM trades_ftxus_processed
+        WHERE market_id = $1 AND time >= $2 and time < $3
+        "#
+    } else {
         r#"
         SELECT trade_id as id, price, size, side, liquidation, time
         FROM trades_ftxus_rest
@@ -243,13 +274,14 @@ pub async fn select_ftx_trades(
         SELECT trade_id as id, price, size, side, liquidation, time
         FROM trades_ftxus_ws
         WHERE market_id = $1 AND time >= $2 and time < $3
-        "#,
-    )
-    .bind(market.market_id)
-    .bind(interval_start)
-    .bind(interval_end)
-    .fetch_all(pool)
-    .await?;
+        "#
+    };
+    let rows = sqlx::query_as::<_, Trade>(&sql)
+        .bind(market.market_id)
+        .bind(interval_start)
+        .bind(interval_end)
+        .fetch_all(pool)
+        .await?;
     Ok(rows)
 }
 
@@ -259,8 +291,15 @@ pub async fn delete_ftx_trades(
     exchange: &Exchange,
     interval_start: DateTime<Utc>,
     interval_end: DateTime<Utc>,
+    is_processed: bool,
 ) -> Result<(), sqlx::Error> {
-    let tables = ["rest", "ws"];
+    let mut tables = Vec::new();
+    if is_processed {
+        tables.push("processed");
+    } else {
+        tables.push("rest");
+        tables.push("ws");
+    };
     for table in tables {
         let sql = format!(
             r#"
