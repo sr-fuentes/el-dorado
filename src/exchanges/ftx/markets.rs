@@ -112,7 +112,7 @@ impl RestClient {
             Some(json!({
                 "limit": limit, // Supports pagination for values over 100
                 "start_time": start_time.map(|t| t.timestamp()), // API takes time in unix seconds
-                "end_time": end_time.map(|t| t.timestamp()), // API takes time in unix seconds
+                "end_time": end_time.map(|t| Decimal::new(t.timestamp() * 1000000 + t.timestamp_subsec_micros() as i64, 6)), // API takes time in unix seconds
             })),
         )
         .await
@@ -326,5 +326,21 @@ mod tests {
         "#;
         let deserialized: Candle = serde_json::from_str(candles_json).unwrap();
         println!("deserialized: {:?}", deserialized);
+    }
+
+    use rust_decimal::prelude::*;
+    #[test]
+    fn timestamp_to_decimal() {
+        let curr_time = Utc::now();
+        println!("Current Time: {:?}", curr_time);
+        println!("Current Timestamp: {:?}", curr_time.timestamp());
+        println!(
+            "Current TS in Micros {:?}",
+            curr_time.timestamp_subsec_micros()
+        );
+        let seconds_in_micros = curr_time.timestamp() * 1000000;
+        let ts_in_micros = seconds_in_micros + curr_time.timestamp_subsec_micros() as i64;
+        let dec_time = Decimal::new(ts_in_micros, 6);
+        println!("Current TS in Decimal {:?}", dec_time);
     }
 }
