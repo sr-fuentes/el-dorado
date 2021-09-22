@@ -1,7 +1,7 @@
 use crate::candles::*;
 use crate::exchanges::{ftx::RestClient, ftx::Trade, Exchange};
 use crate::markets::*;
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use chrono::{DateTime, Duration, DurationRound, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -74,14 +74,15 @@ pub async fn run(pool: &PgPool) {
         }
     }
 
-    panic!();
-
     // Get last state of market, return status, start and finish
     let market_detail = select_market_detail(pool, &market)
         .await
         .expect("Failed to get market detail.");
-    let start = Utc.timestamp(1631664000, 0); // 9/15/2021 00:00
-    let end = Utc.timestamp(1631671500, 0); // 9/15/2021 02:00
+    let start = match market_detail.last_validated_candle {
+        Some(lvc) => lvc + Duration::seconds(900),
+        None => get_ftx_start(&client, &market).await,
+    };
+    let end = Utc::now().duration_trunc(Duration::seconds(900)).unwrap(); // 9/15/2021 02:00
 
     // Backfill historical
     // Match exchange for backfill routine
@@ -192,6 +193,27 @@ pub async fn backfill_ftx(
     }
 }
 
+pub async fn get_ftx_start(client: &RestClient, market: &MarketId) -> DateTime<Utc> {
+    // Set end time to floor of today's date, start time to 90 days prior. Check each day if there
+    // are trades and return the start date - 1 that first returns trades
+    let end_time = Utc::now().duration_trunc(Duration::days(1)).unwrap();
+    let mut start_time = end_time - Duration::days(90);
+    while start_time < end_time {
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        let new_trades = client
+            .get_trades(market.market_name.as_str(), Some(1), None, Some(start_time))
+            .await
+            .expect("Failed to get trades.");
+        println!("New Trades: {:?}", new_trades);
+        if new_trades.len() > 0 {
+            return start_time - Duration::days(1);
+        } else {
+            start_time = start_time + Duration::days(1)
+        };
+    }
+    start_time
+}
+
 // pub async fn insert_ftx_trades(
 //     pool: &PgPool,
 //     market: &MarketId,
@@ -253,7 +275,7 @@ pub async fn insert_ftxus_trades(
 pub async fn select_ftx_trades(
     pool: &PgPool,
     market: &MarketId,
-    exchange: &Exchange,
+    _exchange: &Exchange,
     interval_start: DateTime<Utc>,
     interval_end: DateTime<Utc>,
     is_processed: bool,
