@@ -25,10 +25,10 @@ pub fn get_input<U: std::str::FromStr>(prompt: &str) -> U {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{Duration, TimeZone, DurationRound, Utc};
+    use crate::exchanges::ftx::Trade;
+    use chrono::{Duration, DurationRound, TimeZone, Utc};
     use rust_decimal::prelude::*;
     use rust_decimal_macros::dec;
-    use crate::exchanges::ftx::Trade;
 
     #[test]
     pub fn build_range_from_vec_trades() {
