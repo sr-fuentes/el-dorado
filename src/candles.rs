@@ -201,18 +201,17 @@ pub async fn update_candle_validation(
     market: &MarketId,
     candle: &Candle,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        r#"
+    let sql = r#"
             UPDATE candles_15t_ftxus
             SET is_validated = True
             WHERE datetime = $1
             AND market_id = $2
-        "#,
-        candle.datetime,
-        market.market_id,
-    )
-    .execute(pool)
-    .await?;
+        "#;
+    sqlx::query(&sql)
+        .bind(candle.datetime)
+        .bind(market.market_id)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
