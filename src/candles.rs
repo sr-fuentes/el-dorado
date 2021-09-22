@@ -1,4 +1,4 @@
-use crate::exchanges::{ftx::RestClient, ftx::Trade, Exchange};
+use crate::exchanges::{ftx::Candle as CandleFtx, ftx::Trade, Exchange};
 use crate::markets::MarketId;
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
@@ -190,33 +190,31 @@ pub async fn select_previous_candle(
     Ok(row)
 }
 
-pub async fn validate_candle(
-    client: &RestClient,
-    _exchange: &Exchange,
-    market: &MarketId,
-    candle: &Candle,
-) -> bool {
-    // Get candle from exchange, start and end = candle start to return one candle
-    let mut exchange_candles = client
-        .get_candles(
-            &market.market_name,
-            Some(900),
-            Some(candle.datetime),
-            Some(candle.datetime),
-        )
-        .await
-        .expect("Failed to fetch candles.");
-
+pub fn validate_candle(candle: &Candle, exchange_candles: &mut Vec<CandleFtx>) -> bool {
     // FTX candle validation on FTX Volume = ED Value, FTX sets open = last trade event if the
-    // last trades was in the prior time period. Consider valid if w/in 5 bps of candle value.
-    if candle.value == exchange_candles.pop().unwrap().volume {
-        true
-    } else {
-        println!("Unvalidated Candle: {:?}", candle);
-        println!("Exchange candles: {:?}", exchange_candles);
-        let delta = (candle.value / exchange_candles.pop().unwrap().volume) - dec!(1.0);
-        println!("Candle delta: {:?}", delta);
-        false
+    // last trades was in the prior time period.
+    // Consider valid if candle.value == exchange_candle.volume.
+    let exchange_candle = exchange_candles.iter().find(|c| c.time == candle.datetime);
+    match exchange_candle {
+        Some(c) => {
+            if c.volume == candle.value {
+                return true;
+            } else {
+                println!(
+                    "Failed to validate: {:?} in \n {:?}",
+                    candle, exchange_candle
+                );
+                return false;
+            }
+        }
+        None => {
+            if candle.volume == dec!(0) {
+                return true;
+            } else {
+                println!("Failed to validate: {:?}", candle);
+                return false;
+            }
+        }
     }
 }
 

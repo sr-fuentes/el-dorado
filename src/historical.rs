@@ -32,47 +32,62 @@ pub async fn run(pool: &PgPool) {
     let unvalidated_candles = select_unvalidated_candles(pool, &exchange, &market)
         .await
         .expect("Could not fetch unvalidated candles.");
-
-    for unvalidated_candle in unvalidated_candles {
-        // validate candle - get candle from exchange, comp volume. if volume matches
-        // consider it validated - if not - pull trades
-        let is_valid = validate_candle(&client, &exchange, &market, &unvalidated_candle).await;
-        if is_valid {
-            // Update market details and candle with validated data
-            update_market_last_validated(pool, &market, &unvalidated_candle)
-                .await
-                .expect("Could not update market details.");
-            update_candle_validation(pool, &market, &unvalidated_candle)
-                .await
-                .expect("Could not update candle validation status.");
-            // Update validated trades and move from processed to validated
-            let validated_trades = select_ftx_trades(
-                pool,
-                &market,
-                &exchange,
-                unvalidated_candle.datetime,
-                unvalidated_candle.datetime + Duration::seconds(900),
-                true,
+    if unvalidated_candles.len() > 0 {
+        let first_candle = unvalidated_candles.first().unwrap().datetime;
+        let last_candle = unvalidated_candles.last().unwrap().datetime;
+        println!("Getting exchange candles from {:?} to {:?}", first_candle, last_candle);
+        let mut exchange_candles = client
+            .get_candles(
+                &market.market_name,
+                Some(900),
+                Some(first_candle),
+                Some(last_candle),
             )
             .await
-            .expect("Could not fetch validated trades.");
-            insert_ftxus_trades(pool, &market, &exchange, validated_trades, "validated")
+            .expect("Could not fetch exchange candles");
+        println!("Pulled {} candles from exchange.", exchange_candles.len());
+        println!("First returned candle is: {:?}", exchange_candles.first().unwrap());
+        for unvalidated_candle in unvalidated_candles {
+            // validate candle - get candle from exchange, comp volume. if volume matches
+            // consider it validated - if not - pull trades
+            let is_valid = validate_candle(&unvalidated_candle, &mut exchange_candles);
+            if is_valid {
+                // Update market details and candle with validated data
+                update_market_last_validated(pool, &market, &unvalidated_candle)
+                    .await
+                    .expect("Could not update market details.");
+                update_candle_validation(pool, &market, &unvalidated_candle)
+                    .await
+                    .expect("Could not update candle validation status.");
+                // Update validated trades and move from processed to validated
+                let validated_trades = select_ftx_trades(
+                    pool,
+                    &market,
+                    &exchange,
+                    unvalidated_candle.datetime,
+                    unvalidated_candle.datetime + Duration::seconds(900),
+                    true,
+                )
                 .await
-                .expect("Could not insert validated trades.");
-            delete_ftx_trades(
-                pool,
-                &market,
-                &exchange,
-                unvalidated_candle.datetime,
-                unvalidated_candle.datetime + Duration::seconds(900),
-                true,
-            )
-            .await
-            .expect("Could not delete processed trades.");
-        } else {
-            panic!("Invalid candle. TODO - re-validate lower time frame.");
+                .expect("Could not fetch validated trades.");
+                insert_ftxus_trades(pool, &market, &exchange, validated_trades, "validated")
+                    .await
+                    .expect("Could not insert validated trades.");
+                delete_ftx_trades(
+                    pool,
+                    &market,
+                    &exchange,
+                    unvalidated_candle.datetime,
+                    unvalidated_candle.datetime + Duration::seconds(900),
+                    true,
+                )
+                .await
+                .expect("Could not delete processed trades.");
+            } else {
+                panic!("Invalid candle. TODO - re-validate lower time frame.");
+            }
         }
-    }
+    };
 
     // Get last state of market, return status, start and finish
     let market_detail = select_market_detail(pool, &market)
