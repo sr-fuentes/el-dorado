@@ -168,11 +168,32 @@ pub async fn backfill_ftx(
                     )
                     .await
                     .expect("Could not fetch trades from db.");
-                    // Sort and dedup
-                    interval_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
-                    interval_trades.dedup_by(|t1, t2| t1.id == t2.id);
-                    // Create Candle
-                    let new_candle = Candle::new_from_trades(interval_start, &interval_trades);
+                    // Check if there are interval trades, if there are: create candle and archive
+                    // trades. If there are not, get previous trade details from previous candle
+                    // and build candle from last
+                    let new_candle = match interval_trades.len() {
+                        0 => {
+                            // Get previous candle
+                            let previous_candle =
+                                select_previous_candle(pool, &exchange, &market, interval_start)
+                                    .await
+                                    .expect("No previous candle.");
+                            // Create Candle
+                            Candle::new_from_last(
+                                interval_start,
+                                previous_candle.close,
+                                previous_candle.last_trade_ts,
+                                previous_candle.last_trade_id,
+                            )
+                        }
+                        _ => {
+                            // Sort and dedup
+                            interval_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
+                            interval_trades.dedup_by(|t1, t2| t1.id == t2.id);
+                            // Create Candle
+                            Candle::new_from_trades(interval_start, &interval_trades)
+                        }
+                    };
                     // Insert into candles
                     insert_candle(pool, market, exchange, new_candle)
                         .await
@@ -206,7 +227,7 @@ pub async fn get_ftx_start(client: &RestClient, market: &MarketId) -> DateTime<U
             .expect("Failed to get trades.");
         println!("New Trades: {:?}", new_trades);
         if new_trades.len() > 0 {
-            return start_time - Duration::days(1);
+            return start_time;
         } else {
             start_time = start_time + Duration::days(1)
         };

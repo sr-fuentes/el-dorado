@@ -1,6 +1,6 @@
 use crate::exchanges::{ftx::Candle as FtxCandle, ftx::RestClient, ftx::Trade, Exchange};
-use crate::markets::{MarketDetail, MarketId};
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use crate::markets::{MarketId};
+use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use sqlx::PgPool;
@@ -167,9 +167,32 @@ pub async fn select_unvalidated_candles(
     Ok(rows)
 }
 
+pub async fn select_previous_candle(
+    pool: &PgPool,
+    exchange: &Exchange,
+    market: &MarketId,
+    datetime: DateTime<Utc>,
+) -> Result<Candle, sqlx::Error> {
+    let sql = format!(
+        r#"
+            SELECT * FROM candles_15t_{}
+            WHERE market_id = $1
+            AND datetime < $2
+            ORDER BY datetime DESC
+        "#,
+        exchange.exchange_name
+    );
+    let row = sqlx::query_as::<_, Candle>(&sql)
+        .bind(market.market_id)
+        .bind(datetime)
+        .fetch_one(pool)
+        .await?;
+    Ok(row)
+}
+
 pub async fn validate_candle(
     client: &RestClient,
-    exchange: &Exchange,
+    _exchange: &Exchange,
     market: &MarketId,
     candle: &Candle,
 ) -> bool {
@@ -183,15 +206,16 @@ pub async fn validate_candle(
         )
         .await
         .expect("Failed to fetch candles.");
-    println!("Unvalidated Candle: {:?}", candle);
-    println!("Exchange candles: {:?}", exchange_candles);
-    let delta = (candle.value / exchange_candles.pop().unwrap().volume) - dec!(1.0);
-    println!("Candle delta: {:?}", delta);
+
     // FTX candle validation on FTX Volume = ED Value, FTX sets open = last trade event if the
     // last trades was in the prior time period. Consider valid if w/in 5 bps of candle value.
-    if delta < dec!(0.0005) {
+    if candle.value == exchange_candles.pop().unwrap().volume {
         true
     } else {
+        println!("Unvalidated Candle: {:?}", candle);
+        println!("Exchange candles: {:?}", exchange_candles);
+        let delta = (candle.value / exchange_candles.pop().unwrap().volume) - dec!(1.0);
+        println!("Candle delta: {:?}", delta);
         false
     }
 }
