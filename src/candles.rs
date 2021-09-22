@@ -1,5 +1,5 @@
 use crate::exchanges::{ftx::Candle as FtxCandle, ftx::RestClient, ftx::Trade, Exchange};
-use crate::markets::{MarketId};
+use crate::markets::MarketId;
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;

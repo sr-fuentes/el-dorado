@@ -1,5 +1,5 @@
 use crate::candles::*;
-use crate::exchanges::{ftx::RestClient, ftx::Trade, Exchange};
+use crate::exchanges::{ftx::RestClient, ftx::RestError, ftx::Trade, Exchange};
 use crate::markets::*;
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use sqlx::PgPool;
@@ -115,7 +115,7 @@ pub async fn backfill_ftx(
         while interval_start < interval_end_or_last_trade {
             // Prevent 429 errors by only requesting 4 per second
             tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
-            let mut new_trades = client
+            let mut new_trades = match client
                 .get_trades(
                     market.market_name.as_str(),
                     Some(100),
@@ -123,7 +123,19 @@ pub async fn backfill_ftx(
                     Some(interval_end_or_last_trade),
                 )
                 .await
-                .expect("Failed to get trades.");
+            {
+                Err(RestError::Reqwest(e)) => {
+                    if e.is_timeout() {
+                        println!("Request timed out. Waiting 30 seconds before retrying.");
+                        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                        continue;
+                    } else {
+                        panic!("Error: {:?}", e)
+                    }
+                }
+                Err(e) => panic!("RestError: {:?}", e),
+                Ok(result) => result,
+            };
             let num_trades = new_trades.len();
             if num_trades > 0 {
                 new_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
@@ -213,6 +225,8 @@ pub async fn backfill_ftx(
         }
     }
 }
+
+// pub async fn process_new_ftx_trades()
 
 pub async fn get_ftx_start(client: &RestClient, market: &MarketId) -> DateTime<Utc> {
     // Set end time to floor of today's date, start time to 90 days prior. Check each day if there
