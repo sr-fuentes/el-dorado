@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
-use rust_decimal_macros::dec;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct Trade {
@@ -42,6 +41,7 @@ impl Trade {
 mod tests {
     use super::*;
     use chrono::{TimeZone, Utc};
+    use rust_decimal_macros::dec;
 
     #[test]
     pub fn new_trade_returns_trade() {
