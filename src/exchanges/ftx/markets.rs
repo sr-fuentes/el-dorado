@@ -13,10 +13,10 @@ pub struct Market {
     pub price_increment: f64,
     pub size_increment: f64,
     pub min_provide_size: f64,
-    pub last: f64,
+    pub last: Option<f64>,
     pub bid: f64,
     pub ask: f64,
-    pub price: f64,
+    pub price: Option<f64>,
     #[serde(rename = "type")]
     pub market_type: String,
     pub base_currency: Option<String>,
