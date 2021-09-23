@@ -175,7 +175,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_markets_returns_all_markets() {
-        let client = RestClient::new_us();
+        let client = RestClient::new_intl();
         let _markets = client.get_markets().await.expect("Failed to get markets.");
     }
 

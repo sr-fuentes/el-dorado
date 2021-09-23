@@ -1,14 +1,18 @@
 use super::RestError;
 use reqwest::{Client, Method};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::{from_reader, Map, Value};
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
-#[serde(untagged)]
-pub enum RestResponse<T> {
-    Result { success: bool, result: T },
-    Error { success: bool, error: String },
+#[derive(Clone, Debug, Deserialize)]
+pub struct SuccessResponse<T> {
+    pub success: bool,
+    pub result: T,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct ErrorResponse {
+    pub success: bool,
+    pub error: String,
 }
 
 pub struct RestClient {
@@ -74,31 +78,20 @@ impl RestClient {
             .request(method, format!("{}{}", self.endpoint, path))
             .query(&params)
             .send()
-            .await?; // reqwest::Error if request fails
+            .await?
+            .bytes()
+            .await?;
 
-        let contents: RestResponse<T> = response.json().await?; // reqwest::Error if serde deserialize fails
-
-        match contents {
-            RestResponse::Result { result, .. } => Ok(result),
-            RestResponse::Error { error, .. } => Err(RestError::Api(error)),
+        match from_reader(&*response) {
+            Ok(SuccessResponse { result, .. }) => Ok(result),
+            Err(e) => {
+                if let Ok(ErrorResponse { error, .. }) = from_reader(&*response) {
+                    Err(RestError::Api(error))
+                } else {
+                    Err(e.into())
+                }
+            }
         }
-
-        // // Write text response to file to derive struct fields:
-        // //
-        // let response: String = self
-        //     .client
-        //     .request(Method::GET, "https://ftx.us/api/markets/BTC/USD/candles")
-        //     .query(&[("resolution", 86400)])
-        //     .send()
-        //     .await?
-        //     .text()
-        //     .await?;
-
-        // use std::fs::File;
-        // use std::io::prelude::*;
-        // let mut file = File::create("response.json").unwrap();
-        // file.write_all(response.as_bytes()).unwrap();
-        // panic!("{:#?}", response);
     }
 }
 

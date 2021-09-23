@@ -1,11 +1,11 @@
-#[derive(Debug)]
-pub enum RestError {
-    Reqwest(reqwest::Error),
-    Api(String),
-}
+use thiserror::Error;
 
-impl From<reqwest::Error> for RestError {
-    fn from(e: reqwest::Error) -> RestError {
-        RestError::Reqwest(e)
-    }
+#[derive(Debug, Error)]
+pub enum RestError {
+    #[error("Api error: {0}")]
+    Api(String),
+    #[error(transparent)]
+    Reqwest(#[from] reqwest::Error),
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
 }
