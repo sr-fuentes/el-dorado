@@ -9,7 +9,7 @@ pub async fn run(pool: &PgPool) {
     // Get input from user for exchange to run
     let exchange = Exchange {
         exchange_id: Uuid::new_v4(),
-        exchange_name: "ftxus".to_string(),
+        exchange_name: "ftx".to_string(),
     };
 
     // Get REST client for exchange
@@ -25,7 +25,7 @@ pub async fn run(pool: &PgPool) {
         .expect("Could not fetch exchanges.");
     let market = market_ids
         .iter()
-        .find(|m| m.market_name == "SOL/USD")
+        .find(|m| m.market_name == "SOL-PERP")
         .unwrap();
 
     // Validate / clean up current candles / trades for market
