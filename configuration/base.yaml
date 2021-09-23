@@ -4,4 +4,3 @@ database:
   username: "postgres"
   password: "password"
   database_name: "eldorado"
-  require_ssl: true

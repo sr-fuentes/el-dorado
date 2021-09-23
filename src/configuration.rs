@@ -1,4 +1,5 @@
 use sqlx::postgres::{PgConnectOptions, PgSslMode};
+use std::convert::{TryFrom, TryInto};
 
 #[derive(serde::Deserialize, Debug)]
 pub struct Settings {
@@ -16,13 +17,23 @@ pub struct DatabaseSettings {
 }
 
 pub fn get_configuration() -> Result<Settings, config::ConfigError> {
-    // Initialize our configuration reader
     let mut settings = config::Config::default();
+    let base_path = std::env::current_dir().expect("Failed to determine current directory.");
+    let configuration_directory = base_path.join("configuration");
 
-    // Add configuration values from a file named `configuration`.
-    // It will look for any top-level file with an extension
-    // that `config` knows how to parse: yaml, json, etc.
-    settings.merge(config::File::with_name("configuration"))?;
+    // Read the `default` configuration file
+    settings.merge(config::File::from(configuration_directory.join("base")).required(true))?;
+
+    // Detect the running environment and default to `local` if none specified
+    let environment: Environment = std::env::var("APP_ENVIRONMENT")
+        .unwrap_or_else(|_| "local".into())
+        .try_into()
+        .expect("Failed to parse APP_ENVIRONMENT");
+
+    // Layer on environmental specific values
+    settings.merge(
+        config::File::from(configuration_directory.join(environment.as_str())).required(true),
+    )?;
 
     // Try to convert the configuration values it reads into
     // our Settings type
@@ -31,12 +42,48 @@ pub fn get_configuration() -> Result<Settings, config::ConfigError> {
 
 impl DatabaseSettings {
     pub fn with_db(&self) -> PgConnectOptions {
+        let ssl_mode = if self.require_ssl {
+            PgSslMode::Require
+        } else {
+            // Try an encrypted connection, fallback to unencrypted if it fails
+            PgSslMode::Prefer
+        };
         PgConnectOptions::new()
             .host(&self.host)
             .username(&self.username)
             .password(&self.password)
             .port(self.port)
             .database(&self.database_name)
-            .ssl_mode(PgSslMode::Require)
+            .ssl_mode(ssl_mode)
+    }
+}
+
+// The possible runtimes for the application
+pub enum Environment {
+    Local,
+    Production,
+}
+
+impl Environment {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Environment::Local => "local",
+            Environment::Production => "production",
+        }
+    }
+}
+
+impl TryFrom<String> for Environment {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        match s.to_lowercase().as_str() {
+            "local" => Ok(Self::Local),
+            "production" => Ok(Self::Production),
+            other => Err(format!(
+                "{} is not a supported environment. Use either `local` or `production`.",
+                other
+            )),
+        }
     }
 }
