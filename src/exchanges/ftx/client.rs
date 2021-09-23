@@ -1,6 +1,6 @@
 use super::RestError;
 use reqwest::{Client, Method};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{from_reader, Map, Value};
 
 #[derive(Clone, Debug, Deserialize)]
