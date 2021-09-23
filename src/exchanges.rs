@@ -189,7 +189,7 @@ mod tests {
         println!("Configuration: {:?}", configuration);
 
         // Create db connection
-        let connection_pool = PgPool::connect(&configuration.database.connection_string())
+        let connection_pool = PgPool::connect_with(configuration.database.with_db())
             .await
             .expect("Failed to connect to Postgres.");
 
@@ -231,7 +231,7 @@ mod tests {
         println!("Configuration: {:?}", configuration);
 
         // Create db connection
-        let connection_pool = PgPool::connect(&configuration.database.connection_string())
+        let connection_pool = PgPool::connect_with(configuration.database.with_db())
             .await
             .expect("Failed to connect to Postgres.");
 
