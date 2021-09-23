@@ -1,4 +1,4 @@
-use crate::exchanges::{ftx::Candle as CandleFtx, ftx::Trade, Exchange};
+use crate::exchanges::{ftx::Candle as CandleFtx, ftx::RestClient, ftx::Trade, Exchange};
 use crate::markets::MarketId;
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
@@ -110,6 +110,42 @@ impl Candle {
     }
 }
 
+pub async fn get_ftx_candles(
+    client: &RestClient,
+    market: &MarketId,
+    start: DateTime<Utc>,
+    mut end_or_last: DateTime<Utc>,
+) -> Vec<CandleFtx> {
+    let mut candles: Vec<CandleFtx> = Vec::new();
+    while start < end_or_last {
+        // Prevent 429 errors by only requesting 4 per second
+        tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
+        let mut new_candles = client
+            .get_candles(
+                &market.market_name,
+                Some(900),
+                Some(start),
+                Some(end_or_last),
+            )
+            .await
+            .expect("Could not fetch exchange candles.");
+        let num_candles = new_candles.len();
+        if num_candles > 0 {
+            candles.append(&mut new_candles);
+        };
+        // Sort candles to get next last
+        candles.sort_by(|c1, c2| c1.time.cmp(&c2.time));
+        end_or_last = candles.first().unwrap().time;
+        if num_candles < 1501 {
+            // Max pagination on candles is 1501
+            break;
+        }
+    }
+    // Dedup candles
+    candles.dedup_by(|c1, c2| c1.time == c2.time);
+    candles
+}
+
 pub async fn insert_candle(
     pool: &PgPool,
     market: &MarketId,
@@ -211,7 +247,10 @@ pub fn validate_candle(candle: &Candle, exchange_candles: &mut Vec<CandleFtx>) -
             if candle.volume == dec!(0) {
                 return true;
             } else {
-                println!("Failed to validate: {:?}", candle);
+                println!(
+                    "Failed to validate: {:?}. Volume not 0 and no exchange candle.",
+                    candle
+                );
                 return false;
             }
         }

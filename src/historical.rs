@@ -35,18 +35,17 @@ pub async fn run(pool: &PgPool) {
     if unvalidated_candles.len() > 0 {
         let first_candle = unvalidated_candles.first().unwrap().datetime;
         let last_candle = unvalidated_candles.last().unwrap().datetime;
-        println!("Getting exchange candles from {:?} to {:?}", first_candle, last_candle);
-        let mut exchange_candles = client
-            .get_candles(
-                &market.market_name,
-                Some(900),
-                Some(first_candle),
-                Some(last_candle),
-            )
-            .await
-            .expect("Could not fetch exchange candles");
+        println!(
+            "Getting exchange candles from {:?} to {:?}",
+            first_candle, last_candle
+        );
+        let mut exchange_candles =
+            get_ftx_candles(&client, &market, first_candle, last_candle).await;
         println!("Pulled {} candles from exchange.", exchange_candles.len());
-        println!("First returned candle is: {:?}", exchange_candles.first().unwrap());
+        println!(
+            "First returned candle is: {:?}",
+            exchange_candles.first().unwrap()
+        );
         for unvalidated_candle in unvalidated_candles {
             // validate candle - get candle from exchange, comp volume. if volume matches
             // consider it validated - if not - pull trades
