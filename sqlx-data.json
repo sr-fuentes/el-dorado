@@ -1,0 +1,240 @@
+{
+  "db": "PostgreSQL",
+  "0c27da86c0cfa541ad611849bacdb97446ccaed6bd3831e567a387d2c72e8398": {
+    "query": "\n        SELECT exchange_id, exchange_name\n        FROM exchanges\n        ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "exchange_id",
+          "type_info": "Uuid"
+        },
+        {
+          "ordinal": 1,
+          "name": "exchange_name",
+          "type_info": "Text"
+        }
+      ],
+      "parameters": {
+        "Left": []
+      },
+      "nullable": [
+        false,
+        false
+      ]
+    }
+  },
+  "239fa6007697874b920fed3d80665a3a426035242ec41c2fee39be619f9b50ed": {
+    "query": "\n        SELECT market_id, market_name\n        FROM markets\n        WHERE exchange_name = $1\n        ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "market_id",
+          "type_info": "Uuid"
+        },
+        {
+          "ordinal": 1,
+          "name": "market_name",
+          "type_info": "Text"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      },
+      "nullable": [
+        false,
+        false
+      ]
+    }
+  },
+  "9d661e43a7a2b98d2adef1c485503db47ff91bfc8bf21daedb4794853d510c01": {
+    "query": "\n            UPDATE markets\n            SET (last_validated_trade_id, last_validated_trade_ts, last_validated_candle, \n                last_update_ts) = ($1, $2, $3, $4)\n            WHERE market_id = $5\n        ",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Timestamptz",
+          "Timestamptz",
+          "Timestamptz",
+          "Uuid"
+        ]
+      },
+      "nullable": []
+    }
+  },
+  "c23a72d6cc65ab4c14dc5d6863d32453c3d9a62f4e3e1d813fc07c83189859a9": {
+    "query": "\n            SELECT * FROM markets\n            WHERE market_id = $1\n        ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "market_id",
+          "type_info": "Uuid"
+        },
+        {
+          "ordinal": 1,
+          "name": "exchange_name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 2,
+          "name": "market_name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 3,
+          "name": "market_type",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "base_currency",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 5,
+          "name": "quote_currency",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 6,
+          "name": "underlying",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 7,
+          "name": "market_status",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 8,
+          "name": "market_data_status",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 9,
+          "name": "first_validated_trade_id",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 10,
+          "name": "first_validated_trade_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 11,
+          "name": "last_validated_trade_id",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 12,
+          "name": "last_validated_trade_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 13,
+          "name": "candle_base_interval",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 14,
+          "name": "candle_base_in_seconds",
+          "type_info": "Int4"
+        },
+        {
+          "ordinal": 15,
+          "name": "first_validated_candle",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 16,
+          "name": "last_validated_candle",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 17,
+          "name": "last_update_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 18,
+          "name": "last_update_ip_address",
+          "type_info": "Inet"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        false,
+        false
+      ]
+    }
+  },
+  "d961b10b78c3a6a3d02634453d0ba31e9587b14591ed1578036b37f1aea19a17": {
+    "query": "\n        INSERT INTO exchanges (\n            exchange_id, exchange_name, exchange_rank, is_spot, is_derivitive, \n            exchange_status, added_date, last_refresh_date)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Text",
+          "Int4",
+          "Bool",
+          "Bool",
+          "Text",
+          "Timestamptz",
+          "Timestamptz"
+        ]
+      },
+      "nullable": []
+    }
+  },
+  "ff1fa3c9c013e4c96bbf43b5f2e470f0f1a9d59c29df17c132607a958caec92f": {
+    "query": "\n        INSERT INTO markets (\n            market_id, exchange_name, market_name, market_type, base_currency,\n            quote_currency, underlying, market_status, market_data_status,\n            candle_base_interval, candle_base_in_seconds, last_update_ts, last_update_ip_address)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)    \n        ",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Text",
+          "Text",
+          "Text",
+          "Text",
+          "Text",
+          "Text",
+          "Text",
+          "Text",
+          "Text",
+          "Int4",
+          "Timestamptz",
+          "Inet"
+        ]
+      },
+      "nullable": []
+    }
+  }
+}
