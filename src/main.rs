@@ -24,7 +24,7 @@ async fn main() {
 
     // Load configuration
     let configuration = get_configuration().expect("Failed to read configuration.");
-    println!("Configuration: {:?}", configuration);
+    // println!("Configuration: {:?}", configuration);
 
     // Create db connection
     let connection_pool = PgPool::connect_with(configuration.database.with_db())
