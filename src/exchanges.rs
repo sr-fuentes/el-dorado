@@ -152,7 +152,6 @@ pub async fn create_exchange_tables(pool: &PgPool, exchange: &Exchange) -> Resul
         r#"
             CREATE TABLE IF NOT EXISTS candles_15t_{} (
                 datetime timestamptz NOT NULL,
-                PRIMARY KEY (datetime),
                 open NUMERIC NOT NULL,
                 high NUMERIC NOT NULL,
                 low NUMERIC NOT NULL,
@@ -166,7 +165,8 @@ pub async fn create_exchange_tables(pool: &PgPool, exchange: &Exchange) -> Resul
                 last_trade_ts timestamptz NOT NULL,
                 last_trade_id TEXT NOT NULL,
                 is_validated BOOLEAN NOT NULL,
-                market_id uuid NOT NULL
+                market_id uuid NOT NULL,
+                PRIMARY KEY (datetime, market_id)
             )
         "#,
         exchange.exchange_name
