@@ -1,16 +1,20 @@
 use crate::candles::*;
-use crate::exchanges::{ftx::RestClient, ftx::RestError, ftx::Trade, Exchange};
+use crate::configuration::*;
+use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::RestError, ftx::Trade, Exchange};
 use crate::markets::*;
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use sqlx::PgPool;
-use uuid::Uuid;
 
-pub async fn run(pool: &PgPool) {
-    // Get input from user for exchange to run
-    let exchange = Exchange {
-        exchange_id: Uuid::new_v4(),
-        exchange_name: "ftx".to_string(),
-    };
+pub async fn run(pool: &PgPool, config: Settings) {
+    // Get exchanges from database
+    let exchanges = fetch_exchanges(pool)
+        .await
+        .expect("Could not fetch exchanges.");
+    // Match exchange to exchanges in database
+    let exchange = exchanges
+        .iter()
+        .find(|e| e.exchange_name == config.application.exchange)
+        .unwrap();
 
     // Get REST client for exchange
     let client = match exchange.exchange_name.as_str() {
@@ -25,7 +29,7 @@ pub async fn run(pool: &PgPool) {
         .expect("Could not fetch exchanges.");
     let market = market_ids
         .iter()
-        .find(|m| m.market_name == "SOL-PERP")
+        .find(|m| m.market_name == config.application.market)
         .unwrap();
 
     // Validate / clean up current candles / trades for market
@@ -87,6 +91,10 @@ pub async fn run(pool: &PgPool) {
             }
         }
     };
+    // Delete trades from _rest table for market
+    delete_trades_by_market_table(pool, &market, &exchange, "rest")
+        .await
+        .expect("Could not clear _rest trades.");
 
     // Get last state of market, return status, start and finish
     let market_detail = select_market_detail(pool, &market)
@@ -396,5 +404,25 @@ pub async fn delete_ftx_trades(
             .execute(pool)
             .await?;
     }
+    Ok(())
+}
+
+pub async fn delete_trades_by_market_table(
+    pool: &PgPool,
+    market: &MarketId,
+    exchange: &Exchange,
+    trade_table: &str,
+) -> Result<(), sqlx::Error> {
+    let sql = format!(
+        r#"
+            DELETE FROM trades_{}_{}
+            WHERE market_id = $1
+        "#,
+        exchange.exchange_name, trade_table
+    );
+    sqlx::query(&sql)
+        .bind(market.market_id)
+        .execute(pool)
+        .await?;
     Ok(())
 }

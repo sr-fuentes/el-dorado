@@ -1,2 +1,5 @@
 database:
   require_ssl: false
+application:
+  exchange: "ftxus"
+  market: "BTC/USD"
