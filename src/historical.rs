@@ -163,13 +163,17 @@ pub async fn backfill_ftx(
                     num_trades, interval_end_or_last_trade, first_trade
                 );
                 println!("New last trade ts: {}", interval_end_or_last_trade);
-                // FTX trades API takes time in seconds, set end timestamp to seconds
-                // rounded up to retrieve all other trades in that subsecond. This could lead to a
-                // endless loop if there are more than 100 trades in a second, in that case move the
-                // end to the floor of the seconds. Ie if last trades is 02.35 seconds, set to 03
-                // unless the first trades is 02.36 seconds as all 100 trades are in the 02 second
-                // period, then set end to 02.
-
+                // FTX trades API takes time in microseconds. This could lead to a
+                // endless loop if there are more than 100 trades in that microsecond.
+                // In that case move the end to last trade minus one microsecond.
+                if interval_end_or_last_trade == first_trade {
+                    interval_end_or_last_trade =
+                        interval_end_or_last_trade - Duration::microseconds(1);
+                    println!(
+                        "More than 100 trades in microsecond. Resetting to: {}",
+                        interval_end_or_last_trade
+                    );
+                }
                 // Save trades to db
                 insert_ftxus_trades(pool, market, exchange, new_trades, "rest")
                     .await
@@ -331,13 +335,17 @@ pub async fn select_ftx_trades(
 ) -> Result<Vec<Trade>, sqlx::Error> {
     // Cannot user query_as! macro because table may not exist at compile time
     let sql = if is_processed {
-        format!(r#"
+        format!(
+            r#"
         SELECT trade_id as id, price, size, side, liquidation, time
         FROM trades_{}_processed
         WHERE market_id = $1 AND time >= $2 and time < $3
-        "#, exchange.exchange_name)
+        "#,
+            exchange.exchange_name
+        )
     } else {
-        format!(r#"
+        format!(
+            r#"
         SELECT trade_id as id, price, size, side, liquidation, time
         FROM trades_{table}_rest
         WHERE market_id = $1 AND time >= $2 and time < $3
@@ -345,7 +353,9 @@ pub async fn select_ftx_trades(
         SELECT trade_id as id, price, size, side, liquidation, time
         FROM trades_{table}_ws
         WHERE market_id = $1 AND time >= $2 and time < $3
-        "#, table=exchange.exchange_name)
+        "#,
+            table = exchange.exchange_name
+        )
     };
     let rows = sqlx::query_as::<_, Trade>(&sql)
         .bind(market.market_id)
