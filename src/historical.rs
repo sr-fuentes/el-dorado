@@ -55,7 +55,7 @@ pub async fn run(pool: &PgPool) {
                 update_market_last_validated(pool, &market, &unvalidated_candle)
                     .await
                     .expect("Could not update market details.");
-                update_candle_validation(pool, &market, &unvalidated_candle)
+                update_candle_validation(pool, &exchange, &market, &unvalidated_candle)
                     .await
                     .expect("Could not update candle validation status.");
                 // Update validated trades and move from processed to validated
@@ -324,28 +324,28 @@ pub async fn insert_ftxus_trades(
 pub async fn select_ftx_trades(
     pool: &PgPool,
     market: &MarketId,
-    _exchange: &Exchange,
+    exchange: &Exchange,
     interval_start: DateTime<Utc>,
     interval_end: DateTime<Utc>,
     is_processed: bool,
 ) -> Result<Vec<Trade>, sqlx::Error> {
     // Cannot user query_as! macro because table may not exist at compile time
     let sql = if is_processed {
-        r#"
+        format!(r#"
         SELECT trade_id as id, price, size, side, liquidation, time
-        FROM trades_ftxus_processed
+        FROM trades_{}_processed
         WHERE market_id = $1 AND time >= $2 and time < $3
-        "#
+        "#, exchange.exchange_name)
     } else {
-        r#"
+        format!(r#"
         SELECT trade_id as id, price, size, side, liquidation, time
-        FROM trades_ftxus_rest
+        FROM trades_{table}_rest
         WHERE market_id = $1 AND time >= $2 and time < $3
         UNION
         SELECT trade_id as id, price, size, side, liquidation, time
-        FROM trades_ftxus_ws
+        FROM trades_{table}_ws
         WHERE market_id = $1 AND time >= $2 and time < $3
-        "#
+        "#, table=exchange.exchange_name)
     };
     let rows = sqlx::query_as::<_, Trade>(&sql)
         .bind(market.market_id)

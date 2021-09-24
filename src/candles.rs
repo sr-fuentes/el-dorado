@@ -259,15 +259,16 @@ pub fn validate_candle(candle: &Candle, exchange_candles: &mut Vec<CandleFtx>) -
 
 pub async fn update_candle_validation(
     pool: &PgPool,
+    exchange: &Exchange,
     market: &MarketId,
     candle: &Candle,
 ) -> Result<(), sqlx::Error> {
-    let sql = r#"
-            UPDATE candles_15t_ftxus
+    let sql = format!(r#"
+            UPDATE candles_15t_{}
             SET is_validated = True
             WHERE datetime = $1
             AND market_id = $2
-        "#;
+        "#, exchange.exchange_name);
     sqlx::query(&sql)
         .bind(candle.datetime)
         .bind(market.market_id)
