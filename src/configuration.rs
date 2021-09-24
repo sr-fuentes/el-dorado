@@ -4,6 +4,7 @@ use std::convert::{TryFrom, TryInto};
 #[derive(serde::Deserialize, Debug)]
 pub struct Settings {
     pub database: DatabaseSettings,
+    pub application: ApplicationSettings,
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -14,6 +15,12 @@ pub struct DatabaseSettings {
     pub host: String,
     pub database_name: String,
     pub require_ssl: bool,
+}
+
+#[derive(serde::Deserialize, Debug)]
+pub struct ApplicationSettings {
+    pub exchange: String,
+    pub market: String,
 }
 
 pub fn get_configuration() -> Result<Settings, config::ConfigError> {
