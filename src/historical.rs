@@ -4,6 +4,7 @@ use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::RestError, ftx::Tr
 use crate::markets::*;
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use sqlx::PgPool;
+use rust_decimal_macros::dec;
 
 pub async fn run(pool: &PgPool, config: Settings) {
     // Get exchanges from database
@@ -62,30 +63,36 @@ pub async fn run(pool: &PgPool, config: Settings) {
                 update_candle_validation(pool, &exchange, &market, &unvalidated_candle)
                     .await
                     .expect("Could not update candle validation status.");
-                // Update validated trades and move from processed to validated
-                let validated_trades = select_ftx_trades(
-                    pool,
-                    &market,
-                    &exchange,
-                    unvalidated_candle.datetime,
-                    unvalidated_candle.datetime + Duration::seconds(900),
-                    true,
-                )
-                .await
-                .expect("Could not fetch validated trades.");
-                insert_ftxus_trades(pool, &market, &exchange, validated_trades, "validated")
+                // If there are trades (volume > 0) then move from processed to validated
+                if unvalidated_candle.volume > dec!(0) {
+                    // Update validated trades and move from processed to validated
+                    let validated_trades = select_ftx_trades(
+                        pool,
+                        &market,
+                        &exchange,
+                        unvalidated_candle.datetime,
+                        unvalidated_candle.datetime + Duration::seconds(900),
+                        true,
+                    )
                     .await
-                    .expect("Could not insert validated trades.");
-                delete_ftx_trades(
-                    pool,
-                    &market,
-                    &exchange,
-                    unvalidated_candle.datetime,
-                    unvalidated_candle.datetime + Duration::seconds(900),
-                    true,
-                )
-                .await
-                .expect("Could not delete processed trades.");
+                    .expect("Could not fetch validated trades.");
+                    // Get first and last trades to get id for delete query
+                    let first_trade = validated_trades.first().unwrap().id;
+                    let last_trade = validated_trades.last().unwrap().id;
+                    insert_ftxus_trades(pool, &market, &exchange, validated_trades, "validated")
+                        .await
+                        .expect("Could not insert validated trades.");
+                    delete_ftx_trades_by_id(
+                        pool,
+                        &market,
+                        &exchange,
+                        first_trade,
+                        last_trade,
+                        true,
+                    )
+                    .await
+                    .expect("Could not delete processed trades.");
+                }
             } else {
                 panic!("Invalid candle. TODO - re-validate lower time frame.");
             }
@@ -221,7 +228,7 @@ pub async fn backfill_ftx(
                                 interval_start,
                                 previous_candle.close,
                                 previous_candle.last_trade_ts,
-                                previous_candle.last_trade_id,
+                                &previous_candle.last_trade_id.to_string(),
                             )
                         }
                         _ => {
@@ -316,6 +323,7 @@ pub async fn insert_ftxus_trades(
                 INSERT INTO trades_{}_{} (
                     market_id, trade_id, price, size, side, liquidation, time)
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
+                ON CONFLICT (trade_id) DO NOTHING
             "#,
             exchange.exchange_name, table
         );
@@ -401,6 +409,39 @@ pub async fn delete_ftx_trades(
             .bind(market.market_id)
             .bind(interval_start)
             .bind(interval_end)
+            .execute(pool)
+            .await?;
+    }
+    Ok(())
+}
+
+pub async fn delete_ftx_trades_by_id(
+    pool: &PgPool,
+    market: &MarketId,
+    exchange: &Exchange,
+    first_trade_id: i64,
+    last_trade_id: i64,
+    is_processed: bool,
+) -> Result<(), sqlx::Error> {
+    let mut tables = Vec::new();
+    if is_processed {
+        tables.push("processed");
+    } else {
+        tables.push("rest");
+        tables.push("ws");
+    };
+    for table in tables {
+        let sql = format!(
+            r#"
+                DELETE FROM trades_{}_{}
+                WHERE market_id = $1 AND trade_id >= $2 and trade_id <= $3
+            "#,
+            exchange.exchange_name, table
+        );
+        sqlx::query(&sql)
+            .bind(market.market_id)
+            .bind(first_trade_id)
+            .bind(last_trade_id)
             .execute(pool)
             .await?;
     }

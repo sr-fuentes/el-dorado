@@ -85,7 +85,7 @@ pub async fn add(pool: &PgPool) {
     }
 
     // Create tables for new exchanges (trades, candles, etc)
-    create_exchange_tables(pool, &exchange)
+    create_ftx_trade_tables(pool, &exchange)
         .await
         .expect(&format!(
             "Could not create new tables for exchange {}.",
@@ -129,8 +129,10 @@ pub async fn insert_new_exchange(pool: &PgPool, exchange: &Exchange) -> Result<(
     Ok(())
 }
 
-pub async fn create_exchange_tables(pool: &PgPool, exchange: &Exchange) -> Result<(), sqlx::Error> {
-    // Create trades, trades_ws, and candles tables
+pub async fn create_ftx_trade_tables(pool: &PgPool, exchange: &Exchange) -> Result<(), sqlx::Error> {
+    // Create trades, trades_ws, and candles tables for ftx
+    // trade_id is primary key only. FTX does not have duplicate trade ids
+    // for each market but one trade id across the platform
     let tables = ["rest", "ws", "processed", "validated"];
     for table in tables {
         let sql = format!(
@@ -138,11 +140,13 @@ pub async fn create_exchange_tables(pool: &PgPool, exchange: &Exchange) -> Resul
             CREATE TABLE IF NOT EXISTS trades_{}_{} (
                 market_id uuid NOT NULL,
                 trade_id BIGINT NOT NULL,
+                PRIMARY KEY trade_id,
                 price NUMERIC NOT NULL,
                 size NUMERIC NOT NULL,
                 side TEXT NOT NULL,
                 liquidation BOOLEAN NOT NULL,
-                time timestamptz NOT NULL)
+                time timestamptz NOT NULL
+            )
             "#,
             exchange.exchange_name, table
         );
@@ -242,7 +246,7 @@ mod tests {
         };
 
         // Create db tables
-        create_exchange_tables(&connection_pool, &exchange)
+        create_ftx_trade_tables(&connection_pool, &exchange)
             .await
             .expect("Failed to create tables.");
 
