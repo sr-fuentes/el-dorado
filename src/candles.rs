@@ -20,6 +20,8 @@ pub struct Candle {
     pub liquidation_count: i64,
     pub last_trade_ts: DateTime<Utc>,
     pub last_trade_id: String,
+    pub first_trade_ts: DateTime<Utc>,
+    pub first_trade_id: String,
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
@@ -33,7 +35,7 @@ impl Candle {
     pub fn new_from_trades(datetime: DateTime<Utc>, trades: &Vec<Trade>) -> Self {
         let candle_tuple = trades.iter().fold(
             (
-                trades.first().expect("No trade to make candle.").price, // open
+                trades.first().expect("No first trade for candle.").price, // open
                 Decimal::MIN,                                            // high
                 Decimal::MAX,                                            // low
                 dec!(0),                                                 // close
@@ -44,9 +46,11 @@ impl Candle {
                 0,                                                       // count
                 0,                                                       // liquidation_count,
                 datetime,                                                // last_trade_ts
-                "".to_string(),                                          // last_trade_id
+                "".to_string(),                                         // last_trade_id
+                trades.first().expect("No first trade.").time, // first_trade_ts
+                trades.first().expect("No first trade.").id.to_string(), // first_trade_id
             ),
-            |(o, h, l, _c, v, vn, vl, a, n, ln, _ts, _id), t| {
+            |(o, h, l, _c, v, vn, vl, a, n, ln, _ts, _id, fts, fid), t| {
                 (
                     o,
                     h.max(t.price),
@@ -64,6 +68,8 @@ impl Candle {
                     if t.liquidation { ln + 1 } else { ln },
                     t.time,
                     t.id.to_string(),
+                    fts,
+                    fid,
                 )
             },
         );
@@ -81,6 +87,8 @@ impl Candle {
             liquidation_count: candle_tuple.9,
             last_trade_ts: candle_tuple.10,
             last_trade_id: candle_tuple.11,
+            first_trade_ts: candle_tuple.12,
+            first_trade_id: candle_tuple.13,
         }
     }
 
@@ -90,7 +98,7 @@ impl Candle {
         datetime: DateTime<Utc>,
         last_trade_price: Decimal,
         last_trade_ts: DateTime<Utc>,
-        last_trade_id: String,
+        last_trade_id: &str,
     ) -> Self {
         Self {
             datetime,
@@ -105,7 +113,9 @@ impl Candle {
             trade_count: 0,
             liquidation_count: 0,
             last_trade_ts,
-            last_trade_id,
+            last_trade_id: last_trade_id.to_string(),
+            first_trade_ts: last_trade_ts,
+            first_trade_id: last_trade_id.to_string(),
         }
     }
 }
@@ -157,8 +167,8 @@ pub async fn insert_candle(
             INSERT INTO candles_15T_{} (
                 datetime, open, high, low, close, volume, volume_net, volume_liquidation, value, 
                 trade_count, liquidation_count, last_trade_ts, last_trade_id, is_validated, 
-                market_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                market_id, first_trade_ts, first_trade_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
         "#,
         exchange.exchange_name,
     );
@@ -178,6 +188,8 @@ pub async fn insert_candle(
         .bind(candle.last_trade_id)
         .bind(false)
         .bind(market.market_id)
+        .bind(candle.first_trade_ts)
+        .bind(candle.first_trade_id)
         .execute(pool)
         .await?;
     Ok(())
@@ -334,7 +346,7 @@ mod tests {
             last_trade.time,
             last_trade.price,
             last_trade.time,
-            last_trade.id.to_string(),
+            &last_trade.id.to_string(),
         );
         println!("Candle: {:?}", candle);
     }
