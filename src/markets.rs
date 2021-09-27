@@ -6,7 +6,7 @@ use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, sqlx::FromRow)]
 pub struct MarketId {
     pub market_id: Uuid,
     pub market_name: String,

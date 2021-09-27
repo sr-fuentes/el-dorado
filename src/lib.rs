@@ -1,4 +1,5 @@
 pub mod candles;
+pub mod cleanup;
 pub mod configuration;
 pub mod exchanges;
 pub mod historical;
