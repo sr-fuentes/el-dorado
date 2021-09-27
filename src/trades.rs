@@ -40,9 +40,9 @@ impl Trade {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::configuration::*;
     use chrono::{TimeZone, Utc};
     use rust_decimal_macros::dec;
-    use crate::configuration::*;
     use sqlx::PgPool;
 
     #[test]
@@ -68,7 +68,7 @@ mod tests {
         let pool = PgPool::connect_with(configuration.database.with_db())
             .await
             .expect("Failed to connect to Postgres.");
-        
+
         // Create table
         let sql = r#"
             CREATE TABLE trades_test (
@@ -76,8 +76,10 @@ mod tests {
                 PRIMARY KEY (trade_id)
             )    
         "#;
-        sqlx::query(&sql).execute(&pool).await.expect("Could not create table.");
-
+        sqlx::query(&sql)
+            .execute(&pool)
+            .await
+            .expect("Could not create table.");
 
         // Create trade
         let sql_insert = r#"
@@ -86,15 +88,22 @@ mod tests {
             ON CONFLICT (trade_id) DO NOTHING
         "#;
         let trade_id = 1;
-        
+
         // Insert trade once
-        sqlx::query(&sql_insert).bind(trade_id).execute(&pool).await.expect("Could not insert trade first time.");
+        sqlx::query(&sql_insert)
+            .bind(trade_id)
+            .execute(&pool)
+            .await
+            .expect("Could not insert trade first time.");
         // INsert trade a second time
-        sqlx::query(&sql_insert).bind(trade_id).execute(&pool).await.expect("Could not insert trade second time.");
+        sqlx::query(&sql_insert)
+            .bind(trade_id)
+            .execute(&pool)
+            .await
+            .expect("Could not insert trade second time.");
         // match sqlx::query(&sql_insert).bind(trade_id).execute(&pool).await {
         //     Ok(_) => (),
         //     Err(e) => panic!(),
         // };
     }
-
 }

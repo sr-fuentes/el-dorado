@@ -129,7 +129,10 @@ pub async fn insert_new_exchange(pool: &PgPool, exchange: &Exchange) -> Result<(
     Ok(())
 }
 
-pub async fn create_ftx_trade_tables(pool: &PgPool, exchange: &Exchange) -> Result<(), sqlx::Error> {
+pub async fn create_ftx_trade_tables(
+    pool: &PgPool,
+    exchange: &Exchange,
+) -> Result<(), sqlx::Error> {
     // Create trades, trades_ws, and candles tables for ftx
     // trade_id is primary key only. FTX does not have duplicate trade ids
     // for each market but one trade id across the platform

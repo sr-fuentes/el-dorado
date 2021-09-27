@@ -36,19 +36,19 @@ impl Candle {
         let candle_tuple = trades.iter().fold(
             (
                 trades.first().expect("No first trade for candle.").price, // open
-                Decimal::MIN,                                            // high
-                Decimal::MAX,                                            // low
-                dec!(0),                                                 // close
-                dec!(0),                                                 // volume
-                dec!(0),                                                 // volume_net
-                dec!(0),                                                 // volume_liquidation
-                dec!(0),                                                 // value
-                0,                                                       // count
-                0,                                                       // liquidation_count,
-                datetime,                                                // last_trade_ts
-                "".to_string(),                                         // last_trade_id
-                trades.first().expect("No first trade.").time, // first_trade_ts
-                trades.first().expect("No first trade.").id.to_string(), // first_trade_id
+                Decimal::MIN,                                              // high
+                Decimal::MAX,                                              // low
+                dec!(0),                                                   // close
+                dec!(0),                                                   // volume
+                dec!(0),                                                   // volume_net
+                dec!(0),                                                   // volume_liquidation
+                dec!(0),                                                   // value
+                0,                                                         // count
+                0,                                                         // liquidation_count,
+                datetime,                                                  // last_trade_ts
+                "".to_string(),                                            // last_trade_id
+                trades.first().expect("No first trade.").time,             // first_trade_ts
+                trades.first().expect("No first trade.").id.to_string(),   // first_trade_id
             ),
             |(o, h, l, _c, v, vn, vl, a, n, ln, _ts, _id, fts, fid), t| {
                 (

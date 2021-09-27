@@ -3,8 +3,8 @@ use crate::configuration::*;
 use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::RestError, ftx::Trade, Exchange};
 use crate::markets::*;
 use chrono::{DateTime, Duration, DurationRound, Utc};
-use sqlx::PgPool;
 use rust_decimal_macros::dec;
+use sqlx::PgPool;
 
 pub async fn run(pool: &PgPool, config: Settings) {
     // Get exchanges from database
