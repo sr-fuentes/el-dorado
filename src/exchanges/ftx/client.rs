@@ -88,6 +88,9 @@ impl RestClient {
                 if let Ok(ErrorResponse { error, .. }) = from_reader(&*response) {
                     Err(RestError::Api(error))
                 } else {
+                    println!("Reqwest resp: {:?}", std::str::from_utf8(&response).unwrap());
+                    println!("Error: {:?}", e.to_string());
+                    eprintln!("Errorpl: {:?}", e);
                     Err(e.into())
                 }
             }
