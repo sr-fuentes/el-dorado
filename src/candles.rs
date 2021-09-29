@@ -22,6 +22,7 @@ pub struct Candle {
     pub last_trade_id: String,
     pub first_trade_ts: DateTime<Utc>,
     pub first_trade_id: String,
+    pub is_validated: bool,
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
@@ -89,6 +90,7 @@ impl Candle {
             last_trade_id: candle_tuple.11,
             first_trade_ts: candle_tuple.12,
             first_trade_id: candle_tuple.13,
+            is_validated: false,
         }
     }
 
@@ -116,6 +118,7 @@ impl Candle {
             last_trade_id: last_trade_id.to_string(),
             first_trade_ts: last_trade_ts,
             first_trade_id: last_trade_id.to_string(),
+            is_validated: false,
         }
     }
 }

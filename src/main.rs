@@ -1,4 +1,5 @@
 use clap::App;
+use el_dorado::cleanup::trade_index_and_candle_validation;
 use el_dorado::configuration::get_configuration;
 use el_dorado::{exchanges::add, historical::run};
 use sqlx::PgPool;
@@ -21,6 +22,7 @@ async fn main() {
         .subcommand(App::new("refresh").about("refresh markets for exchange"))
         .subcommand(App::new("edit").about("edit exchange information"))
         .subcommand(App::new("run").about("run el-dorado for a market"))
+        .subcommand(App::new("cleanup").about("run current cleanup script"))
         .get_matches();
 
     // Match subcommand and route
@@ -29,6 +31,9 @@ async fn main() {
         Some("refresh") => println!("Refresh is not yet implemented."),
         Some("edit") => println!("Edit is not yet implemented."),
         Some("run") => run(&connection_pool, configuration).await,
+        Some("cleanup") => {
+            trade_index_and_candle_validation::cleanup_01(&connection_pool, configuration).await
+        }
         None => println!("Please run with subcommands: `add` `refresh` `edit` or `run`."),
         _ => unreachable!(), // CLAP will error out before running this arm
     }
