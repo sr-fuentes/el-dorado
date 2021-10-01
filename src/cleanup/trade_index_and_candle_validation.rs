@@ -1,6 +1,6 @@
 use crate::candles::Candle;
 use crate::configuration::Settings;
-use crate::exchanges::{fetch_exchanges, ftx::RestClient};
+use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::Trade};
 use crate::historical::select_ftx_trades;
 use crate::markets::*;
 use chrono::{Duration, Utc};
@@ -77,7 +77,7 @@ pub async fn cleanup_01(pool: &PgPool, config: Settings) {
         for candle in market_candles {
             println!("Getting trades for candle {:?}", candle);
             // Fetch trades for each candle
-            let _trades = match candle.is_validated {
+            let trades = match candle.is_validated {
                 true => select_ftx_trades(
                     pool,
                     &market,
@@ -85,9 +85,50 @@ pub async fn cleanup_01(pool: &PgPool, config: Settings) {
                     candle.datetime,
                     candle.datetime + Duration::seconds(900),
                     true,
-                ),
-                false => continue,
+                )
+                .await
+                .expect("Could not select trades for candle."),
+                false => {
+                    let sql = format!(
+                        r#"
+                        SELECT trades_id as id, price, size, side, liquidation, time
+                        FROM trades_{}_validated
+                        WHERE market_id = $1 AND time >=$2 and time < $3
+                        "#,
+                        exchange.exchange_name
+                    );
+                    sqlx::query_as::<_, Trade>(&sql)
+                        .bind(market.market_id)
+                        .bind(candle.datetime)
+                        .bind(candle.datetime + Duration::seconds(900))
+                        .fetch_all(pool)
+                        .await
+                        .expect("Could not select trades for candle.")
+                }
             };
+            // If there are trades, set the first id and ts. If not, get previous candle
+            // and forward fill last trade data from previous candle.
+            if trades.len() > 0 {
+                let first_trade = trades.first().unwrap();
+                // Update candle
+                let sql = format!(
+                    r#"
+                    UPDATE candles_15t_{}
+                    SET first_trades_ts = $1, first_trade_id = $2
+                    WHERE market_id = $3
+                    AND datetime = $4
+                    "#,
+                    exchange.exchange_name
+                );
+                sqlx::query(&sql)
+                    .bind(first_trade.time)
+                    .bind(first_trade.id.to_string())
+                    .bind(market.market_id)
+                    .bind(candle.datetime)
+                    .execute(pool)
+                    .await
+                    .expect("Could not update candle.");
+            }
         }
     }
 
