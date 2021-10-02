@@ -13,19 +13,19 @@ ADD PRIMARY KEY (trade_id);
 ALTER TABLE IF EXISTS trades_ftxus_processed
 ADD PRIMARY KEY (trade_id);
 
-CREATE INDEX IF EXISTS trades_ftxus_processed_market_id_asc
+CREATE INDEX trades_ftxus_processed_market_id_asc
 ON trades_ftxus_processed(market_id);
 
-CREATE INDEX IF EXISTS trades_ftxus_processed_time_asc
+CREATE INDEX trades_ftxus_processed_time_asc
 ON trades_ftxus_processed(time);
 
 ALTER TABLE IF EXISTS trades_ftxus_validated
 ADD PRIMARY KEY (trade_id);
 
-CREATE INDEX IF EXISTS trades_ftxus_validated_market_id_asc
+CREATE INDEX trades_ftxus_validated_market_id_asc
 ON trades_ftxus_validated(market_id);
 
-CREATE INDEX IF EXISTS trades_ftxus_validated_time_asc
+CREATE INDEX trades_ftxus_validated_time_asc
 ON trades_ftxus_validated(time);
 
 ALTER TABLE IF EXISTS trades_ftx_rest
@@ -37,18 +37,18 @@ ADD PRIMARY KEY (trade_id);
 ALTER TABLE IF EXISTS trades_ftx_processed
 ADD PRIMARY KEY (trade_id);
 
-CREATE INDEX IF EXISTS trades_ftx_processed_market_id_asc
-ON trades_ftxus_processed(market_id);
+CREATE INDEX trades_ftx_processed_market_id_asc
+ON trades_ftx_processed(market_id);
 
-CREATE INDEX IF EXISTS trades_ftx_processed_time_asc
-ON trades_ftxus_processed(time);
+CREATE INDEX trades_ftx_processed_time_asc
+ON trades_ftx_processed(time);
 
 ALTER TABLE IF EXISTS trades_ftx_validated
 ADD PRIMARY KEY (trade_id);
 
-CREATE INDEX IF EXISTS trades_ftx_validated_market_id_asc
-ON trades_ftxus_validated(market_id);
+CREATE INDEX trades_ftx_validated_market_id_asc
+ON trades_ftx_validated(market_id);
 
-CREATE INDEX IF EXISTS trades_ftx_validated_time_asc
-ON trades_ftxus_validated(time);
+CREATE INDEX trades_ftx_validated_time_asc
+ON trades_ftx_validated(time);
 
