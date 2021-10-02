@@ -6,12 +6,15 @@ use crate::markets::*;
 use chrono::{Duration, Utc};
 use sqlx::PgPool;
 
-// Clean up FTX and FTX.US trade tables to set trade id as Primary Key
-// Re-validate candles by indexing on trades on time and backfilling
-// First trade id and ts data
+// Clean up FTX and FTX.US trade tables to set trade id as Primary Key and index on time
+// Backfill first trade id and ts for all existing candles
+// Make the first trade id and ts columns not null
 
 // Run this code after the following migrations have been run:
-//
+// alter candles add first trade id and ts
+
+// Run this migration after this code has run
+// make candles first trade id and ts not null
 
 pub async fn cleanup_01(pool: &PgPool, config: Settings) {
     // Get exchanges from database
@@ -123,6 +126,25 @@ pub async fn cleanup_01(pool: &PgPool, config: Settings) {
                 sqlx::query(&sql)
                     .bind(first_trade.time)
                     .bind(first_trade.id.to_string())
+                    .bind(market.market_id)
+                    .bind(candle.datetime)
+                    .execute(pool)
+                    .await
+                    .expect("Could not update candle.");
+            } else {
+                // No trades for this candle, set first trade id and ts = last
+                let sql = format!(
+                    r#"
+                    UPDATE candles_15t_{}
+                    SET first_trades_ts = $1, first_trade_id = $2
+                    WHERE market_id = $3
+                    AND datetime = $4
+                    "#,
+                    exchange.exchange_name
+                );
+                sqlx::query(&sql)
+                    .bind(candle.last_trade_ts)
+                    .bind(candle.last_trade_id)
                     .bind(market.market_id)
                     .bind(candle.datetime)
                     .execute(pool)
