@@ -175,7 +175,7 @@ pub async fn create_ftx_trade_tables(
                 volume_net NUMERIC NOT NULL,
                 volume_liquidation NUMERIC NOT NULL,
                 value NUMERIC NOT NULL,
-                trade_count BIGINT NULL,
+                trade_count BIGINT NOT NULL,
                 liquidation_count BIGINT NOT NULL,
                 last_trade_ts timestamptz NOT NULL,
                 last_trade_id TEXT NOT NULL,
