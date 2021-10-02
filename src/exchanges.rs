@@ -91,6 +91,14 @@ pub async fn add(pool: &PgPool) {
             "Could not create new tables for exchange {}.",
             exchange.exchange_name
         ));
+
+    // Create exchanges for new exchanges trades tables
+    create_ftx_trade_table_indexes(pool, &exchange)
+        .await
+        .expect(&format!(
+            "Could not create new indexes for exchange {}.",
+            exchange.exchange_name
+        ));
 }
 
 pub async fn fetch_exchanges(pool: &PgPool) -> Result<Vec<Exchange>, sqlx::Error> {
@@ -179,6 +187,35 @@ pub async fn create_ftx_trade_tables(
         exchange.exchange_name
     );
     sqlx::query(&sql).execute(pool).await?;
+    Ok(())
+}
+
+pub async fn create_ftx_trade_table_indexes(
+    pool: &PgPool,
+    exchange: &Exchange,
+) -> Result<(), sqlx::Error> {
+    // Create indexes for _processed and _validated
+    let tables = ["processed", "validated"];
+    for table in tables {
+        let sql = format!(
+            r#"
+            CREATE INDEX trades_{e}_{t}_market_id
+            ON trades_{e}_{t} (market_id)
+            "#,
+            e = exchange.exchange_name,
+            t = table
+        );
+        sqlx::query(&sql).execute(pool).await?;
+        let sql = format!(
+            r#"
+            CREATE INDEX trades_{e}_{t}_time
+            ON trades_{e}_{t} (time)
+            "#,
+            e = exchange.exchange_name,
+            t = table
+        );
+        sqlx::query(&sql).execute(pool).await?;
+    }
     Ok(())
 }
 
