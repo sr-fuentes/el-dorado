@@ -17,7 +17,7 @@ CREATE TABLE candles_01d (
     volume_liquidation NUMERIC NOT NULL,
     volume_liquidation_net NUMERIC NOT NULL,
     value NUMERIC NOT NULL,
-    trade_count BIGINT NOT NULL,
+    trade_count BIGINT NULL,
     liquidation_count BIGINT NOT NULL,
     last_trade_ts timestamptz NOT NULL,
     last_trade_id TEXT NOT NULL,

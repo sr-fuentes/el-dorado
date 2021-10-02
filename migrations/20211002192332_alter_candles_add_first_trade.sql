@@ -10,7 +10,7 @@ Drop 01D candle and re-create with correct fields
 */
 
 ALTER TABLE IF EXISTS candles_15t_ftx
-ADD COLUMN first_trade_ts timstamptz NULL;
+ADD COLUMN first_trade_ts timestamptz NULL;
 
 ALTER TABLE IF EXISTS candles_15t_ftx
 ADD COLUMN first_trade_id TEXT NULL;
@@ -19,7 +19,7 @@ ALTER TABLE IF EXISTS candles_15t_ftx
 ALTER COLUMN trade_count SET NOT NULL;
 
 ALTER TABLE IF EXISTS candles_15t_ftxus
-ADD COLUMN first_trade_ts timstamptz NULL;
+ADD COLUMN first_trade_ts timestamptz NULL;
 
 ALTER TABLE IF EXISTS candles_15t_ftxus
 ADD COLUMN first_trade_id TEXT NULL;
@@ -46,6 +46,6 @@ CREATE TABLE IF NOT EXISTS candles_01d (
     is_validated BOOLEAN NOT NULL,
     market_id uuid NOT NULL,
     first_trade_ts timestamptz NOT NULL,
-    last_trade_id TEXT NOT NULL,
+    first_trade_id TEXT NOT NULL,
     PRIMARY KEY (datetime, market_id)
 );
