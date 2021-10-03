@@ -78,10 +78,10 @@ pub async fn cleanup_01(pool: &PgPool, config: Settings) {
             .await
             .expect("Could not fetch candles.");
         for candle in market_candles {
-            println!("Getting trades for candle {:?}", candle);
+            println!("Getting trades for candle {:?}", candle.datetime);
             // Fetch trades for each candle
-            let trades = match candle.is_validated {
-                true => select_ftx_trades(
+            let mut trades = match candle.is_validated {
+                false => select_ftx_trades(
                     pool,
                     &market,
                     exchange,
@@ -91,10 +91,10 @@ pub async fn cleanup_01(pool: &PgPool, config: Settings) {
                 )
                 .await
                 .expect("Could not select trades for candle."),
-                false => {
+                true => {
                     let sql = format!(
                         r#"
-                        SELECT trades_id as id, price, size, side, liquidation, time
+                        SELECT trade_id as id, price, size, side, liquidation, time
                         FROM trades_{}_validated
                         WHERE market_id = $1 AND time >=$2 and time < $3
                         "#,
@@ -112,12 +112,14 @@ pub async fn cleanup_01(pool: &PgPool, config: Settings) {
             // If there are trades, set the first id and ts. If not, get previous candle
             // and forward fill last trade data from previous candle.
             if trades.len() > 0 {
+                println!("Setting first trade from trades.");
+                trades.sort_by(|t1,t2|t1.id.cmp(&t2.id));
                 let first_trade = trades.first().unwrap();
                 // Update candle
                 let sql = format!(
                     r#"
                     UPDATE candles_15t_{}
-                    SET first_trades_ts = $1, first_trade_id = $2
+                    SET first_trade_ts = $1, first_trade_id = $2
                     WHERE market_id = $3
                     AND datetime = $4
                     "#,
@@ -133,10 +135,12 @@ pub async fn cleanup_01(pool: &PgPool, config: Settings) {
                     .expect("Could not update candle.");
             } else {
                 // No trades for this candle, set first trade id and ts = last
+                println!("No Trade. Setting first trade from existing last.");
+                println!("Existing candle: {:?}", candle);
                 let sql = format!(
                     r#"
                     UPDATE candles_15t_{}
-                    SET first_trades_ts = $1, first_trade_id = $2
+                    SET first_trade_ts = $1, first_trade_id = $2
                     WHERE market_id = $3
                     AND datetime = $4
                     "#,
