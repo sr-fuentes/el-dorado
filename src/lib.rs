@@ -6,3 +6,4 @@ pub mod historical;
 pub mod markets;
 pub mod trades;
 pub mod utilities;
+pub mod archive;
