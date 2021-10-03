@@ -113,7 +113,7 @@ pub async fn cleanup_01(pool: &PgPool, config: Settings) {
             // and forward fill last trade data from previous candle.
             if trades.len() > 0 {
                 println!("Setting first trade from trades.");
-                trades.sort_by(|t1,t2|t1.id.cmp(&t2.id));
+                trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
                 let first_trade = trades.first().unwrap();
                 // Update candle
                 let sql = format!(

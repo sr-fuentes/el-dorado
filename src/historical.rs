@@ -54,6 +54,10 @@ pub async fn run(pool: &PgPool, config: Settings) {
         for unvalidated_candle in unvalidated_candles {
             // validate candle - get candle from exchange, comp volume. if volume matches
             // consider it validated - if not - pull trades
+            println!(
+                "Validating {} candle {}.",
+                market.market_name, unvalidated_candle.datetime
+            );
             let is_valid = validate_candle(&unvalidated_candle, &mut exchange_candles);
             if is_valid {
                 // Update market details and candle with validated data
@@ -94,7 +98,11 @@ pub async fn run(pool: &PgPool, config: Settings) {
                     .expect("Could not delete processed trades.");
                 }
             } else {
-                panic!("Invalid candle. TODO - re-validate lower time frame.");
+                // Add to re-validation queue
+                println!(
+                    "Candle not validated: {} \t {}",
+                    market.market_name, unvalidated_candle.datetime
+                );
             }
         }
     };
@@ -115,6 +123,7 @@ pub async fn run(pool: &PgPool, config: Settings) {
 
     // Backfill historical
     // Match exchange for backfill routine
+    println!("Backfilling from {} to {}.", start, end);
     backfill_ftx(pool, &client, &exchange, market, start, end).await;
 }
 
