@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use sqlx::PgPool;
+use uuid::Uuid;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, sqlx::FromRow)]
 pub struct Candle {
@@ -23,6 +24,28 @@ pub struct Candle {
     pub first_trade_ts: DateTime<Utc>,
     pub first_trade_id: String,
     pub is_validated: bool,
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+pub struct DailyCandle{
+    pub is_archived: bool,
+    pub datetime: DateTime<Utc>,
+    pub open: Decimal,
+    pub high: Decimal,
+    pub low: Decimal,
+    pub close: Decimal,
+    pub volume: Decimal,
+    pub volume_net: Decimal,
+    pub volume_liquidation: Decimal,
+    pub value: Decimal,
+    pub trade_count: i64,
+    pub liquidation_count: i64,
+    pub last_trade_ts: DateTime<Utc>,
+    pub last_trade_id: String,
+    pub first_trade_ts: DateTime<Utc>,
+    pub first_trade_id: String,
+    pub is_validated: bool,
+    pub market_id: Uuid,
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
@@ -215,6 +238,25 @@ pub async fn select_unvalidated_candles(
         .bind(market.market_id)
         .fetch_all(pool)
         .await?;
+    Ok(rows)
+}
+
+pub async fn select_01d_candles(
+    pool: &PgPool,
+    exchange: &Exchange,
+    market: &MarketId,
+) -> Result<Vec<DailyCandle>, sqlx::Error> {
+    let rows = sqlx::query_as!(
+        DailyCandle,
+        r#"
+        SELECT * FROM candles_01d
+        WHERE market_id = $1
+        ORDER BY datetime asc
+        "#,
+        market.market_id
+    )
+    .fetch_all(pool)
+    .await?;
     Ok(rows)
 }
 
