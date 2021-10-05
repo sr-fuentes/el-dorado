@@ -51,6 +51,12 @@ pub struct DailyCandle{
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct Candles(Vec<Candle>);
 
+impl Candles {
+    pub fn new(candles: Vec<Candle>) -> Self {
+        Self(candles)
+    }
+}
+
 impl Candle {
     // Takes a Vec of Trade and aggregates into a Candle with the Datetime = the
     // datetime passed as argument. Candle built from trades in the order they are in
@@ -241,23 +247,44 @@ pub async fn select_unvalidated_candles(
     Ok(rows)
 }
 
-pub async fn select_01d_candles(
+
+pub async fn select_candles(
     pool: &PgPool,
     exchange: &Exchange,
     market: &MarketId,
-) -> Result<Vec<DailyCandle>, sqlx::Error> {
-    let rows = sqlx::query_as!(
+) -> Result<Candles, sqlx::Error> {
+    let sql = format!(
+        r#"
+        SELECT * FROM candles_15t_{}
+        WHERE market_id = $1
+        ORDER BY datetime
+        "#,
+        exchange.exchange_name
+    );
+    let rows = sqlx::query_as::<_, Candle>(&sql)
+        .bind(market.market_id)
+        .fetch_all(pool)
+        .await?;
+    let candles = Candles::new(rows);
+    Ok(candles)
+}
+
+pub async fn select_last_01d_candle(
+    pool: &PgPool,
+    market: &MarketId,
+) -> Result<DailyCandle, sqlx::Error> {
+    let row = sqlx::query_as!(
         DailyCandle,
         r#"
         SELECT * FROM candles_01d
         WHERE market_id = $1
-        ORDER BY datetime asc
+        ORDER BY datetime DESC
         "#,
         market.market_id
     )
-    .fetch_all(pool)
+    .fetch_one(pool)
     .await?;
-    Ok(rows)
+    Ok(row)
 }
 
 pub async fn select_previous_candle(
