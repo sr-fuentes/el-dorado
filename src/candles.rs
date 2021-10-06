@@ -55,6 +55,8 @@ impl Candles {
     pub fn new(candles: Vec<Candle>) -> Self {
         Self(candles)
     }
+
+    pub fn resample()
 }
 
 impl Candle {
