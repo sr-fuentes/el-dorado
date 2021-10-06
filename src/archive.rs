@@ -3,6 +3,7 @@ mod test {
     use crate::configuration::get_configuration;
     use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::Trade};
     use crate::markets::fetch_markets;
+    use crate::candles::{select_last_01d_candle, select_candles};
     use sqlx::PgPool;
 
     #[tokio::test]
@@ -43,18 +44,21 @@ mod test {
             .find(|m| m.market_name == configuration.application.market)
             .unwrap();
 
-        // Get 01d candles for market
+        // Get last 01d candle for market
+        let last_daily_candle = select_last_01d_candle(&pool, &market).await.expect("Could not fetch last candle.");
 
         // Get 15t candles for market newer than last 01d candle
+        let candles = select_candles(&pool, &exchange, &market).await.expect("Could not fetch candles.");
 
         // Resample to 01d candles
+        let resampled_candles = candles.resample(Duration::days(1);
 
         // Insert 01D candles
 
-        // Get validated but not archived candles
+        // Get validated but not archived 01d candles
 
         // Archive trades
 
-        // Update candles to is_archived
+        // Update 01d candles to is_archived
     }
 }
