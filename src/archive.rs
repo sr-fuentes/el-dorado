@@ -4,6 +4,7 @@ mod test {
     use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::Trade};
     use crate::markets::fetch_markets;
     use crate::candles::{select_last_01d_candle, select_candles};
+    use chrono::Duration;
     use sqlx::PgPool;
 
     #[tokio::test]
@@ -51,7 +52,7 @@ mod test {
         let candles = select_candles(&pool, &exchange, &market).await.expect("Could not fetch candles.");
 
         // Resample to 01d candles
-        let resampled_candles = candles.resample(Duration::days(1);
+        let resampled_candles = candles.resample(Duration::days(1));
 
         // Insert 01D candles
 
