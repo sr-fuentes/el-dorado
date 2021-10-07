@@ -27,7 +27,7 @@ pub struct Candle {
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
-pub struct DailyCandle{
+pub struct DailyCandle {
     pub is_archived: bool,
     pub datetime: DateTime<Utc>,
     pub open: Decimal,
@@ -114,6 +114,71 @@ impl Candle {
         }
     }
 
+    // Takes a Vec of Candles and resamples into a Candle with the Datetime = the
+    // datetime passed as argument. Candle built from candes in the order they are in
+    // the Vec, sort before calling this function otherwise Open / Close may
+    // be incorrect.
+    pub fn new_from_candles(datetime: DateTime<Utc>, candles: &Vec<Candle>) -> Self {
+        let candle_tuple = candles.iter().fold(
+            (
+                candles.first().expect("No first trade for candle.").open, // open
+                Decimal::MIN,                                              // high
+                Decimal::MAX,                                              // low
+                dec!(0),                                                   // close
+                dec!(0),                                                   // volume
+                dec!(0),                                                   // volume_net
+                dec!(0),                                                   // volume_liquidation
+                dec!(0),                                                   // value
+                0,                                                         // count
+                0,                                                         // liquidation_count,
+                datetime,                                                  // last_trade_ts
+                "".to_string(),                                            // last_trade_id
+                candles.first().expect("No first trade.").datetime,        // first_trade_ts
+                candles
+                    .first()
+                    .expect("No first trade.")
+                    .first_trade_id
+                    .to_string(), // first_trade_id
+            ),
+            |(o, h, l, _c, v, vn, vl, a, n, ln, _ts, _id, fts, fid), c| {
+                (
+                    o,
+                    h.max(c.high),
+                    l.min(c.low),
+                    c.close,
+                    v + c.volume,
+                    vn + c.volume_net,
+                    vl + c.volume_liquidation,
+                    a + c.value,
+                    n + c.trade_count,
+                    ln + c.liquidation_count,
+                    c.last_trade_ts,
+                    c.last_trade_id.to_string(),
+                    fts,
+                    fid,
+                )
+            },
+        );
+        Self {
+            datetime,
+            open: candle_tuple.0,
+            high: candle_tuple.1,
+            low: candle_tuple.2,
+            close: candle_tuple.3,
+            volume: candle_tuple.4,
+            volume_net: candle_tuple.5,
+            volume_liquidation: candle_tuple.6,
+            value: candle_tuple.7,
+            trade_count: candle_tuple.8,
+            liquidation_count: candle_tuple.9,
+            last_trade_ts: candle_tuple.10,
+            last_trade_id: candle_tuple.11,
+            first_trade_ts: candle_tuple.12,
+            first_trade_id: candle_tuple.13,
+            is_validated: false,
+        }
+    }
+
     // This function will build a placeholder trade with 0 volume and
     // will populate OHLC from the last trade provided.
     pub fn new_from_last(
@@ -164,18 +229,16 @@ pub fn resample_candles(candles: Vec<Candle>, duration: Duration) -> Vec<Candle>
             }
 
             // Create candle for each date in daterange
-            let resampled_candles = date_range
-                .iter()
-                .fold(Vec::new(), |mut v, d| {
-                    let filtered_candles: Vec<Candle> = candles
-                        .iter()
-                        .filter(|c| c.datetime.duration_trunc(duration).unwrap() == *d)
-                        .cloned()
-                        .collect();
-                    let resampled_candle = Candle::new_from_candles(&filtered_candles);
-                    v.push(resampled_candle);
-                    v
-                });
+            let resampled_candles = date_range.iter().fold(Vec::new(), |mut v, d| {
+                let filtered_candles: Vec<Candle> = candles
+                    .iter()
+                    .filter(|c| c.datetime.duration_trunc(duration).unwrap() == *d)
+                    .cloned()
+                    .collect();
+                let resampled_candle = Candle::new_from_candles(*d, &filtered_candles);
+                v.push(resampled_candle);
+                v
+            });
             resampled_candles
         }
     }
@@ -275,7 +338,6 @@ pub async fn select_unvalidated_candles(
         .await?;
     Ok(rows)
 }
-
 
 pub async fn select_candles(
     pool: &PgPool,
