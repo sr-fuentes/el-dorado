@@ -1,6 +1,6 @@
 use crate::exchanges::{ftx::Candle as CandleFtx, ftx::RestClient, ftx::Trade, Exchange};
 use crate::markets::MarketId;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use sqlx::PgPool;
@@ -139,6 +139,44 @@ impl Candle {
             first_trade_ts: last_trade_ts,
             first_trade_id: last_trade_id.to_string(),
             is_validated: false,
+        }
+    }
+}
+
+pub fn resample_candles(candles: Vec<Candle>, duration: Duration) -> Vec<Candle> {
+    match candles.len() {
+        0 => Vec::<Candle>::new(),
+        _ => {
+            // Get first and last candles
+            let first_candle = candles.first().expect("There is no first candle.");
+            let last_candle = candles.last().expect("There is no last candle.");
+
+            // Get floor of first and last candles
+            let floor_start = first_candle.datetime.duration_trunc(duration).unwrap();
+            let floor_end = last_candle.datetime.duration_trunc(duration).unwrap();
+
+            // Create Daterange for resample period
+            let mut dr_start = floor_start.clone();
+            let mut date_range = Vec::new();
+            while dr_start <= floor_end {
+                date_range.push(dr_start);
+                dr_start = dr_start + duration
+            }
+
+            // Create candle for each date in daterange
+            let resampled_candles = date_range
+                .iter()
+                .fold(Vec::new(), |mut v, d| {
+                    let filtered_candles: Vec<Candle> = candles
+                        .iter()
+                        .filter(|c| c.datetime.duration_trunc(duration).unwrap() == *d)
+                        .cloned()
+                        .collect();
+                    let resampled_candle = Candle::new_from_candles(&filtered_candles);
+                    v.push(resampled_candle);
+                    v
+                });
+            resampled_candles
         }
     }
 }
