@@ -1,6 +1,6 @@
 use crate::exchanges::{ftx::Candle as CandleFtx, ftx::RestClient, ftx::Trade, Exchange};
 use crate::markets::MarketId;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use sqlx::PgPool;
@@ -46,17 +46,6 @@ pub struct DailyCandle{
     pub first_trade_id: String,
     pub is_validated: bool,
     pub market_id: Uuid,
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
-pub struct Candles(Vec<Candle>);
-
-impl Candles {
-    pub fn new(candles: Vec<Candle>) -> Self {
-        Self(candles)
-    }
-
-    pub fn resample()
 }
 
 impl Candle {
@@ -254,7 +243,7 @@ pub async fn select_candles(
     pool: &PgPool,
     exchange: &Exchange,
     market: &MarketId,
-) -> Result<Candles, sqlx::Error> {
+) -> Result<Vec<Candle>, sqlx::Error> {
     let sql = format!(
         r#"
         SELECT * FROM candles_15t_{}
@@ -267,8 +256,7 @@ pub async fn select_candles(
         .bind(market.market_id)
         .fetch_all(pool)
         .await?;
-    let candles = Candles::new(rows);
-    Ok(candles)
+    Ok(rows)
 }
 
 pub async fn select_last_01d_candle(
