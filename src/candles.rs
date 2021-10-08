@@ -359,6 +359,30 @@ pub async fn select_candles(
     Ok(rows)
 }
 
+pub async fn select_candles_gte_datetime(
+    pool: &PgPool,
+    exchange: &Exchange,
+    market: &MarketId,
+    datetime: DateTime<Utc>,
+) -> Result<Vec<Candle>, sqlx::Error> {
+    let sql = format!(
+        r#"
+        SELECT * FROM candles_15t_{}
+        WHERE market_id = $1
+        AND datetime >= $2
+        ORDER BY datetime
+        "#,
+        exchange.exchange_name
+    );
+    let rows = sqlx::query_as::<_, Candle>(&sql)
+        .bind(market.market_id)
+        .bind(datetime)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows)
+}
+
+
 pub async fn select_last_01d_candle(
     pool: &PgPool,
     market: &MarketId,
@@ -462,6 +486,7 @@ pub async fn update_candle_validation(
 mod tests {
     use super::*;
     use chrono::{TimeZone, Utc};
+    use crate::configuration::get_configuration;
 
     pub fn sample_trades() -> Vec<Trade> {
         let mut trades: Vec<Trade> = Vec::new();
@@ -519,5 +544,29 @@ mod tests {
         let first_trade = trades.first().unwrap();
         let candle = Candle::new_from_trades(first_trade.time, &trades);
         println!("Candle: {:?}", candle);
+    }
+
+    #[tokio::test]
+    pub async fn select_last_01d_candle_returns_none() {
+        // Load configuration
+        let configuration = get_configuration().expect("Failed to read configuration.");
+        println!("Configuration: {:?}", configuration);
+
+        // Create db connection
+        let pool = PgPool::connect_with(configuration.database.with_db())
+            .await
+            .expect("Failed to connect to Postgres.");
+    }
+
+    #[tokio::test]
+    pub async fn select_last_01d_candles_returns_candle() {
+        // Load configuration
+        let configuration = get_configuration().expect("Failed to read configuration.");
+        println!("Configuration: {:?}", configuration);
+
+        // Create db connection
+        let pool = PgPool::connect_with(configuration.database.with_db())
+            .await
+            .expect("Failed to connect to Postgres.");
     }
 }
