@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod test {
+    use crate::candles::{resample_candles, select_candles, select_last_01d_candle};
     use crate::configuration::get_configuration;
     use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::Trade};
     use crate::markets::fetch_markets;
-    use crate::candles::{select_last_01d_candle, select_candles};
     use chrono::Duration;
     use sqlx::PgPool;
 
@@ -46,13 +46,17 @@ mod test {
             .unwrap();
 
         // Get last 01d candle for market
-        let last_daily_candle = select_last_01d_candle(&pool, &market).await.expect("Could not fetch last candle.");
+        let last_daily_candle = select_last_01d_candle(&pool, &market)
+            .await
+            .expect("Could not fetch last candle.");
 
         // Get 15t candles for market newer than last 01d candle
-        let candles = select_candles(&pool, &exchange, &market).await.expect("Could not fetch candles.");
+        let candles = select_candles_gte_datetime(&pool, &exchange, &market)
+            .await
+            .expect("Could not fetch candles.");
 
         // Resample to 01d candles
-        let resampled_candles = candles.resample(Duration::days(1));
+        let resampled_candles = resample_candles(candles, Duration::days(1));
 
         // Insert 01D candles
 
