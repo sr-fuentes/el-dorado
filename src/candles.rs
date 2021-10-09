@@ -250,6 +250,7 @@ pub async fn get_ftx_candles(
     market: &MarketId,
     start: DateTime<Utc>,
     mut end_or_last: DateTime<Utc>,
+    seconds: u32,
 ) -> Vec<CandleFtx> {
     let mut candles: Vec<CandleFtx> = Vec::new();
     while start < end_or_last {
@@ -258,7 +259,7 @@ pub async fn get_ftx_candles(
         let mut new_candles = client
             .get_candles(
                 &market.market_name,
-                Some(900),
+                Some(seconds),
                 Some(start),
                 Some(end_or_last),
             )
