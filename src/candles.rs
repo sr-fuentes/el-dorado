@@ -26,7 +26,7 @@ pub struct Candle {
     pub is_validated: bool,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, sqlx::FromRow)]
 pub struct DailyCandle {
     pub is_archived: bool,
     pub datetime: DateTime<Utc>,
@@ -382,7 +382,6 @@ pub async fn select_candles_gte_datetime(
     Ok(rows)
 }
 
-
 pub async fn select_last_01d_candle(
     pool: &PgPool,
     market: &MarketId,
@@ -485,8 +484,8 @@ pub async fn update_candle_validation(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{TimeZone, Utc};
     use crate::configuration::get_configuration;
+    use chrono::{TimeZone, Utc};
 
     pub fn sample_trades() -> Vec<Trade> {
         let mut trades: Vec<Trade> = Vec::new();
@@ -556,6 +555,61 @@ mod tests {
         let pool = PgPool::connect_with(configuration.database.with_db())
             .await
             .expect("Failed to connect to Postgres.");
+
+        // Drop table if exists
+        let sql = "DROP TABLE IF EXISTS candle_01d_none";
+        sqlx::query(&sql)
+            .execute(&pool)
+            .await
+            .expect("Could not drop table.");
+
+        // Create table
+        let sql = r#"
+            CREATE TABLE IF NOT EXISTS candles_01d_none (
+                datetime timestamptz NOT NULL,
+                open NUMERIC NOT NULL,
+                high NUMERIC NOT NULL,
+                low NUMERIC NOT NULL,
+                close NUMERIC NOT NULL,
+                volume NUMERIC NOT NULL,
+                volume_net NUMERIC NOT NULL,
+                volume_liquidation NUMERIC NOT NULL,
+                value NUMERIC NOT NULL,
+                trade_count BIGINT NOT NULL,
+                liquidation_count BIGINT NOT NULL,
+                last_trade_ts timestamptz NOT NULL,
+                last_trade_id TEXT NOT NULL,
+                is_validated BOOLEAN NOT NULL,
+                market_id uuid NOT NULL,
+                first_trade_ts timestamptz NOT NULL,
+                first_trade_id TEXT NOT NULL,
+                is_archived BOOLEAN NOT NULL,
+                PRIMARY KEY (datetime, market_id)
+            )
+            "#;
+        sqlx::query(&sql)
+            .execute(&pool)
+            .await
+            .expect("Could not create 01d candle table.");
+
+        // Select from empty table
+        let row = sqlx::query_as::<_, DailyCandle>(
+            r#"
+            SELECT * FROM candles_01d
+            ORDER BY datetime DESC
+            "#,
+        )
+        .fetch_one(&pool)
+        .await;
+        match row {
+            Ok(row) => {
+                println!("Ok row: {:?}", row);
+                panic!("Expected error!")
+            }
+            Err(e) => {
+                println!("Err: {:?}", e)
+            }
+        }
     }
 
     #[tokio::test]
