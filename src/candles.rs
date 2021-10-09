@@ -503,16 +503,28 @@ pub async fn update_candle_validation(
     exchange: &Exchange,
     market: &MarketId,
     candle: &Candle,
+    seconds: u32,
 ) -> Result<(), sqlx::Error> {
-    let sql = format!(
-        r#"
+    let sql = match seconds {
+        900 => format!(
+            r#"
             UPDATE candles_15t_{}
             SET is_validated = True
             WHERE datetime = $1
             AND market_id = $2
         "#,
-        exchange.exchange_name
-    );
+            exchange.exchange_name
+        ),
+        86400 => format!(
+            r#"
+            UPDATE candles_01d
+            SET is_validated = True
+            WHERE datetime = $1
+            AND market_id = $2
+        "#
+        ),
+        _ => panic!("Unsupported candle resolution."),
+    };
     sqlx::query(&sql)
         .bind(candle.datetime)
         .bind(market.market_id)

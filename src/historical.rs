@@ -64,7 +64,7 @@ pub async fn run(pool: &PgPool, config: Settings) {
                 update_market_last_validated(pool, &market, &unvalidated_candle)
                     .await
                     .expect("Could not update market details.");
-                update_candle_validation(pool, &exchange, &market, &unvalidated_candle)
+                update_candle_validation(pool, &exchange, &market, &unvalidated_candle, 900)
                     .await
                     .expect("Could not update candle validation status.");
                 // If there are trades (volume > 0) then move from processed to validated
