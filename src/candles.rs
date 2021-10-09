@@ -46,6 +46,7 @@ pub struct DailyCandle {
     pub first_trade_id: String,
     pub is_validated: bool,
     pub market_id: Uuid,
+    pub is_complete: bool,
 }
 
 impl Candle {
@@ -133,7 +134,7 @@ impl Candle {
                 0,                                                         // liquidation_count,
                 datetime,                                                  // last_trade_ts
                 "".to_string(),                                            // last_trade_id
-                candles.first().expect("No first trade.").datetime,        // first_trade_ts
+                candles.first().expect("No first trade.").first_trade_ts,  // first_trade_ts
                 candles
                     .first()
                     .expect("No first trade.")
@@ -426,17 +427,15 @@ pub async fn select_last_01d_candle(
     pool: &PgPool,
     market: &MarketId,
 ) -> Result<DailyCandle, sqlx::Error> {
-    let row = sqlx::query_as!(
-        DailyCandle,
-        r#"
+    let sql = r#"
         SELECT * FROM candles_01d
         WHERE market_id = $1
         ORDER BY datetime DESC
-        "#,
-        market.market_id
-    )
-    .fetch_one(pool)
-    .await?;
+        "#;
+    let row = sqlx::query_as::<_, DailyCandle>(&sql)
+        .bind(market.market_id)
+        .fetch_one(pool)
+        .await?;
     Ok(row)
 }
 
