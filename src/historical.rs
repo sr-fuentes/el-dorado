@@ -45,7 +45,7 @@ pub async fn run(pool: &PgPool, config: Settings) {
             first_candle, last_candle
         );
         let mut exchange_candles =
-            get_ftx_candles(&client, &market, first_candle, last_candle).await;
+            get_ftx_candles(&client, &market, first_candle, last_candle, 900).await;
         println!("Pulled {} candles from exchange.", exchange_candles.len());
         println!(
             "First returned candle is: {:?}",
