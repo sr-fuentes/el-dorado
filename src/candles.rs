@@ -319,6 +319,46 @@ pub async fn insert_candle(
     Ok(())
 }
 
+pub async fn insert_candles_01d(
+    pool: &PgPool,
+    market: &MarketId,
+    candles: &Vec<Candle>,
+) -> Result<(), sqlx::Error> {
+    let sql = r#"
+        INSERT INTO candles_01d (
+            datetime, open, high, low, close, volume, volume_net, volume_liquidation, value,
+            trade_count, liquidation_count, last_trade_ts, last_trade_id, is_validated,
+            market_id, first_trade_ts, first_trade_id, is_archived, is_complete)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 
+            $16, $17, $18, $19)
+        "#;
+    for candle in candles.iter() {
+        sqlx::query(&sql)
+            .bind(candle.datetime)
+            .bind(candle.open)
+            .bind(candle.high)
+            .bind(candle.low)
+            .bind(candle.close)
+            .bind(candle.volume)
+            .bind(candle.volume_net)
+            .bind(candle.volume_liquidation)
+            .bind(candle.value)
+            .bind(candle.trade_count)
+            .bind(candle.liquidation_count)
+            .bind(candle.last_trade_ts)
+            .bind(&candle.last_trade_id)
+            .bind(candle.is_validated)
+            .bind(market.market_id)
+            .bind(candle.first_trade_ts)
+            .bind(&candle.first_trade_id)
+            .bind(false)
+            .bind(false)
+            .execute(pool)
+            .await?;
+    }
+    Ok(())
+}
+
 pub async fn select_unvalidated_candles(
     pool: &PgPool,
     exchange: &Exchange,

@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod test {
-    use crate::candles::{resample_candles, select_candles, select_last_01d_candle};
+    use crate::candles::*;
     use crate::configuration::get_configuration;
     use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::Trade};
     use crate::markets::fetch_markets;
-    use chrono::Duration;
+    use chrono::{Duration, DurationRound};
     use sqlx::PgPool;
 
     #[tokio::test]
@@ -45,20 +45,43 @@ mod test {
             .find(|m| m.market_name == configuration.application.market)
             .unwrap();
 
-        // Get last 01d candle for market
-        let last_daily_candle = select_last_01d_candle(&pool, &market)
+        // Gets 15t candles for market newer than last 01d candle
+        let candles = match select_last_01d_candle(&pool, &market).await {
+            Ok(c) => select_candles_gte_datetime(
+                &pool,
+                &exchange,
+                &market,
+                c.datetime + Duration::days(1),
+            )
             .await
-            .expect("Could not fetch last candle.");
+            .expect("Could not fetch candles."),
+            Err(sqlx::Error::RowNotFound) => select_candles(&pool, &exchange, &market)
+                .await
+                .expect("Could not fetch candles."),
+            Err(e) => panic!("Sqlx Error: {:?}", e),
+        };
 
-        // Get 15t candles for market newer than last 01d candle
-        let candles = select_candles_gte_datetime(&pool, &exchange, &market)
-            .await
-            .expect("Could not fetch candles.");
+        // If there are no candles, then return, nothing to archive
+        if candles.len() == 0 {
+            return;
+        };
+
+        // Filter candles for last full day
+        let next_candle = candles.last().unwrap().datetime + Duration::seconds(900);
+        let last_full_day = next_candle.duration_trunc(Duration::days(1)).unwrap();
+        let filtered_candles: Vec<Candle> = candles
+            .iter()
+            .filter(|c| c.datetime < last_full_day)
+            .cloned()
+            .collect();
 
         // Resample to 01d candles
-        let resampled_candles = resample_candles(candles, Duration::days(1));
+        let resampled_candles = resample_candles(filtered_candles, Duration::days(1));
 
         // Insert 01D candles
+        insert_candles_01d(&pool, &market, &resampled_candles)
+            .await
+            .expect("Could not insert candles.");
 
         // Get validated but not archived 01d candles
 
