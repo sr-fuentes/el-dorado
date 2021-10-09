@@ -30,7 +30,7 @@ mod test {
             .unwrap();
 
         // Get REST client for exchange
-        let _client = match exchange.exchange_name.as_str() {
+        let client = match exchange.exchange_name.as_str() {
             "ftxus" => RestClient::new_us(),
             "ftx" => RestClient::new_intl(),
             _ => panic!("No client exists for {}.", exchange.exchange_name),
@@ -76,12 +76,46 @@ mod test {
             .collect();
 
         // Resample to 01d candles
-        let resampled_candles = resample_candles(filtered_candles, Duration::days(1));
+        let resampled_candles = resample_candles(&filtered_candles, Duration::days(1));
+
+        // If there are no resampled candles, then return
+        if resampled_candles.len() == 0 {
+            return;
+        };
 
         // Insert 01D candles
         insert_candles_01d(&pool, &market, &resampled_candles)
             .await
             .expect("Could not insert candles.");
+
+        // Get exchange candles for validation
+        let first_candle = resampled_candles.first().unwrap().datetime;
+        let last_candle = resampled_candles.last().unwrap().datetime;
+        let mut exchange_candles =
+            get_ftx_candles(&client, &market, first_candle, last_candle).await;
+
+        // Validate 01d candles - if all 15T candles are validated (trades archived)
+        for candle in resampled_candles.iter() {
+            // get 15t candles that make up candle
+            let hb_candles: Vec<Candle> = filtered_candles
+                .iter()
+                .filter(|c| {
+                    c.datetime.duration_trunc(Duration::days(1)).unwrap() == candle.datetime
+                })
+                .cloned()
+                .collect();
+            println!("Validating {:?} with {:?}", candle, hb_candles);
+            // Check if all hb candles are valid
+            let hb_is_validated = hb_candles.iter().all(|c| c.is_validated == true);
+            // Check if volume matches value
+            let vol_is_validated = validate_candle(&candle, &mut exchange_candles);
+            // Update candle validation status
+            if hb_is_validated && vol_is_validated {
+                update_candle_validation(&pool, &exchange, &market, &candle)
+                    .await
+                    .expect("Could not update candle validation status.");
+            }
+        }
 
         // Get validated but not archived 01d candles
 

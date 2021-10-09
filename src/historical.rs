@@ -106,6 +106,7 @@ pub async fn run(pool: &PgPool, config: Settings) {
             }
         }
     };
+
     // Delete trades from _rest table for market
     delete_trades_by_market_table(pool, &market, &exchange, "rest")
         .await
