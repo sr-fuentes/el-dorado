@@ -209,7 +209,7 @@ impl Candle {
     }
 }
 
-pub fn resample_candles(candles: Vec<Candle>, duration: Duration) -> Vec<Candle> {
+pub fn resample_candles(candles: &Vec<Candle>, duration: Duration) -> Vec<Candle> {
     match candles.len() {
         0 => Vec::<Candle>::new(),
         _ => {
