@@ -4,6 +4,7 @@ mod test {
     use crate::configuration::get_configuration;
     use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::Trade};
     use crate::markets::fetch_markets;
+    use crate::historical::select_ftx_trades;
     use chrono::{Duration, DurationRound};
     use sqlx::PgPool;
 
@@ -123,6 +124,20 @@ mod test {
             .expect("Could not fetch valid not archived candles.");
 
         // Archive trades
+        for candle in candles_to_archive.iter() {
+            // Select trades associated w/ candle
+            let trades_to_archive = select_ftx_trades(
+                &pool,
+                &market,
+                &exchange,
+                candle.datetime,
+                candle.datetime + Duration::days(1),
+                false,
+                true
+            )
+            .await
+            .expect("Could not fetch validated trades.");
+        }
 
         // Update 01d candles to is_archived
     }
