@@ -118,6 +118,9 @@ mod test {
         }
 
         // Get validated but not archived 01d candles
+        let candles_to_archive = select_candles_valid_not_archived(&pool, &market)
+            .await
+            .expect("Could not fetch valid not archived candles.");
 
         // Archive trades
 

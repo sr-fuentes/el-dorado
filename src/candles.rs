@@ -440,6 +440,24 @@ pub async fn select_last_01d_candle(
     Ok(row)
 }
 
+pub async fn select_candles_valid_not_archived(
+    pool: &PgPool,
+    market: &MarketId,
+) -> Result<Vec<DailyCandle>, sqlx::Error> {
+    let sql = r#"
+        SELECT * FROM candles_01d
+        WHERE market_id = $1
+        AND is_validated
+        AND NOT is_archived
+        ORDER BY datetime DESC
+        "#;
+    let rows = sqlx::query_as::<_, DailyCandle>(&sql)
+        .bind(market.market_id)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows)
+}
+
 pub async fn select_previous_candle(
     pool: &PgPool,
     exchange: &Exchange,
