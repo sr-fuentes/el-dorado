@@ -77,6 +77,7 @@ pub async fn run(pool: &PgPool, config: Settings) {
                         unvalidated_candle.datetime,
                         unvalidated_candle.datetime + Duration::seconds(900),
                         true,
+                        false,
                     )
                     .await
                     .expect("Could not fetch validated trades.");
@@ -220,6 +221,7 @@ pub async fn backfill_ftx(
                         interval_start,
                         interval_end,
                         false,
+                        false,
                     )
                     .await
                     .expect("Could not fetch trades from db.");
@@ -358,6 +360,7 @@ pub async fn select_ftx_trades(
     interval_start: DateTime<Utc>,
     interval_end: DateTime<Utc>,
     is_processed: bool,
+    is_validated: bool,
 ) -> Result<Vec<Trade>, sqlx::Error> {
     // Cannot user query_as! macro because table may not exist at compile time
     let sql = if is_processed {
@@ -367,6 +370,15 @@ pub async fn select_ftx_trades(
         FROM trades_{}_processed
         WHERE market_id = $1 AND time >= $2 and time < $3
         "#,
+            exchange.exchange_name
+        )
+    } else if is_validated {
+        format!(
+            r#"
+          SELECT trade_id as id, price, size, side, liquidation, time
+          FROM trades_{}_validated
+          WHERE market_id = $1 AND time >= $2 AND time < $3
+          "#,
             exchange.exchange_name
         )
     } else {
