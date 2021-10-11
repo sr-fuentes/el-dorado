@@ -88,6 +88,7 @@ pub async fn cleanup_01(pool: &PgPool, config: Settings) {
                     candle.datetime,
                     candle.datetime + Duration::seconds(900),
                     true,
+                    false,
                 )
                 .await
                 .expect("Could not select trades for candle."),
