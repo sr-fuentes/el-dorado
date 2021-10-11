@@ -123,9 +123,7 @@ pub async fn select_market_detail(
     Ok(row)
 }
 
-pub async fn select_markets_active(
-    pool: &PgPool,
-) -> Result<Vec<MarketDetail>, sqlx::Error> {
+pub async fn select_markets_active(pool: &PgPool) -> Result<Vec<MarketDetail>, sqlx::Error> {
     let rows = sqlx::query_as!(
         MarketDetail,
         r#"
