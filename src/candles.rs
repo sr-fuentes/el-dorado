@@ -442,7 +442,7 @@ pub async fn select_last_01d_candle(
 
 pub async fn select_candles_valid_not_archived(
     pool: &PgPool,
-    market: &MarketId,
+    market_id: &Uuid,
 ) -> Result<Vec<DailyCandle>, sqlx::Error> {
     let sql = r#"
         SELECT * FROM candles_01d
@@ -452,7 +452,7 @@ pub async fn select_candles_valid_not_archived(
         ORDER BY datetime DESC
         "#;
     let rows = sqlx::query_as::<_, DailyCandle>(&sql)
-        .bind(market.market_id)
+        .bind(market_id)
         .fetch_all(pool)
         .await?;
     Ok(rows)
