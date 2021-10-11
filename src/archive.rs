@@ -1,3 +1,42 @@
+use crate::candles::*;
+use crate::configuration::*;
+use crate::historical::select_ftx_trades;
+use crate::markets::select_markets_active;
+use sqlx::PgPool;
+use chrono::{Duration};
+
+pub async fn archive(pool: &PgPool, config: Settings) {
+    // Get Active markets
+    let markets = select_markets_active(pool)
+        .await
+        .expect("Could not fetch active markets.");
+
+    // Check for trades to archive for each active market
+    for market in markets.iter() {
+        // Get validated but not archived 01d candles
+        let candles_to_archive = select_candles_valid_not_archived(pool, &market.market_id)
+            .await
+            .expect("Could not fetch valid not archived candles.");
+
+        // Archive trades
+        for candle in candles_to_archive.iter() {
+            // Select trades associated w/ candle
+            let trades_to_archive = select_ftx_trades(
+                pool,
+                &market.market_id,
+                &market.exchange_name,
+                candle.datetime,
+                candle.datetime + Duration::days(1),
+                false,
+                true,
+            )
+            .await
+            .expect("Could not fetch validated trades.");
+            // Write trades to file
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::candles::*;
@@ -123,7 +162,7 @@ mod test {
         }
 
         // Get validated but not archived 01d candles
-        let candles_to_archive = select_candles_valid_not_archived(&pool, &market)
+        let candles_to_archive = select_candles_valid_not_archived(&pool, &market.market_id)
             .await
             .expect("Could not fetch valid not archived candles.");
 
@@ -132,8 +171,8 @@ mod test {
             // Select trades associated w/ candle
             let trades_to_archive = select_ftx_trades(
                 &pool,
-                &market,
-                &exchange,
+                &market.market_id,
+                &exchange.exchange_name,
                 candle.datetime,
                 candle.datetime + Duration::days(1),
                 false,

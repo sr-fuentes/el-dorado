@@ -5,6 +5,7 @@ use crate::markets::*;
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal_macros::dec;
 use sqlx::PgPool;
+use uuid::Uuid;
 
 pub async fn run(pool: &PgPool, config: Settings) {
     // Get exchanges from database
@@ -72,8 +73,8 @@ pub async fn run(pool: &PgPool, config: Settings) {
                     // Update validated trades and move from processed to validated
                     let validated_trades = select_ftx_trades(
                         pool,
-                        &market,
-                        &exchange,
+                        &market.market_id,
+                        &exchange.exchange_name,
                         unvalidated_candle.datetime,
                         unvalidated_candle.datetime + Duration::seconds(900),
                         true,
@@ -216,8 +217,8 @@ pub async fn backfill_ftx(
                     // Select trades for market between start and end interval
                     let mut interval_trades = select_ftx_trades(
                         pool,
-                        market,
-                        exchange,
+                        &market.market_id,
+                        &exchange.exchange_name,
                         interval_start,
                         interval_end,
                         false,
@@ -355,8 +356,8 @@ pub async fn insert_ftxus_trades(
 
 pub async fn select_ftx_trades(
     pool: &PgPool,
-    market: &MarketId,
-    exchange: &Exchange,
+    market_id: &Uuid,
+    exchange_name: &str,
     interval_start: DateTime<Utc>,
     interval_end: DateTime<Utc>,
     is_processed: bool,
@@ -370,7 +371,7 @@ pub async fn select_ftx_trades(
         FROM trades_{}_processed
         WHERE market_id = $1 AND time >= $2 and time < $3
         "#,
-            exchange.exchange_name
+            exchange_name
         )
     } else if is_validated {
         format!(
@@ -379,7 +380,7 @@ pub async fn select_ftx_trades(
           FROM trades_{}_validated
           WHERE market_id = $1 AND time >= $2 AND time < $3
           "#,
-            exchange.exchange_name
+            exchange_name
         )
     } else {
         format!(
@@ -392,11 +393,11 @@ pub async fn select_ftx_trades(
         FROM trades_{table}_ws
         WHERE market_id = $1 AND time >= $2 and time < $3
         "#,
-            table = exchange.exchange_name
+            table = exchange_name
         )
     };
     let rows = sqlx::query_as::<_, Trade>(&sql)
-        .bind(market.market_id)
+        .bind(market_id)
         .bind(interval_start)
         .bind(interval_end)
         .fetch_all(pool)

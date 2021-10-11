@@ -83,8 +83,8 @@ pub async fn cleanup_01(pool: &PgPool, config: Settings) {
             let mut trades = match candle.is_validated {
                 false => select_ftx_trades(
                     pool,
-                    &market,
-                    exchange,
+                    &market.market_id,
+                    &exchange.exchange_name,
                     candle.datetime,
                     candle.datetime + Duration::seconds(900),
                     true,
