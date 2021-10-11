@@ -7,6 +7,7 @@ mod test {
     use crate::historical::select_ftx_trades;
     use chrono::{Duration, DurationRound};
     use sqlx::PgPool;
+    use csv::Writer;
 
     #[tokio::test]
     async fn fetch_trades_and_write_to_csv() {
@@ -137,8 +138,42 @@ mod test {
             )
             .await
             .expect("Could not fetch validated trades.");
+            // Write trades to file
+
         }
 
         // Update 01d candles to is_archived
+    }
+
+    #[tokio::test]
+    async fn write_to_csv() {
+        // Load configuration
+        let configuration = get_configuration().expect("Failed to read configuration.");
+        println!("Configuration: {:?}", configuration);
+
+        // Create db connection
+        let pool = PgPool::connect_with(configuration.database.with_db())
+            .await
+            .expect("Failed to connect to Postgres.");
+
+        // Get all trades from processed table
+        let sql = r#"
+            SELECT trade_id as id, price, size, side, liquidation, time
+            FROM trades_ftxus_processed
+            "#;
+        let trades = sqlx::query_as::<_, Trade>(&sql).fetch_all(&pool).await.expect("Could not fetch trades.");
+
+        // Write trades to csv file
+        let mut wtr = Writer::from_path("trades.csv").expect("Could not open file.");
+        for trade in trades.iter() {
+            wtr.serialize(trade).expect("could not serialize trade.");
+        };
+        wtr.flush().expect("coul not flush wtr.");
+        
+    }
+
+    #[tokio::test]
+    async fn write_to_compressed_csv() {
+
     }
 }

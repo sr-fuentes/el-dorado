@@ -16,6 +16,7 @@ name = "el-dorado"
 chrono = { version = "0.4.19", features = ["serde"] }
 clap = "3.0.0-beta.4"
 config = "0.11.0"
+csv = "1.1.6"
 ipnetwork = "0.18.0"
 reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls"] }
 rust_decimal = "1.15.0"
