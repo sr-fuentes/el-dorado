@@ -3,11 +3,14 @@ mod test {
     use crate::candles::*;
     use crate::configuration::get_configuration;
     use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::Trade};
-    use crate::markets::fetch_markets;
     use crate::historical::select_ftx_trades;
+    use crate::markets::fetch_markets;
     use chrono::{Duration, DurationRound};
-    use sqlx::PgPool;
     use csv::Writer;
+    use flate2::{write::GzEncoder, write::ZlibEncoder, Compression};
+    use sqlx::PgPool;
+    use std::fs::File;
+    use std::io::{copy, BufReader};
 
     #[tokio::test]
     async fn fetch_trades_and_write_to_csv() {
@@ -134,12 +137,11 @@ mod test {
                 candle.datetime,
                 candle.datetime + Duration::days(1),
                 false,
-                true
+                true,
             )
             .await
             .expect("Could not fetch validated trades.");
             // Write trades to file
-
         }
 
         // Update 01d candles to is_archived
@@ -161,19 +163,62 @@ mod test {
             SELECT trade_id as id, price, size, side, liquidation, time
             FROM trades_ftxus_processed
             "#;
-        let trades = sqlx::query_as::<_, Trade>(&sql).fetch_all(&pool).await.expect("Could not fetch trades.");
+        let trades = sqlx::query_as::<_, Trade>(&sql)
+            .fetch_all(&pool)
+            .await
+            .expect("Could not fetch trades.");
 
         // Write trades to csv file
         let mut wtr = Writer::from_path("trades.csv").expect("Could not open file.");
         for trade in trades.iter() {
             wtr.serialize(trade).expect("could not serialize trade.");
-        };
-        wtr.flush().expect("coul not flush wtr.");
-        
+        }
+        wtr.flush().expect("could not flush wtr.");
+
+        // Take csv file and compress
+        let mut input = BufReader::new(File::open("trades.csv").unwrap());
+        let output = File::create("trades.csv.zlib  ").unwrap();
+        let mut encoder = ZlibEncoder::new(output, Compression::default());
+        copy(&mut input, &mut encoder).unwrap();
+        let output = encoder.finish().unwrap();
     }
 
     #[tokio::test]
     async fn write_to_compressed_csv() {
+        // Load configuration
+        let configuration = get_configuration().expect("Failed to read configuration.");
+        println!("Configuration: {:?}", configuration);
 
+        // Create db connection
+        let pool = PgPool::connect_with(configuration.database.with_db())
+            .await
+            .expect("Failed to connect to Postgres.");
+
+        // Get all trades from processed table
+        let sql = r#"
+            SELECT trade_id as id, price, size, side, liquidation, time
+            FROM trades_ftxus_processed
+            "#;
+        let trades = sqlx::query_as::<_, Trade>(&sql)
+            .fetch_all(&pool)
+            .await
+            .expect("Could not fetch trades.");
+
+        // Write trades to compressed csv file
+        let mut wtr = Writer::from_writer(vec![]);
+        for trade in trades.iter() {
+            wtr.serialize(trade).expect("could not serialize trade.");
+        }
+
+        let f = File::create("test2.csv.gz").expect("could not create file.");
+        // let mut gz = GzBuilder::new()
+        //     .filename("test.csv")
+        //     .comment("test file, please delete")
+        //     .write(f, Compression::default());
+        //let data = String::from_utf8(wtr.into_inner().unwrap()).unwrap();
+        let mut gz = GzEncoder::new(f, Compression::default());
+        let test = wtr.into_inner().unwrap();
+        // gz.write_all(&test).expect("could not write to file.");
+        // gz.finish().expect("could not close file.");
     }
 }
