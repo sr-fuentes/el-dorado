@@ -123,6 +123,21 @@ pub async fn select_market_detail(
     Ok(row)
 }
 
+pub async fn select_markets_active(
+    pool: &PgPool,
+) -> Result<Vec<MarketDetail>, sqlx::Error> {
+    let rows = sqlx::query_as!(
+        MarketDetail,
+        r#"
+            SELECT * FROM markets
+            WHERE market_data_status in ('Active','Syncing')
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
 pub async fn update_market_last_validated(
     pool: &PgPool,
     market: &MarketId,
