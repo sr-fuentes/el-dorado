@@ -21,6 +21,9 @@ pub struct DatabaseSettings {
 pub struct ApplicationSettings {
     pub exchange: String,
     pub market: String,
+    pub droplet: String,
+    pub ip_addr: String,
+    pub archive_path: String,
 }
 
 pub fn get_configuration() -> Result<Settings, config::ConfigError> {
