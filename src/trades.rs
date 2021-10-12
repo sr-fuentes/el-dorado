@@ -1,62 +1,185 @@
+use crate::exchanges::ftx::Trade;
 use chrono::{DateTime, Utc};
-use rust_decimal::prelude::*;
+use sqlx::PgPool;
+use uuid::Uuid;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
-pub struct Trade {
-    pub datetime: DateTime<Utc>,
-    pub id: String,
-    pub price: Decimal,
-    pub size: Decimal,
-    pub side: String,
-    pub liquidation: bool,
+pub async fn insert_ftx_trades(
+    pool: &PgPool,
+    market_id: &Uuid,
+    exchange_name: &str,
+    trades: Vec<Trade>,
+    table: &str,
+) -> Result<(), sqlx::Error> {
+    for trade in trades.iter() {
+        // Cannot user sqlx query! macro because table may not exist at
+        // compile time and table name is dynamic to ftx and ftxus.
+        let sql = format!(
+            r#"
+                INSERT INTO trades_{}_{} (
+                    market_id, trade_id, price, size, side, liquidation, time)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                ON CONFLICT (trade_id) DO NOTHING
+            "#,
+            exchange_name, table
+        );
+        sqlx::query(&sql)
+            .bind(market_id)
+            .bind(trade.id)
+            .bind(trade.price)
+            .bind(trade.size)
+            .bind(&trade.side)
+            .bind(trade.liquidation)
+            .bind(trade.time)
+            .execute(pool)
+            .await?;
+    }
+    Ok(())
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
-pub struct Trades(Vec<Trade>);
+pub async fn select_ftx_trades_by_time(
+    pool: &PgPool,
+    market_id: &Uuid,
+    exchange_name: &str,
+    interval_start: DateTime<Utc>,
+    interval_end: DateTime<Utc>,
+    is_processed: bool,
+    is_validated: bool,
+) -> Result<Vec<Trade>, sqlx::Error> {
+    // Cannot user query_as! macro because table may not exist at compile time
+    let sql = if is_processed {
+        format!(
+            r#"
+        SELECT trade_id as id, price, size, side, liquidation, time
+        FROM trades_{}_processed
+        WHERE market_id = $1 AND time >= $2 and time < $3
+        "#,
+            exchange_name
+        )
+    } else if is_validated {
+        format!(
+            r#"
+          SELECT trade_id as id, price, size, side, liquidation, time
+          FROM trades_{}_validated
+          WHERE market_id = $1 AND time >= $2 AND time < $3
+          "#,
+            exchange_name
+        )
+    } else {
+        format!(
+            r#"
+        SELECT trade_id as id, price, size, side, liquidation, time
+        FROM trades_{table}_rest
+        WHERE market_id = $1 AND time >= $2 and time < $3
+        UNION
+        SELECT trade_id as id, price, size, side, liquidation, time
+        FROM trades_{table}_ws
+        WHERE market_id = $1 AND time >= $2 and time < $3
+        "#,
+            table = exchange_name
+        )
+    };
+    let rows = sqlx::query_as::<_, Trade>(&sql)
+        .bind(market_id)
+        .bind(interval_start)
+        .bind(interval_end)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows)
+}
 
-impl Trade {
-    pub const BUY: &'static str = "buy";
-    pub const SELL: &'static str = "sell";
-
-    pub fn new(
-        datetime: DateTime<Utc>,
-        id: String,
-        price: Decimal,
-        size: Decimal,
-        side: &str,
-        liquidation: bool,
-    ) -> Self {
-        Self {
-            datetime,
-            id,
-            price,
-            size,
-            side: side.to_string(),
-            liquidation,
-        }
+pub async fn delete_ftx_trades_by_time(
+    pool: &PgPool,
+    market_id: &Uuid,
+    exchange_name: &str,
+    interval_start: DateTime<Utc>,
+    interval_end: DateTime<Utc>,
+    is_processed: bool,
+    is_validated: bool,
+) -> Result<(), sqlx::Error> {
+    let mut tables = Vec::new();
+    if is_processed {
+        tables.push("processed");
+    } else if is_validated {
+        tables.push("validated");
+    } else {
+        tables.push("rest");
+        tables.push("ws");
+    };
+    for table in tables {
+        let sql = format!(
+            r#"
+                DELETE FROM trades_{}_{}
+                WHERE market_id = $1 AND time >= $2 and time <$3
+            "#,
+            exchange_name, table
+        );
+        sqlx::query(&sql)
+            .bind(market_id)
+            .bind(interval_start)
+            .bind(interval_end)
+            .execute(pool)
+            .await?;
     }
+    Ok(())
+}
+
+pub async fn delete_ftx_trades_by_id(
+    pool: &PgPool,
+    market_id: &Uuid,
+    exchange_name: &str,
+    first_trade_id: i64,
+    last_trade_id: i64,
+    is_processed: bool,
+    is_validated: bool,
+) -> Result<(), sqlx::Error> {
+    let mut tables = Vec::new();
+    if is_processed {
+        tables.push("processed");
+    } else if is_validated {
+        tables.push("validated");
+    } else {
+        tables.push("rest");
+        tables.push("ws");
+    };
+    for table in tables {
+        let sql = format!(
+            r#"
+                DELETE FROM trades_{}_{}
+                WHERE market_id = $1 AND trade_id >= $2 and trade_id <= $3
+            "#,
+            exchange_name, table
+        );
+        sqlx::query(&sql)
+            .bind(market_id)
+            .bind(first_trade_id)
+            .bind(last_trade_id)
+            .execute(pool)
+            .await?;
+    }
+    Ok(())
+}
+
+pub async fn delete_trades_by_market_table(
+    pool: &PgPool,
+    market_id: &Uuid,
+    exchange_name: &str,
+    trade_table: &str,
+) -> Result<(), sqlx::Error> {
+    let sql = format!(
+        r#"
+            DELETE FROM trades_{}_{}
+            WHERE market_id = $1
+        "#,
+        exchange_name, trade_table
+    );
+    sqlx::query(&sql).bind(market_id).execute(pool).await?;
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::configuration::*;
-    use chrono::{TimeZone, Utc};
-    use rust_decimal_macros::dec;
     use sqlx::PgPool;
-
-    #[test]
-    pub fn new_trade_returns_trade() {
-        let new_trade = Trade::new(
-            Utc.timestamp(1524886322, 0),
-            1.to_string(),
-            dec!(70.2),
-            dec!(23.1),
-            Trade::BUY,
-            false,
-        );
-        println!("New Trade: {:?}", new_trade);
-    }
 
     #[tokio::test]
     pub async fn insert_dup_trades_returns_error() {

@@ -1,7 +1,7 @@
 use crate::candles::*;
 use crate::configuration::*;
-use crate::historical::{delete_ftx_trades, select_ftx_trades};
 use crate::markets::select_markets_active;
+use crate::trades::*;
 use chrono::Duration;
 use csv::Writer;
 use sqlx::PgPool;
@@ -28,7 +28,7 @@ pub async fn archive(pool: &PgPool, config: Settings) {
         // Archive trades
         for candle in candles_to_archive.iter() {
             // Select trades associated w/ candle
-            let trades_to_archive = select_ftx_trades(
+            let trades_to_archive = select_ftx_trades_by_time(
                 pool,
                 &market.market_id,
                 &market.exchange_name,
@@ -54,7 +54,7 @@ pub async fn archive(pool: &PgPool, config: Settings) {
             }
             wtr.flush().expect("could not flush wtr.");
             // Delete trades from validated table
-            delete_ftx_trades(
+            delete_ftx_trades_by_time(
                 pool,
                 &market.market_id,
                 &market.exchange_name,
@@ -78,8 +78,8 @@ mod test {
     use crate::candles::*;
     use crate::configuration::get_configuration;
     use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::Trade};
-    use crate::historical::select_ftx_trades;
     use crate::markets::fetch_markets;
+    use crate::trades::select_ftx_trades_by_time;
     use chrono::{Duration, DurationRound};
     use csv::Writer;
     use flate2::{write::GzEncoder, write::ZlibEncoder, Compression};
@@ -205,7 +205,7 @@ mod test {
         // Archive trades
         for candle in candles_to_archive.iter() {
             // Select trades associated w/ candle
-            let _trades_to_archive = select_ftx_trades(
+            let _trades_to_archive = select_ftx_trades_by_time(
                 &pool,
                 &market.market_id,
                 &exchange.exchange_name,

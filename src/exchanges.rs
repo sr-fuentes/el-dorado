@@ -224,7 +224,7 @@ mod tests {
     use super::*;
     use crate::configuration::get_configuration;
     use crate::exchanges::ftx::*;
-    use crate::historical::insert_ftxus_trades;
+    use crate::trades::insert_ftx_trades;
 
     #[tokio::test]
     async fn fetch_exchanges_returns_all_exchanges() {
@@ -306,9 +306,15 @@ mod tests {
             .await
             .expect("Failed to get last 10 BTC/USD trades.");
 
-        insert_ftxus_trades(&connection_pool, &market, &exchange, trades, "rest")
-            .await
-            .expect("Failed to insert trades.");
+        insert_ftx_trades(
+            &connection_pool,
+            &market.market_id,
+            &exchange.exchange_name,
+            trades,
+            "rest",
+        )
+        .await
+        .expect("Failed to insert trades.");
         // Assert
         // Find a way to query db for table to assert that it was created
         //todo!()

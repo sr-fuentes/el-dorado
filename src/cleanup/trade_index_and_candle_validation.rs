@@ -1,8 +1,8 @@
 use crate::candles::Candle;
 use crate::configuration::Settings;
 use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::Trade};
-use crate::historical::select_ftx_trades;
 use crate::markets::*;
+use crate::trades::select_ftx_trades_by_time;
 use chrono::{Duration, Utc};
 use sqlx::PgPool;
 
@@ -81,7 +81,7 @@ pub async fn cleanup_01(pool: &PgPool, config: Settings) {
             println!("Getting trades for candle {:?}", candle.datetime);
             // Fetch trades for each candle
             let mut trades = match candle.is_validated {
-                false => select_ftx_trades(
+                false => select_ftx_trades_by_time(
                     pool,
                     &market.market_id,
                     &exchange.exchange_name,

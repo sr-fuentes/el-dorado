@@ -1,11 +1,11 @@
 use crate::candles::*;
 use crate::configuration::*;
-use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::RestError, ftx::Trade, Exchange};
+use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::RestError, Exchange};
 use crate::markets::*;
+use crate::trades::*;
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal_macros::dec;
 use sqlx::PgPool;
-use uuid::Uuid;
 
 pub async fn run(pool: &PgPool, config: Settings) {
     // Get exchanges from database
@@ -37,8 +37,12 @@ pub async fn run(pool: &PgPool, config: Settings) {
     // Validate / clean up current candles / trades for market
     validate_hb_candles(pool, &client, &exchange, &market).await;
 
+    // Create 01d candles
+
+    // Validate 01d candles
+
     // Delete trades from _rest table for market
-    delete_trades_by_market_table(pool, &market, &exchange, "rest")
+    delete_trades_by_market_table(pool, &market.market_id, &exchange.exchange_name, "rest")
         .await
         .expect("Could not clear _rest trades.");
 
@@ -130,9 +134,15 @@ pub async fn backfill_ftx(
                     );
                 }
                 // Save trades to db
-                insert_ftxus_trades(pool, market, exchange, new_trades, "rest")
-                    .await
-                    .expect("Failed to insert ftx trades.");
+                insert_ftx_trades(
+                    pool,
+                    &market.market_id,
+                    &exchange.exchange_name,
+                    new_trades,
+                    "rest",
+                )
+                .await
+                .expect("Failed to insert ftx trades.");
             };
             // If new trades returns less than 100 trades then there are no more trades
             // for that interval, create the candle and process the trades for that period
@@ -143,7 +153,7 @@ pub async fn backfill_ftx(
                 if interval_end < end {
                     // Move trades from _rest to _processed and create candle
                     // Select trades for market between start and end interval
-                    let mut interval_trades = select_ftx_trades(
+                    let mut interval_trades = select_ftx_trades_by_time(
                         pool,
                         &market.market_id,
                         &exchange.exchange_name,
@@ -185,7 +195,7 @@ pub async fn backfill_ftx(
                         .await
                         .expect("Could not insert new candle.");
                     // Delete trades for market between start and end interval
-                    delete_ftx_trades(
+                    delete_ftx_trades_by_time(
                         pool,
                         &market.market_id,
                         &exchange.exchange_name,
@@ -197,9 +207,15 @@ pub async fn backfill_ftx(
                     .await
                     .expect("Could not delete trades from db.");
                     // Insert into processed trades
-                    insert_ftxus_trades(pool, market, exchange, interval_trades, "processed")
-                        .await
-                        .expect("Could not insert processed trades.");
+                    insert_ftx_trades(
+                        pool,
+                        &market.market_id,
+                        &exchange.exchange_name,
+                        interval_trades,
+                        "processed",
+                    )
+                    .await
+                    .expect("Could not insert processed trades.");
                 };
                 // Move to next interval start
                 interval_start = interval_start + Duration::seconds(900); // TODO! set to market heartbeat
@@ -271,7 +287,7 @@ pub async fn validate_hb_candles(
                 // If there are trades (volume > 0) then move from processed to validated
                 if unvalidated_candle.volume > dec!(0) {
                     // Update validated trades and move from processed to validated
-                    let validated_trades = select_ftx_trades(
+                    let validated_trades = select_ftx_trades_by_time(
                         pool,
                         &market.market_id,
                         &exchange.exchange_name,
@@ -285,9 +301,15 @@ pub async fn validate_hb_candles(
                     // Get first and last trades to get id for delete query
                     let first_trade = validated_trades.first().unwrap().id;
                     let last_trade = validated_trades.last().unwrap().id;
-                    insert_ftxus_trades(pool, &market, &exchange, validated_trades, "validated")
-                        .await
-                        .expect("Could not insert validated trades.");
+                    insert_ftx_trades(
+                        pool,
+                        &market.market_id,
+                        &exchange.exchange_name,
+                        validated_trades,
+                        "validated",
+                    )
+                    .await
+                    .expect("Could not insert validated trades.");
                     delete_ftx_trades_by_id(
                         pool,
                         &market.market_id,
@@ -309,180 +331,4 @@ pub async fn validate_hb_candles(
             };
         }
     }
-}
-
-pub async fn insert_ftxus_trades(
-    pool: &PgPool,
-    market: &MarketId,
-    exchange: &Exchange,
-    trades: Vec<Trade>,
-    table: &str,
-) -> Result<(), sqlx::Error> {
-    for trade in trades.iter() {
-        // Cannot user sqlx query! macro because table may not exist at
-        // compile time and table name is dynamic to ftx and ftxus.
-        let sql = format!(
-            r#"
-                INSERT INTO trades_{}_{} (
-                    market_id, trade_id, price, size, side, liquidation, time)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
-                ON CONFLICT (trade_id) DO NOTHING
-            "#,
-            exchange.exchange_name, table
-        );
-        sqlx::query(&sql)
-            .bind(market.market_id)
-            .bind(trade.id)
-            .bind(trade.price)
-            .bind(trade.size)
-            .bind(&trade.side)
-            .bind(trade.liquidation)
-            .bind(trade.time)
-            .execute(pool)
-            .await?;
-    }
-    Ok(())
-}
-
-pub async fn select_ftx_trades(
-    pool: &PgPool,
-    market_id: &Uuid,
-    exchange_name: &str,
-    interval_start: DateTime<Utc>,
-    interval_end: DateTime<Utc>,
-    is_processed: bool,
-    is_validated: bool,
-) -> Result<Vec<Trade>, sqlx::Error> {
-    // Cannot user query_as! macro because table may not exist at compile time
-    let sql = if is_processed {
-        format!(
-            r#"
-        SELECT trade_id as id, price, size, side, liquidation, time
-        FROM trades_{}_processed
-        WHERE market_id = $1 AND time >= $2 and time < $3
-        "#,
-            exchange_name
-        )
-    } else if is_validated {
-        format!(
-            r#"
-          SELECT trade_id as id, price, size, side, liquidation, time
-          FROM trades_{}_validated
-          WHERE market_id = $1 AND time >= $2 AND time < $3
-          "#,
-            exchange_name
-        )
-    } else {
-        format!(
-            r#"
-        SELECT trade_id as id, price, size, side, liquidation, time
-        FROM trades_{table}_rest
-        WHERE market_id = $1 AND time >= $2 and time < $3
-        UNION
-        SELECT trade_id as id, price, size, side, liquidation, time
-        FROM trades_{table}_ws
-        WHERE market_id = $1 AND time >= $2 and time < $3
-        "#,
-            table = exchange_name
-        )
-    };
-    let rows = sqlx::query_as::<_, Trade>(&sql)
-        .bind(market_id)
-        .bind(interval_start)
-        .bind(interval_end)
-        .fetch_all(pool)
-        .await?;
-    Ok(rows)
-}
-
-pub async fn delete_ftx_trades(
-    pool: &PgPool,
-    market_id: &Uuid,
-    exchange_name: &str,
-    interval_start: DateTime<Utc>,
-    interval_end: DateTime<Utc>,
-    is_processed: bool,
-    is_validated: bool,
-) -> Result<(), sqlx::Error> {
-    let mut tables = Vec::new();
-    if is_processed {
-        tables.push("processed");
-    } else if is_validated {
-        tables.push("validated");
-    } else {
-        tables.push("rest");
-        tables.push("ws");
-    };
-    for table in tables {
-        let sql = format!(
-            r#"
-                DELETE FROM trades_{}_{}
-                WHERE market_id = $1 AND time >= $2 and time <$3
-            "#,
-            exchange_name, table
-        );
-        sqlx::query(&sql)
-            .bind(market_id)
-            .bind(interval_start)
-            .bind(interval_end)
-            .execute(pool)
-            .await?;
-    }
-    Ok(())
-}
-
-pub async fn delete_ftx_trades_by_id(
-    pool: &PgPool,
-    market_id: &Uuid,
-    exchange_name: &str,
-    first_trade_id: i64,
-    last_trade_id: i64,
-    is_processed: bool,
-    is_validated: bool,
-) -> Result<(), sqlx::Error> {
-    let mut tables = Vec::new();
-    if is_processed {
-        tables.push("processed");
-    } else if is_validated {
-        tables.push("validated");
-    } else {
-        tables.push("rest");
-        tables.push("ws");
-    };
-    for table in tables {
-        let sql = format!(
-            r#"
-                DELETE FROM trades_{}_{}
-                WHERE market_id = $1 AND trade_id >= $2 and trade_id <= $3
-            "#,
-            exchange_name, table
-        );
-        sqlx::query(&sql)
-            .bind(market_id)
-            .bind(first_trade_id)
-            .bind(last_trade_id)
-            .execute(pool)
-            .await?;
-    }
-    Ok(())
-}
-
-pub async fn delete_trades_by_market_table(
-    pool: &PgPool,
-    market: &MarketId,
-    exchange: &Exchange,
-    trade_table: &str,
-) -> Result<(), sqlx::Error> {
-    let sql = format!(
-        r#"
-            DELETE FROM trades_{}_{}
-            WHERE market_id = $1
-        "#,
-        exchange.exchange_name, trade_table
-    );
-    sqlx::query(&sql)
-        .bind(market.market_id)
-        .execute(pool)
-        .await?;
-    Ok(())
 }
