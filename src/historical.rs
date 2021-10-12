@@ -41,7 +41,7 @@ pub async fn run(pool: &PgPool, config: Settings) {
     create_01d_candles(pool, &market.market_id, &exchange.exchange_name).await;
 
     // Validate 01d candles
-    //validate_01d_candles(pool, &client, &exchange, &market).await;
+    validate_01d_candles(pool, &client, &exchange, &market).await;
 
     // Delete trades from _rest table for market
     delete_trades_by_market_table(pool, &market.market_id, &exchange.exchange_name, "rest")
@@ -245,92 +245,4 @@ pub async fn get_ftx_start(client: &RestClient, market: &MarketId) -> DateTime<U
         };
     }
     start_time
-}
-
-pub async fn validate_hb_candles(
-    pool: &PgPool,
-    client: &RestClient,
-    exchange: &Exchange,
-    market: &MarketId,
-) {
-    let unvalidated_candles = select_unvalidated_candles(pool, &exchange, &market)
-        .await
-        .expect("Could not fetch unvalidated candles.");
-    if unvalidated_candles.len() > 0 {
-        let first_candle = unvalidated_candles.first().unwrap().datetime;
-        let last_candle = unvalidated_candles.last().unwrap().datetime;
-        println!(
-            "Getting exchange candles from {:?} to {:?}",
-            first_candle, last_candle
-        );
-        let mut exchange_candles =
-            get_ftx_candles(&client, &market, first_candle, last_candle, 900).await;
-        println!("Pulled {} candles from exchange.", exchange_candles.len());
-        println!(
-            "First returned candle is: {:?}",
-            exchange_candles.first().unwrap()
-        );
-        for unvalidated_candle in unvalidated_candles {
-            // validate candle - get candle from exchange, comp volume. if volume matches
-            // consider it validated - if not - pull trades
-            println!(
-                "Validating {} candle {}.",
-                market.market_name, unvalidated_candle.datetime
-            );
-            let is_valid = validate_candle(&unvalidated_candle, &mut exchange_candles);
-            if is_valid {
-                // Update market details and candle with validated data
-                update_market_last_validated(pool, &market, &unvalidated_candle)
-                    .await
-                    .expect("Could not update market details.");
-                update_candle_validation(pool, &exchange, &market, &unvalidated_candle, 900)
-                    .await
-                    .expect("Could not update candle validation status.");
-                // If there are trades (volume > 0) then move from processed to validated
-                if unvalidated_candle.volume > dec!(0) {
-                    // Update validated trades and move from processed to validated
-                    let validated_trades = select_ftx_trades_by_time(
-                        pool,
-                        &market.market_id,
-                        &exchange.exchange_name,
-                        unvalidated_candle.datetime,
-                        unvalidated_candle.datetime + Duration::seconds(900),
-                        true,
-                        false,
-                    )
-                    .await
-                    .expect("Could not fetch validated trades.");
-                    // Get first and last trades to get id for delete query
-                    let first_trade = validated_trades.first().unwrap().id;
-                    let last_trade = validated_trades.last().unwrap().id;
-                    insert_ftx_trades(
-                        pool,
-                        &market.market_id,
-                        &exchange.exchange_name,
-                        validated_trades,
-                        "validated",
-                    )
-                    .await
-                    .expect("Could not insert validated trades.");
-                    delete_ftx_trades_by_id(
-                        pool,
-                        &market.market_id,
-                        &exchange.exchange_name,
-                        first_trade,
-                        last_trade,
-                        true,
-                        false,
-                    )
-                    .await
-                    .expect("Could not delete processed trades.");
-                }
-            } else {
-                // Add to re-validation queue
-                println!(
-                    "Candle not validated: {} \t {}",
-                    market.market_name, unvalidated_candle.datetime
-                );
-            };
-        }
-    }
 }

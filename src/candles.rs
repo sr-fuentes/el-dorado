@@ -1,5 +1,6 @@
 use crate::exchanges::{ftx::Candle as CandleFtx, ftx::RestClient, ftx::Trade, Exchange};
-use crate::markets::MarketId;
+use crate::markets::{MarketId, update_market_last_validated};
+use crate::trades::{select_ftx_trades_by_time, insert_ftx_trades, delete_ftx_trades_by_id};
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
@@ -290,6 +291,129 @@ pub async fn create_01d_candles(pool: &PgPool, market_id: &Uuid, exchange_name: 
         .expect("Could not insert candles.");
 }
 
+pub async fn validate_hb_candles(
+    pool: &PgPool,
+    client: &RestClient,
+    exchange: &Exchange,
+    market: &MarketId,
+) {
+    let unvalidated_candles = select_unvalidated_candles(pool, &exchange, &market)
+        .await
+        .expect("Could not fetch unvalidated candles.");
+    if unvalidated_candles.len() > 0 {
+        let first_candle = unvalidated_candles.first().unwrap().datetime;
+        let last_candle = unvalidated_candles.last().unwrap().datetime;
+        println!(
+            "Getting exchange candles from {:?} to {:?}",
+            first_candle, last_candle
+        );
+        let mut exchange_candles =
+            get_ftx_candles(&client, &market, first_candle, last_candle, 900).await;
+        println!("Pulled {} candles from exchange.", exchange_candles.len());
+        println!(
+            "First returned candle is: {:?}",
+            exchange_candles.first().unwrap()
+        );
+        for unvalidated_candle in unvalidated_candles {
+            // validate candle - get candle from exchange, comp volume. if volume matches
+            // consider it validated - if not - pull trades
+            println!(
+                "Validating {} candle {}.",
+                market.market_name, unvalidated_candle.datetime
+            );
+            let is_valid = validate_candle(&unvalidated_candle, &mut exchange_candles);
+            if is_valid {
+                // Update market details and candle with validated data
+                update_market_last_validated(pool, &market, &unvalidated_candle)
+                    .await
+                    .expect("Could not update market details.");
+                update_candle_validation(pool, &exchange, &market, &unvalidated_candle, 900)
+                    .await
+                    .expect("Could not update candle validation status.");
+                // If there are trades (volume > 0) then move from processed to validated
+                if unvalidated_candle.volume > dec!(0) {
+                    // Update validated trades and move from processed to validated
+                    let validated_trades = select_ftx_trades_by_time(
+                        pool,
+                        &market.market_id,
+                        &exchange.exchange_name,
+                        unvalidated_candle.datetime,
+                        unvalidated_candle.datetime + Duration::seconds(900),
+                        true,
+                        false,
+                    )
+                    .await
+                    .expect("Could not fetch validated trades.");
+                    // Get first and last trades to get id for delete query
+                    let first_trade = validated_trades.first().unwrap().id;
+                    let last_trade = validated_trades.last().unwrap().id;
+                    insert_ftx_trades(
+                        pool,
+                        &market.market_id,
+                        &exchange.exchange_name,
+                        validated_trades,
+                        "validated",
+                    )
+                    .await
+                    .expect("Could not insert validated trades.");
+                    delete_ftx_trades_by_id(
+                        pool,
+                        &market.market_id,
+                        &exchange.exchange_name,
+                        first_trade,
+                        last_trade,
+                        true,
+                        false,
+                    )
+                    .await
+                    .expect("Could not delete processed trades.");
+                }
+            } else {
+                // Add to re-validation queue
+                println!(
+                    "Candle not validated: {} \t {}",
+                    market.market_name, unvalidated_candle.datetime
+                );
+            };
+        }
+    }
+}
+
+pub fn validate_candle(candle: &Candle, exchange_candles: &mut Vec<CandleFtx>) -> bool {
+    // FTX candle validation on FTX Volume = ED Value, FTX sets open = last trade event if the
+    // last trades was in the prior time period.
+    // Consider valid if candle.value == exchange_candle.volume.
+    let exchange_candle = exchange_candles.iter().find(|c| c.time == candle.datetime);
+    match exchange_candle {
+        Some(c) => {
+            if c.volume == candle.value {
+                return true;
+            } else if (c.volume / candle.value - dec!(1.0)) < dec!(0.0001) {
+                // If there are more than 100 trades in a microsecond they may not be counted in
+                // historical data pooling. Consider validated is volume < 1 bp.
+                return true;
+            } else {
+                println!(
+                    "Failed to validate: {:?} in \n {:?}",
+                    candle, exchange_candle
+                );
+                return false;
+            }
+        }
+        None => {
+            if candle.volume == dec!(0) {
+                return true;
+            } else {
+                println!(
+                    "Failed to validate: {:?}. Volume not 0 and no exchange candle.",
+                    candle
+                );
+                return false;
+            }
+        }
+    }
+}
+
 pub async fn get_ftx_candles(
     client: &RestClient,
     market: &MarketId,
@@ -524,41 +648,6 @@ pub async fn select_previous_candle(
         .fetch_one(pool)
         .await?;
     Ok(row)
-}
-
-pub fn validate_candle(candle: &Candle, exchange_candles: &mut Vec<CandleFtx>) -> bool {
-    // FTX candle validation on FTX Volume = ED Value, FTX sets open = last trade event if the
-    // last trades was in the prior time period.
-    // Consider valid if candle.value == exchange_candle.volume.
-    let exchange_candle = exchange_candles.iter().find(|c| c.time == candle.datetime);
-    match exchange_candle {
-        Some(c) => {
-            if c.volume == candle.value {
-                return true;
-            } else if (c.volume / candle.value - dec!(1.0)) < dec!(0.0001) {
-                // If there are more than 100 trades in a microsecond they may not be counted in
-                // historical data pooling. Consider validated is volume < 1 bp.
-                return true;
-            } else {
-                println!(
-                    "Failed to validate: {:?} in \n {:?}",
-                    candle, exchange_candle
-                );
-                return false;
-            }
-        }
-        None => {
-            if candle.volume == dec!(0) {
-                return true;
-            } else {
-                println!(
-                    "Failed to validate: {:?}. Volume not 0 and no exchange candle.",
-                    candle
-                );
-                return false;
-            }
-        }
-    }
 }
 
 pub async fn update_candle_validation(
