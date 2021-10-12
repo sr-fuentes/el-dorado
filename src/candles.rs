@@ -689,7 +689,7 @@ mod tests {
         println!("Configuration: {:?}", configuration);
 
         // Create db connection
-        let pool = PgPool::connect_with(configuration.database.with_db())
+        let _pool = PgPool::connect_with(configuration.database.with_db())
             .await
             .expect("Failed to connect to Postgres.");
     }
