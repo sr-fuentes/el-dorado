@@ -90,8 +90,8 @@ pub async fn run(pool: &PgPool, config: Settings) {
                         .expect("Could not insert validated trades.");
                     delete_ftx_trades_by_id(
                         pool,
-                        &market,
-                        &exchange,
+                        &market.market_id,
+                        &exchange.exchange_name,
                         first_trade,
                         last_trade,
                         true,
