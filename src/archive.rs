@@ -65,6 +65,10 @@ pub async fn archive(pool: &PgPool, config: Settings) {
             )
             .await
             .expect("Could not delete archived trades.");
+            // Update candle status to archived
+            update_candle_archived(pool, &market.market_id, &candle)
+                .await
+                .expect("Could not update candle archive status.");
         }
     }
 }

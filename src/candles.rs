@@ -551,6 +551,25 @@ pub async fn update_candle_validation(
     Ok(())
 }
 
+pub async fn update_candle_archived(
+    pool: &PgPool,
+    market_id: &Uuid,
+    candle: &DailyCandle,
+) -> Result<(), sqlx::Error> {
+    let sql = r#"
+            UPDATE candles_01d
+            SET is_archived = True
+            WHERE datetime = $1
+            AND market_id = $2
+        "#;
+    sqlx::query(&sql)
+        .bind(candle.datetime)
+        .bind(market_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
