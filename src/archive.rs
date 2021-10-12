@@ -2,8 +2,9 @@ use crate::candles::*;
 use crate::configuration::*;
 use crate::historical::select_ftx_trades;
 use crate::markets::select_markets_active;
+use chrono::Duration;
+use csv::Writer;
 use sqlx::PgPool;
-use chrono::{Duration};
 
 pub async fn archive(pool: &PgPool, config: Settings) {
     // Get Active markets
@@ -13,6 +14,12 @@ pub async fn archive(pool: &PgPool, config: Settings) {
 
     // Check for trades to archive for each active market
     for market in markets.iter() {
+        // Check directory for exchange csv is created
+        let p = format!(
+            "{}/csv/{}",
+            config.application.archive_path, &market.exchange_name
+        );
+        std::fs::create_dir_all(&p).expect("Could not create directories.");
         // Get validated but not archived 01d candles
         let candles_to_archive = select_candles_valid_not_archived(pool, &market.market_id)
             .await
@@ -32,7 +39,20 @@ pub async fn archive(pool: &PgPool, config: Settings) {
             )
             .await
             .expect("Could not fetch validated trades.");
+            // Define filename = TICKER_YYYYMMDD.csv
+            let f = format!(
+                "{}_{}.csv",
+                market.market_name.replace(&['/', '-'][..], ""),
+                candle.datetime.format("%Y&m%d")
+            );
+            // Set filepath and file name
+            let fp = std::path::Path::new(&p).join(f);
             // Write trades to file
+            let mut wtr = Writer::from_path(fp).expect("Could not open file.");
+            for trade in trades_to_archive.iter() {
+                wtr.serialize(trade).expect("could not serialize trade.");
+            }
+            wtr.flush().expect("could not flush wtr.");
         }
     }
 }
@@ -169,7 +189,7 @@ mod test {
         // Archive trades
         for candle in candles_to_archive.iter() {
             // Select trades associated w/ candle
-            let trades_to_archive = select_ftx_trades(
+            let _trades_to_archive = select_ftx_trades(
                 &pool,
                 &market.market_id,
                 &exchange.exchange_name,
@@ -219,7 +239,7 @@ mod test {
         let output = File::create("trades.csv.zlib  ").unwrap();
         let mut encoder = ZlibEncoder::new(output, Compression::default());
         copy(&mut input, &mut encoder).unwrap();
-        let output = encoder.finish().unwrap();
+        let _output = encoder.finish().unwrap();
     }
 
     #[tokio::test]
@@ -255,8 +275,8 @@ mod test {
         //     .comment("test file, please delete")
         //     .write(f, Compression::default());
         //let data = String::from_utf8(wtr.into_inner().unwrap()).unwrap();
-        let mut gz = GzEncoder::new(f, Compression::default());
-        let test = wtr.into_inner().unwrap();
+        let mut _gz = GzEncoder::new(f, Compression::default());
+        let _test = wtr.into_inner().unwrap();
         // gz.write_all(&test).expect("could not write to file.");
         // gz.finish().expect("could not close file.");
     }
