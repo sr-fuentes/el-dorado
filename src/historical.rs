@@ -4,7 +4,6 @@ use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::RestError, Exchang
 use crate::markets::*;
 use crate::trades::*;
 use chrono::{DateTime, Duration, DurationRound, Utc};
-use rust_decimal_macros::dec;
 use sqlx::PgPool;
 
 pub async fn run(pool: &PgPool, config: Settings) {
@@ -35,13 +34,13 @@ pub async fn run(pool: &PgPool, config: Settings) {
         .unwrap();
 
     // Validate / clean up current candles / trades for market
-    validate_hb_candles(pool, &client, &exchange, &market).await;
+    validate_hb_candles(pool, &client, &exchange.exchange_name, &market).await;
 
     // Create 01d candles
-    create_01d_candles(pool, &market.market_id, &exchange.exchange_name).await;
+    create_01d_candles(pool, &exchange.exchange_name, &market.market_id).await;
 
     // Validate 01d candles
-    validate_01d_candles(pool, &client, &exchange, &market).await;
+    // validate_01d_candles(pool, &client, &exchange, &market).await;
 
     // Delete trades from _rest table for market
     delete_trades_by_market_table(pool, &market.market_id, &exchange.exchange_name, "rest")
@@ -172,10 +171,14 @@ pub async fn backfill_ftx(
                     let new_candle = match interval_trades.len() {
                         0 => {
                             // Get previous candle
-                            let previous_candle =
-                                select_previous_candle(pool, &exchange, &market, interval_start)
-                                    .await
-                                    .expect("No previous candle.");
+                            let previous_candle = select_previous_candle(
+                                pool,
+                                &exchange.exchange_name,
+                                &market.market_id,
+                                interval_start,
+                            )
+                            .await
+                            .expect("No previous candle.");
                             // Create Candle
                             Candle::new_from_last(
                                 interval_start,
@@ -193,7 +196,7 @@ pub async fn backfill_ftx(
                         }
                     };
                     // Insert into candles
-                    insert_candle(pool, market, exchange, new_candle)
+                    insert_candle(pool, &exchange.exchange_name, &market.market_id, new_candle)
                         .await
                         .expect("Could not insert new candle.");
                     // Delete trades for market between start and end interval

@@ -193,9 +193,15 @@ mod test {
             let vol_is_validated = validate_candle(&candle, &mut exchange_candles);
             // Update candle validation status
             if hb_is_validated && vol_is_validated {
-                update_candle_validation(&pool, &exchange, &market, &candle, 86400)
-                    .await
-                    .expect("Could not update candle validation status.");
+                update_candle_validation(
+                    &pool,
+                    &exchange.exchange_name,
+                    &market.market_id,
+                    &candle,
+                    86400,
+                )
+                .await
+                .expect("Could not update candle validation status.");
             }
         }
 

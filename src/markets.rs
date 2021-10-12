@@ -138,7 +138,7 @@ pub async fn select_markets_active(pool: &PgPool) -> Result<Vec<MarketDetail>, s
 
 pub async fn update_market_last_validated(
     pool: &PgPool,
-    market: &MarketId,
+    market_id: &Uuid,
     candle: &Candle,
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
@@ -152,7 +152,7 @@ pub async fn update_market_last_validated(
         candle.last_trade_ts,
         candle.datetime,
         Utc::now(),
-        market.market_id
+        market_id
     )
     .execute(pool)
     .await?;

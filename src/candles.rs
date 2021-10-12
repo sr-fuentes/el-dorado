@@ -1,6 +1,6 @@
-use crate::exchanges::{ftx::Candle as CandleFtx, ftx::RestClient, ftx::Trade, Exchange};
-use crate::markets::{MarketId, update_market_last_validated};
-use crate::trades::{select_ftx_trades_by_time, insert_ftx_trades, delete_ftx_trades_by_id};
+use crate::exchanges::{ftx::Candle as CandleFtx, ftx::RestClient, ftx::Trade};
+use crate::markets::{update_market_last_validated, MarketId};
+use crate::trades::{delete_ftx_trades_by_id, insert_ftx_trades, select_ftx_trades_by_time};
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
@@ -246,7 +246,7 @@ pub fn resample_candles(candles: &Vec<Candle>, duration: Duration) -> Vec<Candle
     }
 }
 
-pub async fn create_01d_candles(pool: &PgPool, market_id: &Uuid, exchange_name: &str) {
+pub async fn create_01d_candles(pool: &PgPool, exchange_name: &str, market_id: &Uuid) {
     // Gets 15t candles for market newer than last 01d candle
     let candles = match select_last_01d_candle(pool, market_id).await {
         Ok(c) => select_candles_gte_datetime(
@@ -294,10 +294,10 @@ pub async fn create_01d_candles(pool: &PgPool, market_id: &Uuid, exchange_name: 
 pub async fn validate_hb_candles(
     pool: &PgPool,
     client: &RestClient,
-    exchange: &Exchange,
+    exchange_name: &str,
     market: &MarketId,
 ) {
-    let unvalidated_candles = select_unvalidated_candles(pool, &exchange, &market)
+    let unvalidated_candles = select_unvalidated_candles(pool, exchange_name, &market.market_id)
         .await
         .expect("Could not fetch unvalidated candles.");
     if unvalidated_candles.len() > 0 {
@@ -308,7 +308,7 @@ pub async fn validate_hb_candles(
             first_candle, last_candle
         );
         let mut exchange_candles =
-            get_ftx_candles(&client, &market, first_candle, last_candle, 900).await;
+            get_ftx_candles(&client, market, first_candle, last_candle, 900).await;
         println!("Pulled {} candles from exchange.", exchange_candles.len());
         println!(
             "First returned candle is: {:?}",
@@ -319,24 +319,30 @@ pub async fn validate_hb_candles(
             // consider it validated - if not - pull trades
             println!(
                 "Validating {} candle {}.",
-                market.market_name, unvalidated_candle.datetime
+                &market.market_name, unvalidated_candle.datetime
             );
             let is_valid = validate_candle(&unvalidated_candle, &mut exchange_candles);
             if is_valid {
                 // Update market details and candle with validated data
-                update_market_last_validated(pool, &market, &unvalidated_candle)
+                update_market_last_validated(pool, &market.market_id, &unvalidated_candle)
                     .await
                     .expect("Could not update market details.");
-                update_candle_validation(pool, &exchange, &market, &unvalidated_candle, 900)
-                    .await
-                    .expect("Could not update candle validation status.");
+                update_candle_validation(
+                    pool,
+                    exchange_name,
+                    &market.market_id,
+                    &unvalidated_candle,
+                    900,
+                )
+                .await
+                .expect("Could not update candle validation status.");
                 // If there are trades (volume > 0) then move from processed to validated
                 if unvalidated_candle.volume > dec!(0) {
                     // Update validated trades and move from processed to validated
                     let validated_trades = select_ftx_trades_by_time(
                         pool,
                         &market.market_id,
-                        &exchange.exchange_name,
+                        exchange_name,
                         unvalidated_candle.datetime,
                         unvalidated_candle.datetime + Duration::seconds(900),
                         true,
@@ -350,7 +356,7 @@ pub async fn validate_hb_candles(
                     insert_ftx_trades(
                         pool,
                         &market.market_id,
-                        &exchange.exchange_name,
+                        exchange_name,
                         validated_trades,
                         "validated",
                     )
@@ -359,7 +365,7 @@ pub async fn validate_hb_candles(
                     delete_ftx_trades_by_id(
                         pool,
                         &market.market_id,
-                        &exchange.exchange_name,
+                        exchange_name,
                         first_trade,
                         last_trade,
                         true,
@@ -372,7 +378,7 @@ pub async fn validate_hb_candles(
                 // Add to re-validation queue
                 println!(
                     "Candle not validated: {} \t {}",
-                    market.market_name, unvalidated_candle.datetime
+                    &market.market_name, unvalidated_candle.datetime
                 );
             };
         }
@@ -453,8 +459,8 @@ pub async fn get_ftx_candles(
 
 pub async fn insert_candle(
     pool: &PgPool,
-    market: &MarketId,
-    exchange: &Exchange,
+    exchange_name: &str,
+    market_id: &Uuid,
     candle: Candle,
 ) -> Result<(), sqlx::Error> {
     let sql = format!(
@@ -465,7 +471,7 @@ pub async fn insert_candle(
                 market_id, first_trade_ts, first_trade_id)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
         "#,
-        exchange.exchange_name,
+        exchange_name,
     );
     sqlx::query(&sql)
         .bind(candle.datetime)
@@ -482,7 +488,7 @@ pub async fn insert_candle(
         .bind(candle.last_trade_ts)
         .bind(candle.last_trade_id)
         .bind(false)
-        .bind(market.market_id)
+        .bind(market_id)
         .bind(candle.first_trade_ts)
         .bind(candle.first_trade_id)
         .execute(pool)
@@ -532,8 +538,8 @@ pub async fn insert_candles_01d(
 
 pub async fn select_unvalidated_candles(
     pool: &PgPool,
-    exchange: &Exchange,
-    market: &MarketId,
+    exchange_name: &str,
+    market_id: &Uuid,
 ) -> Result<Vec<Candle>, sqlx::Error> {
     let sql = format!(
         r#"
@@ -541,10 +547,10 @@ pub async fn select_unvalidated_candles(
         WHERE market_id = $1 and not is_validated
         ORDER BY datetime
        "#,
-        exchange.exchange_name
+        exchange_name
     );
     let rows = sqlx::query_as::<_, Candle>(&sql)
-        .bind(market.market_id)
+        .bind(market_id)
         .fetch_all(pool)
         .await?;
     Ok(rows)
@@ -629,8 +635,8 @@ pub async fn select_candles_valid_not_archived(
 
 pub async fn select_previous_candle(
     pool: &PgPool,
-    exchange: &Exchange,
-    market: &MarketId,
+    exchange_name: &str,
+    market_id: &Uuid,
     datetime: DateTime<Utc>,
 ) -> Result<Candle, sqlx::Error> {
     let sql = format!(
@@ -640,10 +646,10 @@ pub async fn select_previous_candle(
             AND datetime < $2
             ORDER BY datetime DESC
         "#,
-        exchange.exchange_name
+        exchange_name
     );
     let row = sqlx::query_as::<_, Candle>(&sql)
-        .bind(market.market_id)
+        .bind(market_id)
         .bind(datetime)
         .fetch_one(pool)
         .await?;
@@ -652,8 +658,8 @@ pub async fn select_previous_candle(
 
 pub async fn update_candle_validation(
     pool: &PgPool,
-    exchange: &Exchange,
-    market: &MarketId,
+    exchange_name: &str,
+    market_id: &Uuid,
     candle: &Candle,
     seconds: u32,
 ) -> Result<(), sqlx::Error> {
@@ -665,7 +671,7 @@ pub async fn update_candle_validation(
             WHERE datetime = $1
             AND market_id = $2
         "#,
-            exchange.exchange_name
+            exchange_name
         ),
         86400 => format!(
             r#"
@@ -679,7 +685,7 @@ pub async fn update_candle_validation(
     };
     sqlx::query(&sql)
         .bind(candle.datetime)
-        .bind(market.market_id)
+        .bind(market_id)
         .execute(pool)
         .await?;
     Ok(())
