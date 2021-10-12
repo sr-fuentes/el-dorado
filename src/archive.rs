@@ -1,6 +1,6 @@
 use crate::candles::*;
 use crate::configuration::*;
-use crate::historical::select_ftx_trades;
+use crate::historical::{delete_ftx_trades, select_ftx_trades};
 use crate::markets::select_markets_active;
 use chrono::Duration;
 use csv::Writer;
@@ -53,6 +53,18 @@ pub async fn archive(pool: &PgPool, config: Settings) {
                 wtr.serialize(trade).expect("could not serialize trade.");
             }
             wtr.flush().expect("could not flush wtr.");
+            // Delete trades from validated table
+            delete_ftx_trades(
+                pool,
+                &market.market_id,
+                &market.exchange_name,
+                candle.datetime,
+                candle.datetime + Duration::days(1),
+                false,
+                true,
+            )
+            .await
+            .expect("Could not delete archived trades.");
         }
     }
 }

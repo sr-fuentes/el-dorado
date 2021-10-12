@@ -95,6 +95,7 @@ pub async fn run(pool: &PgPool, config: Settings) {
                         first_trade,
                         last_trade,
                         true,
+                        false,
                     )
                     .await
                     .expect("Could not delete processed trades.");
@@ -257,9 +258,17 @@ pub async fn backfill_ftx(
                         .await
                         .expect("Could not insert new candle.");
                     // Delete trades for market between start and end interval
-                    delete_ftx_trades(pool, market, exchange, interval_start, interval_end, false)
-                        .await
-                        .expect("Could not delete trades from db.");
+                    delete_ftx_trades(
+                        pool,
+                        &market.market_id,
+                        &exchange.exchange_name,
+                        interval_start,
+                        interval_end,
+                        false,
+                        false,
+                    )
+                    .await
+                    .expect("Could not delete trades from db.");
                     // Insert into processed trades
                     insert_ftxus_trades(pool, market, exchange, interval_trades, "processed")
                         .await
@@ -407,15 +416,18 @@ pub async fn select_ftx_trades(
 
 pub async fn delete_ftx_trades(
     pool: &PgPool,
-    market: &MarketId,
-    exchange: &Exchange,
+    market_id: &Uuid,
+    exchange_name: &str,
     interval_start: DateTime<Utc>,
     interval_end: DateTime<Utc>,
     is_processed: bool,
+    is_validated: bool,
 ) -> Result<(), sqlx::Error> {
     let mut tables = Vec::new();
     if is_processed {
         tables.push("processed");
+    } else if is_validated {
+        tables.push("validated");
     } else {
         tables.push("rest");
         tables.push("ws");
@@ -426,10 +438,10 @@ pub async fn delete_ftx_trades(
                 DELETE FROM trades_{}_{}
                 WHERE market_id = $1 AND time >= $2 and time <$3
             "#,
-            exchange.exchange_name, table
+            exchange_name, table
         );
         sqlx::query(&sql)
-            .bind(market.market_id)
+            .bind(market_id)
             .bind(interval_start)
             .bind(interval_end)
             .execute(pool)
@@ -440,15 +452,18 @@ pub async fn delete_ftx_trades(
 
 pub async fn delete_ftx_trades_by_id(
     pool: &PgPool,
-    market: &MarketId,
-    exchange: &Exchange,
+    market_id: &Uuid,
+    exchange_name: &str,
     first_trade_id: i64,
     last_trade_id: i64,
     is_processed: bool,
+    is_validated: bool,
 ) -> Result<(), sqlx::Error> {
     let mut tables = Vec::new();
     if is_processed {
         tables.push("processed");
+    } else if is_validated {
+        tables.push("validated");
     } else {
         tables.push("rest");
         tables.push("ws");
@@ -459,10 +474,10 @@ pub async fn delete_ftx_trades_by_id(
                 DELETE FROM trades_{}_{}
                 WHERE market_id = $1 AND trade_id >= $2 and trade_id <= $3
             "#,
-            exchange.exchange_name, table
+            exchange_name, table
         );
         sqlx::query(&sql)
-            .bind(market.market_id)
+            .bind(market_id)
             .bind(first_trade_id)
             .bind(last_trade_id)
             .execute(pool)
