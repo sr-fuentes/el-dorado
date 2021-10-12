@@ -38,8 +38,10 @@ pub async fn run(pool: &PgPool, config: Settings) {
     validate_hb_candles(pool, &client, &exchange, &market).await;
 
     // Create 01d candles
+    create_01d_candles(pool, &market.market_id, &exchange.exchange_name).await;
 
     // Validate 01d candles
+    //validate_01d_candles(pool, &client, &exchange, &market).await;
 
     // Delete trades from _rest table for market
     delete_trades_by_market_table(pool, &market.market_id, &exchange.exchange_name, "rest")

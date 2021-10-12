@@ -245,6 +245,51 @@ pub fn resample_candles(candles: &Vec<Candle>, duration: Duration) -> Vec<Candle
     }
 }
 
+pub async fn create_01d_candles(pool: &PgPool, market_id: &Uuid, exchange_name: &str) {
+    // Gets 15t candles for market newer than last 01d candle
+    let candles = match select_last_01d_candle(pool, market_id).await {
+        Ok(c) => select_candles_gte_datetime(
+            pool,
+            exchange_name,
+            market_id,
+            c.datetime + Duration::days(1),
+        )
+        .await
+        .expect("Could not fetch candles."),
+        Err(sqlx::Error::RowNotFound) => select_candles(pool, exchange_name, market_id)
+            .await
+            .expect("Could not fetch candles."),
+        Err(e) => panic!("Sqlx Error: {:?}", e),
+    };
+
+    // If there are no candles, then return, nothing to archive
+    if candles.len() == 0 {
+        return;
+    };
+
+    // Filter candles for last full day
+    let next_candle = candles.last().unwrap().datetime + Duration::seconds(900);
+    let last_full_day = next_candle.duration_trunc(Duration::days(1)).unwrap();
+    let filtered_candles: Vec<Candle> = candles
+        .iter()
+        .filter(|c| c.datetime < last_full_day)
+        .cloned()
+        .collect();
+
+    // Resample to 01d candles
+    let resampled_candles = resample_candles(&filtered_candles, Duration::days(1));
+
+    // If there are no resampled candles, then return
+    if resampled_candles.len() == 0 {
+        return;
+    };
+
+    // Insert 01D candles
+    insert_candles_01d(pool, market_id, &resampled_candles)
+        .await
+        .expect("Could not insert candles.");
+}
+
 pub async fn get_ftx_candles(
     client: &RestClient,
     market: &MarketId,
@@ -323,7 +368,7 @@ pub async fn insert_candle(
 
 pub async fn insert_candles_01d(
     pool: &PgPool,
-    market: &MarketId,
+    market_id: &Uuid,
     candles: &Vec<Candle>,
 ) -> Result<(), sqlx::Error> {
     let sql = r#"
@@ -350,7 +395,7 @@ pub async fn insert_candles_01d(
             .bind(candle.last_trade_ts)
             .bind(&candle.last_trade_id)
             .bind(candle.is_validated)
-            .bind(market.market_id)
+            .bind(market_id)
             .bind(candle.first_trade_ts)
             .bind(&candle.first_trade_id)
             .bind(false)
@@ -383,8 +428,8 @@ pub async fn select_unvalidated_candles(
 
 pub async fn select_candles(
     pool: &PgPool,
-    exchange: &Exchange,
-    market: &MarketId,
+    exchange_name: &str,
+    market_id: &Uuid,
 ) -> Result<Vec<Candle>, sqlx::Error> {
     let sql = format!(
         r#"
@@ -392,10 +437,10 @@ pub async fn select_candles(
         WHERE market_id = $1
         ORDER BY datetime
         "#,
-        exchange.exchange_name
+        exchange_name
     );
     let rows = sqlx::query_as::<_, Candle>(&sql)
-        .bind(market.market_id)
+        .bind(market_id)
         .fetch_all(pool)
         .await?;
     Ok(rows)
@@ -403,8 +448,8 @@ pub async fn select_candles(
 
 pub async fn select_candles_gte_datetime(
     pool: &PgPool,
-    exchange: &Exchange,
-    market: &MarketId,
+    exchange_name: &str,
+    market_id: &Uuid,
     datetime: DateTime<Utc>,
 ) -> Result<Vec<Candle>, sqlx::Error> {
     let sql = format!(
@@ -414,10 +459,10 @@ pub async fn select_candles_gte_datetime(
         AND datetime >= $2
         ORDER BY datetime
         "#,
-        exchange.exchange_name
+        exchange_name
     );
     let rows = sqlx::query_as::<_, Candle>(&sql)
-        .bind(market.market_id)
+        .bind(market_id)
         .bind(datetime)
         .fetch_all(pool)
         .await?;
@@ -426,7 +471,7 @@ pub async fn select_candles_gte_datetime(
 
 pub async fn select_last_01d_candle(
     pool: &PgPool,
-    market: &MarketId,
+    market_id: &Uuid,
 ) -> Result<DailyCandle, sqlx::Error> {
     let sql = r#"
         SELECT * FROM candles_01d
@@ -434,7 +479,7 @@ pub async fn select_last_01d_candle(
         ORDER BY datetime DESC
         "#;
     let row = sqlx::query_as::<_, DailyCandle>(&sql)
-        .bind(market.market_id)
+        .bind(market_id)
         .fetch_one(pool)
         .await?;
     Ok(row)

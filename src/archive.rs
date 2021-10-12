@@ -43,7 +43,7 @@ pub async fn archive(pool: &PgPool, config: Settings) {
             let f = format!(
                 "{}_{}.csv",
                 market.market_name.replace(&['/', '-'][..], ""),
-                candle.datetime.format("%Y&m%d")
+                candle.datetime.format("%F")
             );
             // Set filepath and file name
             let fp = std::path::Path::new(&p).join(f);
@@ -126,18 +126,20 @@ mod test {
             .unwrap();
 
         // Gets 15t candles for market newer than last 01d candle
-        let candles = match select_last_01d_candle(&pool, &market).await {
+        let candles = match select_last_01d_candle(&pool, &market.market_id).await {
             Ok(c) => select_candles_gte_datetime(
                 &pool,
-                &exchange,
-                &market,
+                &exchange.exchange_name,
+                &market.market_id,
                 c.datetime + Duration::days(1),
             )
             .await
             .expect("Could not fetch candles."),
-            Err(sqlx::Error::RowNotFound) => select_candles(&pool, &exchange, &market)
-                .await
-                .expect("Could not fetch candles."),
+            Err(sqlx::Error::RowNotFound) => {
+                select_candles(&pool, &exchange.exchange_name, &market.market_id)
+                    .await
+                    .expect("Could not fetch candles.")
+            }
             Err(e) => panic!("Sqlx Error: {:?}", e),
         };
 
@@ -164,7 +166,7 @@ mod test {
         };
 
         // Insert 01D candles
-        insert_candles_01d(&pool, &market, &resampled_candles)
+        insert_candles_01d(&pool, &market.market_id, &resampled_candles)
             .await
             .expect("Could not insert candles.");
 
