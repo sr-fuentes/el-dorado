@@ -434,6 +434,11 @@ pub async fn validate_01d_candles(
             update_candle_validation(pool, exchange_name, &market.market_id, &candle, 86400)
                 .await
                 .expect("Could not update candle validation status.");
+        } else {
+            println!(
+                "{:?} not validated. HB={}, VOL={}",
+                candle, hb_is_validated, vol_is_validated
+            );
         }
     }
 }
