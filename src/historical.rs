@@ -57,6 +57,11 @@ pub async fn run(pool: &PgPool, config: Settings) {
     };
     let end = Utc::now().duration_trunc(Duration::seconds(900)).unwrap(); // 9/15/2021 02:00
 
+    // Update market status to `Syncing`
+    update_market_data_status(pool, &market.market_id, "Syncing")
+        .await
+        .expect("Could not update market status.");
+
     // Backfill historical
     // Match exchange for backfill routine
     println!("Backfilling from {} to {}.", start, end);

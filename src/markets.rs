@@ -158,3 +158,22 @@ pub async fn update_market_last_validated(
     .await?;
     Ok(())
 }
+
+pub async fn update_market_data_status(
+    pool: &PgPool,
+    market_id: &Uuid,
+    status: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        r#"
+        UPDATE markets
+        SET market_data_status = $1
+        WHERE market_id = $2
+        "#,
+        status,
+        market_id
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
