@@ -297,9 +297,10 @@ pub async fn validate_hb_candles(
     exchange_name: &str,
     market: &MarketId,
 ) {
-    let unvalidated_candles = select_unvalidated_candles(pool, exchange_name, &market.market_id, 900)
-        .await
-        .expect("Could not fetch unvalidated candles.");
+    let unvalidated_candles =
+        select_unvalidated_candles(pool, exchange_name, &market.market_id, 900)
+            .await
+            .expect("Could not fetch unvalidated candles.");
     if unvalidated_candles.len() > 0 {
         let first_candle = unvalidated_candles.first().unwrap().datetime;
         let last_candle = unvalidated_candles.last().unwrap().datetime;
@@ -385,10 +386,57 @@ pub async fn validate_hb_candles(
     }
 }
 
-// pub asycn fn validate_01d_candles() {
-//     // Get unvalidated 01d candles
-//     let unvalidated_candles =
-// }
+pub async fn validate_01d_candles(
+    pool: &PgPool,
+    client: &RestClient,
+    exchange_name: &str,
+    market: &MarketId,
+) {
+    // Get unvalidated 01d candles
+    let unvalidated_candles =
+        match select_unvalidated_candles(pool, exchange_name, &market.market_id, 86400).await {
+            Ok(c) => c,
+            Err(sqlx::Error::RowNotFound) => return,
+            Err(e) => panic!("Sqlx Error: {:?}", e),
+        };
+
+    // Get exchange candles for validation
+    let first_candle = unvalidated_candles.first().unwrap().datetime;
+    let last_candle = unvalidated_candles.last().unwrap().datetime;
+    let mut exchange_candles =
+        get_ftx_candles(&client, &market, first_candle, last_candle, 86400).await;
+
+    // Get 15T candles to compare
+    let hb_candles = select_candles_by_daterange(
+        pool,
+        exchange_name,
+        &market.market_id,
+        first_candle,
+        last_candle,
+    )
+    .await
+    .expect("Could not fetch hb candles.");
+
+    // Validate 01d candles - if all 15T candles are validated and volume = ftx value
+    for candle in unvalidated_candles.iter() {
+        // Get 15T candles that make up 01d candle
+        let filtered_candles: Vec<Candle> = hb_candles
+            .iter()
+            .filter(|c| c.datetime.duration_trunc(Duration::days(1)).unwrap() == candle.datetime)
+            .cloned()
+            .collect();
+        // Check if all hb candles are valid
+        let hb_is_validated = filtered_candles.iter().all(|c| c.is_validated);
+        // Check if volume matches value
+        let vol_is_validated = validate_candle(&candle, &mut exchange_candles);
+        // Updated candle validation status
+        if hb_is_validated && vol_is_validated {
+            update_candle_validation(pool, exchange_name, &market.market_id, &candle, 86400)
+                .await
+                .expect("Could not update candle validation status.");
+        }
+    }
+}
 
 pub fn validate_candle(candle: &Candle, exchange_candles: &mut Vec<CandleFtx>) -> bool {
     // FTX candle validation on FTX Volume = ED Value, FTX sets open = last trade event if the
@@ -621,6 +669,31 @@ pub async fn select_candles_gte_datetime(
     let rows = sqlx::query_as::<_, Candle>(&sql)
         .bind(market_id)
         .bind(datetime)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows)
+}
+
+pub async fn select_candles_by_daterange(
+    pool: &PgPool,
+    exchange_name: &str,
+    market_id: &Uuid,
+    start_time: DateTime<Utc>,
+    end_time: DateTime<Utc>,
+) -> Result<Vec<Candle>, sqlx::Error> {
+    let sql = format!(
+        r#"
+        SELECT * FROM candles_15t_{}
+        WHERE market_id = $1
+        AND datetime >= $2 AND datetime < $3
+        ORDER BY datetime
+        "#,
+        exchange_name
+    );
+    let rows = sqlx::query_as::<_, Candle>(&sql)
+        .bind(market_id)
+        .bind(start_time)
+        .bind(end_time)
         .fetch_all(pool)
         .await?;
     Ok(rows)
