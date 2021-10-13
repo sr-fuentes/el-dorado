@@ -257,7 +257,7 @@ pub async fn create_01d_candles(pool: &PgPool, exchange_name: &str, market_id: &
         )
         .await
         .expect("Could not fetch candles."),
-        Err(sqlx::Error::RowNotFound) => select_candles(pool, exchange_name, market_id)
+        Err(sqlx::Error::RowNotFound) => select_candles(pool, exchange_name, market_id, 900)
             .await
             .expect("Could not fetch candles."),
         Err(e) => panic!("Sqlx Error: {:?}", e),
@@ -297,7 +297,7 @@ pub async fn validate_hb_candles(
     exchange_name: &str,
     market: &MarketId,
 ) {
-    let unvalidated_candles = select_unvalidated_candles(pool, exchange_name, &market.market_id)
+    let unvalidated_candles = select_unvalidated_candles(pool, exchange_name, &market.market_id, 900)
         .await
         .expect("Could not fetch unvalidated candles.");
     if unvalidated_candles.len() > 0 {
@@ -384,6 +384,11 @@ pub async fn validate_hb_candles(
         }
     }
 }
+
+// pub asycn fn validate_01d_candles() {
+//     // Get unvalidated 01d candles
+//     let unvalidated_candles =
+// }
 
 pub fn validate_candle(candle: &Candle, exchange_candles: &mut Vec<CandleFtx>) -> bool {
     // FTX candle validation on FTX Volume = ED Value, FTX sets open = last trade event if the
@@ -540,15 +545,26 @@ pub async fn select_unvalidated_candles(
     pool: &PgPool,
     exchange_name: &str,
     market_id: &Uuid,
+    seconds: u32,
 ) -> Result<Vec<Candle>, sqlx::Error> {
-    let sql = format!(
-        r#"
-        SELECT * FROM candles_15t_{}
-        WHERE market_id = $1 and not is_validated
-        ORDER BY datetime
-       "#,
-        exchange_name
-    );
+    let sql = match seconds {
+        900 => format!(
+            r#"
+            SELECT * FROM candles_15t_{}
+            WHERE market_id = $1 and not is_validated
+            ORDER BY datetime
+            "#,
+            exchange_name
+        ),
+        86400 => format!(
+            r#"
+            SELECT * FROM candles_01d
+            WHERE market_id = $1 and not is_validated
+            ORDER BY datetime
+            "#
+        ),
+        _ => panic!("Candle resolution not supported."),
+    };
     let rows = sqlx::query_as::<_, Candle>(&sql)
         .bind(market_id)
         .fetch_all(pool)
@@ -560,15 +576,26 @@ pub async fn select_candles(
     pool: &PgPool,
     exchange_name: &str,
     market_id: &Uuid,
+    seconds: u32,
 ) -> Result<Vec<Candle>, sqlx::Error> {
-    let sql = format!(
-        r#"
-        SELECT * FROM candles_15t_{}
-        WHERE market_id = $1
-        ORDER BY datetime
-        "#,
-        exchange_name
-    );
+    let sql = match seconds {
+        900 => format!(
+            r#"
+            SELECT * FROM candles_15t_{}
+            WHERE market_id = $1
+            ORDER BY datetime
+            "#,
+            exchange_name
+        ),
+        86400 => format!(
+            r#"
+            SELECT * FROM candles_01d
+            WHERE market_id = $1
+            ORDER BY datatime
+            "#
+        ),
+        _ => panic!("Not a supported candle resolution."),
+    };
     let rows = sqlx::query_as::<_, Candle>(&sql)
         .bind(market_id)
         .fetch_all(pool)

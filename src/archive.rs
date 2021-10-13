@@ -136,7 +136,7 @@ mod test {
             .await
             .expect("Could not fetch candles."),
             Err(sqlx::Error::RowNotFound) => {
-                select_candles(&pool, &exchange.exchange_name, &market.market_id)
+                select_candles(&pool, &exchange.exchange_name, &market.market_id, 900)
                     .await
                     .expect("Could not fetch candles.")
             }
