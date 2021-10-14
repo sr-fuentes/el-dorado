@@ -1,6 +1,6 @@
 use clap::App;
 use el_dorado::configuration::get_configuration;
-use el_dorado::{exchanges::add, historical::run, archive::archive};
+use el_dorado::{archive::archive, exchanges::add, historical::run};
 use sqlx::PgPool;
 
 #[tokio::main]
