@@ -24,7 +24,7 @@ pub async fn run(pool: &PgPool, config: Settings) {
         _ => panic!("No client exists for {}.", exchange.exchange_name),
     };
 
-    // Get input from user for market to run
+    // Get market id from configuration
     let market_ids = fetch_markets(pool, &exchange)
         .await
         .expect("Could not fetch exchanges.");
