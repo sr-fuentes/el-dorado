@@ -19,4 +19,4 @@ for exchange in exchanges:
     path_csv = path_exchanges + "/" + exchange
     if os.isdir(path_csv):
         csvs = os.listdir(path_csv)
-    path_gzip = 
+    path_gzip = "todo"
