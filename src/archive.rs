@@ -39,6 +39,14 @@ pub async fn archive(pool: &PgPool, config: Settings) {
             )
             .await
             .expect("Could not fetch validated trades.");
+            // Validate the number of trades selected = trade count from candle
+            if trades_to_archive.len() as i64 != candle.trade_count {
+                panic!(
+                    "Trade count does not match candle. Candle {:?}, Trade Count {}",
+                    candle,
+                    trades_to_archive.len()
+                );
+            }
             // Define filename = TICKER_YYYYMMDD.csv
             let f = format!(
                 "{}_{}.csv",
