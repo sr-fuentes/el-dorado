@@ -141,18 +141,23 @@ pub async fn update_market_last_validated(
     pool: &PgPool,
     market_id: &Uuid,
     candle: &Candle,
+    ip_addr: &str,
 ) -> Result<(), sqlx::Error> {
+    let network = ip_addr
+        .parse::<sqlx::types::ipnetwork::IpNetwork>()
+        .unwrap();
     sqlx::query!(
         r#"
             UPDATE markets
             SET (last_validated_trade_id, last_validated_trade_ts, last_validated_candle, 
-                last_update_ts) = ($1, $2, $3, $4)
-            WHERE market_id = $5
+                last_update_ts, last_update_ip_address) = ($1, $2, $3, $4, $5)
+            WHERE market_id = $6
         "#,
         candle.last_trade_id,
         candle.last_trade_ts,
         candle.datetime,
         Utc::now(),
+        network,
         market_id
     )
     .execute(pool)
@@ -164,14 +169,19 @@ pub async fn update_market_data_status(
     pool: &PgPool,
     market_id: &Uuid,
     status: &str,
+    ip_addr: &str,
 ) -> Result<(), sqlx::Error> {
+    let network = ip_addr
+        .parse::<sqlx::types::ipnetwork::IpNetwork>()
+        .unwrap();
     sqlx::query!(
         r#"
         UPDATE markets
-        SET market_data_status = $1
-        WHERE market_id = $2
+        SET (market_data_status, last_update_ip_address)  = ($1, $2)
+        WHERE market_id = $3
         "#,
         status,
+        network,
         market_id
     )
     .execute(pool)

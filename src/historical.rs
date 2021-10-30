@@ -34,7 +34,7 @@ pub async fn run(pool: &PgPool, config: Settings) {
         .unwrap();
 
     // Validate / clean up current candles / trades for market
-    validate_hb_candles(pool, &client, &exchange.exchange_name, &market).await;
+    validate_hb_candles(pool, &client, &exchange.exchange_name, &market, &config).await;
 
     // Create 01d candles
     create_01d_candles(pool, &exchange.exchange_name, &market.market_id).await;
@@ -58,9 +58,14 @@ pub async fn run(pool: &PgPool, config: Settings) {
     let end = Utc::now().duration_trunc(Duration::seconds(900)).unwrap(); // 9/15/2021 02:00
 
     // Update market status to `Syncing`
-    update_market_data_status(pool, &market.market_id, "Syncing")
-        .await
-        .expect("Could not update market status.");
+    update_market_data_status(
+        pool,
+        &market.market_id,
+        "Syncing",
+        &config.application.ip_addr.as_str(),
+    )
+    .await
+    .expect("Could not update market status.");
 
     // Backfill historical
     // Match exchange for backfill routine

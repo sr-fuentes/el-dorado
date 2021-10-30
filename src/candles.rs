@@ -1,3 +1,4 @@
+use crate::configuration::*;
 use crate::exchanges::{ftx::Candle as CandleFtx, ftx::RestClient, ftx::Trade};
 use crate::markets::{update_market_last_validated, MarketId};
 use crate::trades::{delete_ftx_trades_by_id, insert_ftx_trades, select_ftx_trades_by_time};
@@ -296,6 +297,7 @@ pub async fn validate_hb_candles(
     client: &RestClient,
     exchange_name: &str,
     market: &MarketId,
+    config: &Settings,
 ) {
     let unvalidated_candles =
         select_unvalidated_candles(pool, exchange_name, &market.market_id, 900)
@@ -325,9 +327,14 @@ pub async fn validate_hb_candles(
             let is_valid = validate_candle(&unvalidated_candle, &mut exchange_candles);
             if is_valid {
                 // Update market details and candle with validated data
-                update_market_last_validated(pool, &market.market_id, &unvalidated_candle)
-                    .await
-                    .expect("Could not update market details.");
+                update_market_last_validated(
+                    pool,
+                    &market.market_id,
+                    &unvalidated_candle,
+                    config.application.ip_addr.as_str(),
+                )
+                .await
+                .expect("Could not update market details.");
                 update_candle_validation(
                     pool,
                     exchange_name,
