@@ -3,6 +3,6 @@ database:
 application:
   exchange: "ftxus"
   market: "BTC/USD"
-  droplet: ""
-  ip_addr: ""
+  droplet: "localdev"
+  ip_addr: "127.0.0.1"
   archive_path: "../ed"

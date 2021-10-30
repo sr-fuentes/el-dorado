@@ -27,7 +27,7 @@ async fn main() {
 
     // Match subcommand and route
     match matches.subcommand_name() {
-        Some("add") => add(&connection_pool).await,
+        Some("add") => add(&connection_pool, configuration).await,
         Some("refresh") => println!("Refresh is not yet implemented."),
         Some("edit") => println!("Edit is not yet implemented."),
         Some("run") => run(&connection_pool, configuration).await,

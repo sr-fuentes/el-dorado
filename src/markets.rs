@@ -75,8 +75,9 @@ pub async fn insert_new_market(
     pool: &PgPool,
     exchange: &Exchange,
     market: &Market,
+    ip_addr: &str,
 ) -> Result<(), sqlx::Error> {
-    let network = "127.0.0.1"
+    let network = ip_addr
         .parse::<sqlx::types::ipnetwork::IpNetwork>()
         .unwrap();
     sqlx::query!(

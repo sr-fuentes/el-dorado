@@ -1,3 +1,4 @@
+use crate::configuration::*;
 use crate::markets::{fetch_markets, insert_new_market, pull_usd_markets_from_ftx};
 use crate::utilities::get_input;
 use chrono::Utc;
@@ -12,7 +13,7 @@ pub struct Exchange {
     pub exchange_name: String,
 }
 
-pub async fn add(pool: &PgPool) {
+pub async fn add(pool: &PgPool, config: Settings) {
     // Get input from user for exchange to add
     // TODO: implemenet new and parse functions for Exchange and
     // parse / validated input
@@ -21,6 +22,9 @@ pub async fn add(pool: &PgPool) {
         exchange_id: Uuid::new_v4(),
         exchange_name: exchange,
     };
+
+    // Set list of supported exchanges
+    let supported_exchanges = ["ftx", "ftxus"];
 
     // Get list of exchanges from db
     let exchanges = fetch_exchanges(pool)
@@ -36,6 +40,10 @@ pub async fn add(pool: &PgPool) {
             "{:?} has already been added and is in the database.",
             exchange.exchange_name
         );
+        return;
+    } else if !supported_exchanges.contains(&exchange.exchange_name.as_str()) {
+        // Not in supported exchanges
+        println!("{:?} is not a supported exchange.", exchange.exchange_name);
         return;
     } else {
         println!("Adding {:?} to the database.", exchange);
@@ -78,9 +86,14 @@ pub async fn add(pool: &PgPool) {
         if market_ids.iter().any(|m| m.market_name == market.name) {
             println!("{} already in markets table.", market.name);
         } else {
-            insert_new_market(pool, &exchange, &market)
-                .await
-                .expect("Failed to insert market.");
+            insert_new_market(
+                pool,
+                &exchange,
+                &market,
+                config.application.ip_addr.as_str(),
+            )
+            .await
+            .expect("Failed to insert market.");
         }
     }
 
