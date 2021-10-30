@@ -317,6 +317,10 @@ pub async fn validate_hb_candles(
             "First returned candle is: {:?}",
             exchange_candles.first().unwrap()
         );
+        println!(
+            "Last returned candle is: {:?}",
+            exchange_candles.last().unwrap()
+        );
         for unvalidated_candle in unvalidated_candles {
             // validate candle - get candle from exchange, comp volume. if volume matches
             // consider it validated - if not - pull trades
