@@ -411,6 +411,10 @@ pub async fn validate_01d_candles(
             Err(e) => panic!("Sqlx Error: {:?}", e),
         };
     println!("Unvalidated 01D candles: {:?}", unvalidated_candles);
+    // If no candles returned from query - return function
+    if unvalidated_candles.len() == 0 {
+        return;
+    };
     // Get exchange candles for validation
     let first_candle = unvalidated_candles.first().unwrap().datetime;
     let last_candle = unvalidated_candles.last().unwrap().datetime;
