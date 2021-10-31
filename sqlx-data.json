@@ -50,20 +50,130 @@
       ]
     }
   },
-  "9d661e43a7a2b98d2adef1c485503db47ff91bfc8bf21daedb4794853d510c01": {
-    "query": "\n            UPDATE markets\n            SET (last_validated_trade_id, last_validated_trade_ts, last_validated_candle, \n                last_update_ts) = ($1, $2, $3, $4)\n            WHERE market_id = $5\n        ",
+  "364718b0fb09536dfa5a1ab55029e36f0e220012a1a402ede83e95f722206fe0": {
+    "query": "\n            SELECT * FROM markets\n            WHERE market_data_status in ('Active','Syncing')\n        ",
     "describe": {
-      "columns": [],
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "market_id",
+          "type_info": "Uuid"
+        },
+        {
+          "ordinal": 1,
+          "name": "exchange_name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 2,
+          "name": "market_name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 3,
+          "name": "market_type",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "base_currency",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 5,
+          "name": "quote_currency",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 6,
+          "name": "underlying",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 7,
+          "name": "market_status",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 8,
+          "name": "market_data_status",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 9,
+          "name": "first_validated_trade_id",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 10,
+          "name": "first_validated_trade_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 11,
+          "name": "last_validated_trade_id",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 12,
+          "name": "last_validated_trade_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 13,
+          "name": "candle_base_interval",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 14,
+          "name": "candle_base_in_seconds",
+          "type_info": "Int4"
+        },
+        {
+          "ordinal": 15,
+          "name": "first_validated_candle",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 16,
+          "name": "last_validated_candle",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 17,
+          "name": "last_update_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 18,
+          "name": "last_update_ip_address",
+          "type_info": "Inet"
+        }
+      ],
       "parameters": {
-        "Left": [
-          "Text",
-          "Timestamptz",
-          "Timestamptz",
-          "Timestamptz",
-          "Uuid"
-        ]
+        "Left": []
       },
-      "nullable": []
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        false,
+        false
+      ]
     }
   },
   "c23a72d6cc65ab4c14dc5d6863d32453c3d9a62f4e3e1d813fc07c83189859a9": {
@@ -194,6 +304,23 @@
       ]
     }
   },
+  "cdb66412c414aea5cb8bd8deda838b907569b2fbac719973df581ea00247d6f0": {
+    "query": "\n            UPDATE markets\n            SET (last_validated_trade_id, last_validated_trade_ts, last_validated_candle, \n                last_update_ts, last_update_ip_address) = ($1, $2, $3, $4, $5)\n            WHERE market_id = $6\n        ",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Timestamptz",
+          "Timestamptz",
+          "Timestamptz",
+          "Inet",
+          "Uuid"
+        ]
+      },
+      "nullable": []
+    }
+  },
   "d961b10b78c3a6a3d02634453d0ba31e9587b14591ed1578036b37f1aea19a17": {
     "query": "\n        INSERT INTO exchanges (\n            exchange_id, exchange_name, exchange_rank, is_spot, is_derivitive, \n            exchange_status, added_date, last_refresh_date)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n        ",
     "describe": {
@@ -208,6 +335,20 @@
           "Text",
           "Timestamptz",
           "Timestamptz"
+        ]
+      },
+      "nullable": []
+    }
+  },
+  "f3967211ce620f27550d7b6fa46d8842c8e33e8701da6c1fbbda54e46e450f3e": {
+    "query": "\n        UPDATE markets\n        SET (market_data_status, last_update_ip_address)  = ($1, $2)\n        WHERE market_id = $3\n        ",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Inet",
+          "Uuid"
         ]
       },
       "nullable": []
