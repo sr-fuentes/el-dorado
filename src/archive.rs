@@ -27,6 +27,10 @@ pub async fn archive(pool: &PgPool, config: Settings) {
 
         // Archive trades
         for candle in candles_to_archive.iter() {
+            println!(
+                "Archiving {} - {} {:?} daily trades.",
+                &market.exchange_name, &market.market_name, &candle.datetime
+            );
             // Select trades associated w/ candle
             let trades_to_archive = select_ftx_trades_by_time(
                 pool,
