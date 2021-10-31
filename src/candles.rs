@@ -416,6 +416,7 @@ pub async fn validate_01d_candles(
     let last_candle = unvalidated_candles.last().unwrap().datetime;
     let mut exchange_candles =
         get_ftx_candles(&client, &market, first_candle, last_candle, 86400).await;
+    println!("Pulled {} candles from exchange.", exchange_candles.len());
 
     // Get 15T candles to compare
     let hb_candles = select_candles_by_daterange(
@@ -430,6 +431,10 @@ pub async fn validate_01d_candles(
 
     // Validate 01d candles - if all 15T candles are validated and volume = ftx value
     for candle in unvalidated_candles.iter() {
+        println!(
+            "Validating {} candle {}.",
+            &market.market_name, candle.datetime
+        );
         // Get 15T candles that make up 01d candle
         let filtered_candles: Vec<Candle> = hb_candles
             .iter()
