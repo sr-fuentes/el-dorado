@@ -48,12 +48,10 @@ pub async fn run(pool: &PgPool, config: Settings) {
         .expect("Could not clear _rest trades.");
 
     // Get last state of market, return status, start and finish
-    let market_detail = select_market_detail(pool, &market)
-        .await
-        .expect("Failed to get market detail.");
-    let start = match market_detail.last_validated_candle {
-        Some(lvc) => lvc + Duration::seconds(900),
-        None => get_ftx_start(&client, &market).await,
+    let start = match select_last_candle(pool, &exchange.exchange_name, &market.market_id).await {
+        Ok(c) => c.datetime + Duration::seconds(900),
+        Err(sqlx::Error::RowNotFound) => get_ftx_start(&client, &market).await,
+        Err(e) => panic!("Sqlx Error: {:?}", e),
     };
     let end = Utc::now().duration_trunc(Duration::seconds(900)).unwrap(); // 9/15/2021 02:00
 
