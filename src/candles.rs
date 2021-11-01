@@ -740,6 +740,25 @@ pub async fn select_last_01d_candle(
     Ok(row)
 }
 
+pub async fn select_last_candle(
+    pool: &PgPool,
+    exchange_name: &str,
+    market_id: &Uuid,
+) -> Result<Candle, sqlx::Error> {
+    let sql = format!(
+        r#"
+        SELECT * FROM candles_15t_{}
+        WHERE market_id = $1
+        ORDER BY datetime DESC
+        "#,
+        exchange_name);
+    let row = sqlx::query_as::<_, Candle>(&sql)
+        .bind(market_id)
+        .fetch_one(pool)
+        .await?;
+    Ok(row)
+}
+
 pub async fn select_candles_valid_not_archived(
     pool: &PgPool,
     market_id: &Uuid,
