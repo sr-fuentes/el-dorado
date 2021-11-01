@@ -751,7 +751,8 @@ pub async fn select_last_candle(
         WHERE market_id = $1
         ORDER BY datetime DESC
         "#,
-        exchange_name);
+        exchange_name
+    );
     let row = sqlx::query_as::<_, Candle>(&sql)
         .bind(market_id)
         .fetch_one(pool)
