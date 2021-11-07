@@ -112,10 +112,10 @@ pub async fn backfill_ftx(
                         tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
                         continue;
                     } else {
-                        panic!("Error: {:?}", e)
+                        panic!("Error (not timeout): {:?}", e)
                     }
                 }
-                Err(e) => panic!("RestError: {:?}", e),
+                Err(e) => panic!("Other RestError: {:?}", e),
                 Ok(result) => result,
             };
             let num_trades = new_trades.len();
