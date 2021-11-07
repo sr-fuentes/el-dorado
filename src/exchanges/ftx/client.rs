@@ -78,24 +78,33 @@ impl RestClient {
             .request(method, format!("{}{}", self.endpoint, path))
             .query(&params)
             .send()
-            .await?
-            .bytes()
             .await?;
+        // .bytes()
+        // .await?;
 
-        match from_reader(&*response) {
-            Ok(SuccessResponse { result, .. }) => Ok(result),
-            Err(e) => {
-                if let Ok(ErrorResponse { error, .. }) = from_reader(&*response) {
-                    Err(RestError::Api(error))
-                } else {
-                    println!(
-                        "Reqwest resp: {:?}",
-                        std::str::from_utf8(&response).unwrap()
-                    );
-                    println!("Error: {:?}", e.to_string());
-                    eprintln!("Errorpl: {:?}", e);
-                    Err(e.into())
+        match response.error_for_status() {
+            Ok(res) => {
+                let res_bytes = res.bytes().await?;
+                match from_reader(&*res_bytes) {
+                    Ok(SuccessResponse { result, .. }) => Ok(result),
+                    Err(e) => {
+                        if let Ok(ErrorResponse { error, .. }) = from_reader(&*res_bytes) {
+                            Err(RestError::Api(error))
+                        } else {
+                            println!(
+                                "Reqwest resp: {:?}",
+                                std::str::from_utf8(&res_bytes).unwrap()
+                            );
+                            println!("Error: {:?}", e.to_string());
+                            eprintln!("Errorpl: {:?}", e);
+                            Err(e.into())
+                        }
+                    }
                 }
+            }
+            Err(e) => {
+                println!("Reqwest status error: {:?}", e.status());
+                Err(e.into())
             }
         }
     }
