@@ -112,7 +112,10 @@ pub async fn backfill_ftx(
                         tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
                         continue;
                     } else if e.is_connect() {
-                        println!("Connect error with reqwest. Waiting 30 seconds before retry. {:?}", e);
+                        println!(
+                            "Connect error with reqwest. Waiting 30 seconds before retry. {:?}",
+                            e
+                        );
                         tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
                         continue;
                     } else {
