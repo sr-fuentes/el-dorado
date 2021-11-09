@@ -111,8 +111,12 @@ pub async fn backfill_ftx(
                         println!("Request timed out. Waiting 30 seconds before retrying.");
                         tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
                         continue;
+                    } else if e.is_connect() {
+                        println!("Connect error with reqwest. Waiting 30 seconds before retry. {:?}", e);
+                        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                        continue;
                     } else {
-                        panic!("Error (not timeout): {:?}", e)
+                        panic!("Error (not timeout or connect): {:?}", e)
                     }
                 }
                 Err(e) => panic!("Other RestError: {:?}", e),
