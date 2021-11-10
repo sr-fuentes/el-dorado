@@ -118,6 +118,20 @@ pub async fn backfill_ftx(
                         );
                         tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
                         continue;
+                    } else if e.status() == Some(reqwest::StatusCode::BAD_GATEWAY) {
+                        println!(
+                            "502 Bad Gateway. Waiting 30 seconds before retry. {:?}",
+                            e
+                        );
+                        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                        continue;
+                    } else if e.status() == Some(reqwest::StatusCode::SERVICE_UNAVAILABLE) {
+                        println!(
+                            "503 Service Unavailable. Waiting 60 seconds before retry. {:?}",
+                            e
+                        );
+                        tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+                        continue;
                     } else {
                         panic!("Error (not timeout or connect): {:?}", e)
                     }
