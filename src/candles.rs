@@ -498,6 +498,10 @@ pub fn validate_candle(candle: &Candle, exchange_candles: &mut Vec<CandleFtx>) -
     }
 }
 
+pub async fn qc_unvalidated_candle() {
+    // Create temp trade table and re-download trades for candle time period
+}
+
 pub async fn get_ftx_candles(
     client: &RestClient,
     market: &MarketId,
@@ -996,5 +1000,89 @@ mod tests {
         let _pool = PgPool::connect_with(configuration.database.with_db())
             .await
             .expect("Failed to connect to Postgres.");
+    }
+
+    #[tokio::test]
+    pub async fn revalidate_invalid_candle() {
+        // Load configuration
+        let configuration = get_configuration().expect("Failed to read configuration.");
+        println!("Configuration: {:?}", configuration);
+
+        // Create db connection
+        let pool = PgPool::connect_with(configuration.database.with_db())
+            .await
+            .expect("Failed to connect to Postgres.");
+
+        // Create test table
+        let table = "invalid_candle";
+        let sql_drop = format!("DROP TABLE IF EXISTS {}", table);
+        sqlx::query(&sql_drop)
+            .execute(&pool)
+            .await
+            .expect("Could not drop table.");
+        let sql_create = format!(
+            r#"
+            CREATE TABLE IF NOT EXISTS {} (
+                datetime timestamptz NOT NULL,
+                open NUMERIC NOT NULL,
+                high NUMERIC NOT NULL,
+                low NUMERIC NOT NULL,
+                close NUMERIC NOT NULL,
+                volume NUMERIC NOT NULL,
+                volume_net NUMERIC NOT NULL,
+                volume_liquidation NUMERIC NOT NULL,
+                value NUMERIC NOT NULL,
+                trade_count BIGINT NOT NULL,
+                liquidation_count BIGINT NOT NULL,
+                last_trade_ts timestamptz NOT NULL,
+                last_trade_id TEXT NOT NULL,
+                is_validated BOOLEAN NOT NULL,
+                market_id uuid NOT NULL,
+                first_trade_ts timestamptz NOT NULL,
+                first_trade_id TEXT NOT NULL
+                PRIMARY KEY (datetime, market_id)
+            )
+            "#,
+            table
+        );
+        sqlx::query(&sql_create)
+            .execute(&pool)
+            .await
+            .expect("Could not create table");
+
+        // Insert bad candle to re-evaluate
+        let sql_insert = format!(
+            r#"
+            INSERT INTO {} (
+                datetime, open, high, low, close, volume, volume_net, volume_liquidation, value, 
+                trade_count, liquidation_count, last_trade_ts, last_trade_id, is_validated, 
+                market_id, first_trade_ts, first_trade_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+            "#,
+            table
+        );
+        sqlx::query(&sql_insert)
+            .bind(Utc.ymd(2021, 6, 27).and_hms(2, 15, 0))
+            .bind(dec!(32703))
+            .bind(dec!(33198))
+            .bind(dec!(32703))
+            .bind(dec!(33068))
+            .bind(dec!(2023.0286))
+            .bind(dec!(606.8350))
+            .bind(dec!(8.1311))
+            .bind(dec!(66753198.2958))
+            .bind(8532)
+            .bind(95)
+            .bind(Utc.ymd(2021, 6, 27).and_hms_micro(2, 29, 59, 789715))
+            .bind("1364514169")
+            .bind(false)
+            .bind("bb8a0b07-9864-40eb-aa8d-0f87c2ac7464")
+            .bind(Utc.ymd(2021, 6, 27).and_hms_micro(2, 15, 1, 119634))
+            .bind("1364455450")
+            .execute(&pool)
+            .await
+            .expect("Could not insert bad candle.");
+
+        //
     }
 }
