@@ -1039,7 +1039,7 @@ mod tests {
                 is_validated BOOLEAN NOT NULL,
                 market_id uuid NOT NULL,
                 first_trade_ts timestamptz NOT NULL,
-                first_trade_id TEXT NOT NULL
+                first_trade_id TEXT NOT NULL,
                 PRIMARY KEY (datetime, market_id)
             )
             "#,
@@ -1076,7 +1076,7 @@ mod tests {
             .bind(Utc.ymd(2021, 6, 27).and_hms_micro(2, 29, 59, 789715))
             .bind("1364514169")
             .bind(false)
-            .bind("bb8a0b07-9864-40eb-aa8d-0f87c2ac7464")
+            .bind(Uuid::parse_str("bb8a0b07-9864-40eb-aa8d-0f87c2ac7464").unwrap())
             .bind(Utc.ymd(2021, 6, 27).and_hms_micro(2, 15, 1, 119634))
             .bind("1364455450")
             .execute(&pool)
