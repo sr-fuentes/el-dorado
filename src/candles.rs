@@ -498,8 +498,38 @@ pub fn validate_candle(candle: &Candle, exchange_candles: &mut Vec<CandleFtx>) -
     }
 }
 
-pub async fn qc_unvalidated_candle() {
-    // Create temp trade table and re-download trades for candle time period
+pub async fn qc_unvalidated_candle(
+    client: &RestClient,
+    pool: &PgPool,
+    market: &MarketId,
+    candle: &Candle,
+) -> bool {
+    // Create temp trade table and re-download trades for candle time period then
+    // compare to exchange candle, track any 100 trades in a micro instances
+    let candle_start = candle.datetime;
+    let candle_end = candle_start.clone();
+    // Get markets
+    let exchange_candles = get_ftx_candles(client, market, candle_start, candle_end, 900).await;
+    println!("Exchange candle: {:?}", exchange_candles);
+    // Create temp trades table
+    let table = format!("candle_validation_{}", Uuid::new_v4().to_string());
+    let sql = format!(
+        r#"
+        CREATE TABLE IF NOT EXISTS {} (
+            market_id uuid NOT NULL,
+            trade_id BIGINT NOT NULL,
+            PRIMARY KEY trade_id,
+            price NUMERIC NOT NULL,
+            size NUMERIC NOT NULL,
+            side TEXT NOT NULL,
+            liquidation BOOLEAN NOT NULL,
+            time timestamptz NOT NULL
+        )
+        "#,
+        table
+    );
+    sqlx::query(&sql).execute(pool).await.expect("Could not create temp trade table.");
+    true
 }
 
 pub async fn get_ftx_candles(
@@ -509,6 +539,11 @@ pub async fn get_ftx_candles(
     mut end_or_last: DateTime<Utc>,
     seconds: u32,
 ) -> Vec<CandleFtx> {
+    // If end = start then FTX will not return any candles, add 1 second if the are equal
+    end_or_last = match start == end_or_last {
+        true => end_or_last + Duration::seconds(1),
+        _ => end_or_last,
+    };
     let mut candles: Vec<CandleFtx> = Vec::new();
     while start < end_or_last {
         // Prevent 429 errors by only requesting 4 per second
@@ -863,6 +898,8 @@ pub async fn update_candle_archived(
 mod tests {
     use super::*;
     use crate::configuration::get_configuration;
+    use crate::exchanges::fetch_exchanges;
+    use crate::markets::fetch_markets;
     use chrono::{TimeZone, Utc};
 
     pub fn sample_trades() -> Vec<Trade> {
@@ -1013,6 +1050,25 @@ mod tests {
             .await
             .expect("Failed to connect to Postgres.");
 
+        // Get exchanges from database
+        let exchanges = fetch_exchanges(&pool)
+            .await
+            .expect("Could not fetch exchanges.");
+        // Match exchange to exchanges in database
+        let exchange = exchanges.iter().find(|e| e.exchange_name == "ftx").unwrap();
+
+        // Set client = FTX for hardcoded candle tests
+        let client = RestClient::new_intl();
+
+        // Get market ids
+        let market_ids = fetch_markets(&pool, &exchange)
+            .await
+            .expect("Could not fetch exchanges.");
+        let market = market_ids
+            .iter()
+            .find(|m| m.market_name == "BTC-PERP")
+            .unwrap();
+
         // Create test table
         let table = "invalid_candle";
         let sql_drop = format!("DROP TABLE IF EXISTS {}", table);
@@ -1083,6 +1139,21 @@ mod tests {
             .await
             .expect("Could not insert bad candle.");
 
-        //
+        // Select invalid candles from the test table and revalidate
+        let sql = format!(
+            r#"
+            SELECT * FROM {}
+            "#,
+            table
+        );
+        let candles = sqlx::query_as::<_, Candle>(&sql)
+            .fetch_all(&pool)
+            .await
+            .expect("Could not fetch invalidated candles.");
+        for candle in candles.iter() {
+            println!("Attempting to revalidate: {:?}", candle);
+            let is_success = qc_unvalidated_candle(&client, &pool, &market, &candle).await;
+            println!("Revalidate success? {:?}", is_success);
+        }
     }
 }
