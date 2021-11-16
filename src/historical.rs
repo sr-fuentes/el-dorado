@@ -222,7 +222,7 @@ pub async fn backfill_ftx(
                         }
                     };
                     // Insert into candles
-                    insert_candle(pool, &exchange.exchange_name, &market.market_id, new_candle)
+                    insert_candle(pool, &exchange.exchange_name, &market.market_id, new_candle, false)
                         .await
                         .expect("Could not insert new candle.");
                     println!("Candle {:?} inserted", interval_start);

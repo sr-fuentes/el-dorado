@@ -647,8 +647,19 @@ pub async fn qc_unvalidated_candle(
                         .await
                         .expect("Could not delete old candle.");
                     // Insert trades into _validated
-
+                    insert_ftx_trades(
+                        pool,
+                        &market.market_id,
+                        exchange_name,
+                        interval_trades,
+                        "validated",
+                    )
+                    .await
+                    .expect("Could not insert validated trades.");
                     // Insert candle with validated status
+                    insert_candle(pool, exchange_name, &market.market_id, new_candle, true)
+                        .await
+                        .expect("Could not insert validated candle.");
                 };
             };
             break;
@@ -705,6 +716,7 @@ pub async fn insert_candle(
     exchange_name: &str,
     market_id: &Uuid,
     candle: Candle,
+    is_validated: bool,
 ) -> Result<(), sqlx::Error> {
     let sql = format!(
         r#"
@@ -730,7 +742,7 @@ pub async fn insert_candle(
         .bind(candle.liquidation_count)
         .bind(candle.last_trade_ts)
         .bind(candle.last_trade_id)
-        .bind(false)
+        .bind(is_validated)
         .bind(market_id)
         .bind(candle.first_trade_ts)
         .bind(candle.first_trade_id)
