@@ -98,6 +98,23 @@ pub async fn select_ftx_trades_by_time(
     Ok(rows)
 }
 
+pub async fn select_ftx_trades_by_table(
+    pool: &PgPool,
+    table: &str,
+) -> Result<Vec<Trade>, sqlx::Error> {
+    // Cannot user query_as! macro because table may not exist at compile time
+    let sql = format!(
+        r#"
+        SELECT trade_id as id, price, size, side, liquidation, time
+        FROM {}
+        ORDER BY time
+        "#,
+        table
+    );
+    let rows = sqlx::query_as::<_, Trade>(&sql).fetch_all(pool).await?;
+    Ok(rows)
+}
+
 pub async fn delete_ftx_trades_by_time(
     pool: &PgPool,
     market_id: &Uuid,

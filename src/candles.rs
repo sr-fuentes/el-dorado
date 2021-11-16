@@ -1,7 +1,10 @@
 use crate::configuration::*;
 use crate::exchanges::{ftx::Candle as CandleFtx, ftx::RestClient, ftx::RestError, ftx::Trade};
 use crate::markets::{update_market_last_validated, MarketId};
-use crate::trades::{delete_ftx_trades_by_id, insert_ftx_trades, select_ftx_trades_by_time};
+use crate::trades::{
+    delete_ftx_trades_by_id, insert_ftx_trades, select_ftx_trades_by_table,
+    select_ftx_trades_by_time,
+};
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
@@ -588,7 +591,7 @@ pub async fn qc_unvalidated_candle(
             );
             if candle_end_or_last_trade == first_trade {
                 candle_end_or_last_trade = candle_end_or_last_trade - Duration::microseconds(1);
-                counter += 1;
+                counter = counter + 1;
                 println!(
                     "More than 100 trades in microsecond. Resetting to: {}",
                     candle_end_or_last_trade
@@ -601,6 +604,12 @@ pub async fn qc_unvalidated_candle(
                 .await
                 .expect("Failed to insert tmp ftx trades.");
         };
+        if num_trades < 100 {
+            // Trades returned are less than 100, end trade getting and make candle
+            let mut interval_trades = select_ftx_trades_by_table(pool, &table)
+                .await
+                .expect("Could not fetch trades from temp table.");
+        }
     }
     true
 }
