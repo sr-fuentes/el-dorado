@@ -1,5 +1,5 @@
 use crate::configuration::*;
-use crate::exchanges::{ftx::Candle as CandleFtx, ftx::RestClient, ftx::Trade};
+use crate::exchanges::{ftx::Candle as CandleFtx, ftx::RestClient, ftx::RestError, ftx::Trade};
 use crate::markets::{update_market_last_validated, MarketId};
 use crate::trades::{delete_ftx_trades_by_id, insert_ftx_trades, select_ftx_trades_by_time};
 use chrono::{DateTime, Duration, DurationRound, Utc};
@@ -507,9 +507,9 @@ pub async fn qc_unvalidated_candle(
     // Create temp trade table and re-download trades for candle time period then
     // compare to exchange candle, track any 100 trades in a micro instances
     let candle_start = candle.datetime;
-    let candle_end = candle_start.clone();
+    let candle_end = candle_start + Duration::seconds(900);
     // Get markets
-    let exchange_candles = get_ftx_candles(client, market, candle_start, candle_end, 900).await;
+    let exchange_candles = get_ftx_candles(client, market, candle_start, candle_start, 900).await;
     println!("Exchange candle: {:?}", exchange_candles);
     // Create temp trades table
     let table = format!("candle_validation_{}", Uuid::new_v4().to_string());
@@ -528,7 +528,80 @@ pub async fn qc_unvalidated_candle(
         "#,
         table
     );
-    sqlx::query(&sql).execute(pool).await.expect("Could not create temp trade table.");
+    sqlx::query(&sql)
+        .execute(pool)
+        .await
+        .expect("Could not create temp trade table.");
+    // Get trades for candle period
+    let mut counter = 0;
+    let mut candle_end_or_last_trade = candle_end.clone();
+    while candle_start < candle_end_or_last_trade {
+        // Prevent 429 errors by only requesting 4 per second
+        tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
+        let mut new_trades = match client
+            .get_trades(
+                market.market_name.as_str(),
+                Some(100),
+                Some(candle_start),
+                Some(candle_end_or_last_trade),
+            )
+            .await
+        {
+            Err(RestError::Reqwest(e)) => {
+                if e.is_timeout() {
+                    println!("Request timed out. Waiting 30 seconds before retrying.");
+                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                    continue;
+                } else if e.is_connect() {
+                    println!(
+                        "Connect error with reqwest. Waiting 30 seconds before retry. {:?}",
+                        e
+                    );
+                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                    continue;
+                } else if e.status() == Some(reqwest::StatusCode::BAD_GATEWAY) {
+                    println!("502 Bad Gateway. Waiting 30 seconds before retry. {:?}", e);
+                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                    continue;
+                } else if e.status() == Some(reqwest::StatusCode::SERVICE_UNAVAILABLE) {
+                    println!(
+                        "503 Service Unavailable. Waiting 60 seconds before retry. {:?}",
+                        e
+                    );
+                    tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+                    continue;
+                } else {
+                    panic!("Error (not timeout or connect): {:?}", e)
+                }
+            }
+            Err(e) => panic!("Other RestError: {:?}", e),
+            Ok(result) => result,
+        };
+        let num_trades = new_trades.len();
+        if num_trades > 0 {
+            new_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
+            candle_end_or_last_trade = new_trades.first().unwrap().time;
+            let first_trade = new_trades.last().unwrap().time;
+            println!(
+                "{} trades returned. First: {}, Last: {}",
+                num_trades, candle_end_or_last_trade, first_trade
+            );
+            if candle_end_or_last_trade == first_trade {
+                candle_end_or_last_trade = candle_end_or_last_trade - Duration::microseconds(1);
+                counter += 1;
+                println!(
+                    "More than 100 trades in microsecond. Resetting to: {}",
+                    candle_end_or_last_trade
+                );
+            };
+            println!("Inserting trades in temp table.");
+            // Temp table name can be used instead of exhcange name as logic for table name is
+            // located in the insert function
+            insert_ftx_trades(pool, &market.market_id, "temp", new_trades, &table)
+                .await
+                .expect("Failed to insert tmp ftx trades.");
+        };
+    }
     true
 }
 

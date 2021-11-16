@@ -13,15 +13,26 @@ pub async fn insert_ftx_trades(
     for trade in trades.iter() {
         // Cannot user sqlx query! macro because table may not exist at
         // compile time and table name is dynamic to ftx and ftxus.
-        let sql = format!(
-            r#"
+        let sql = match exchange_name {
+            "temp" => format!(
+                r#"
+                INSERT INTO {} (
+                        market_id, trade_id, price, size, side, liquidation, time)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                ON CONFLICT (trade_id) DO NOTHING
+                "#,
+                table
+            ),
+            _ => format!(
+                r#"
                 INSERT INTO trades_{}_{} (
                     market_id, trade_id, price, size, side, liquidation, time)
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
                 ON CONFLICT (trade_id) DO NOTHING
-            "#,
-            exchange_name, table
-        );
+                "#,
+                exchange_name, table
+            ),
+        };
         sqlx::query(&sql)
             .bind(market_id)
             .bind(trade.id)
