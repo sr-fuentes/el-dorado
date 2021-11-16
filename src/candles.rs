@@ -643,7 +643,9 @@ pub async fn qc_unvalidated_candle(
                     .await
                     .expect("Could not delete processed trades.");
                     // Delete existing candle
-
+                    delete_candle(pool, exchange_name, &market.market_id, &new_candle.datetime)
+                        .await
+                        .expect("Could not delete old candle.");
                     // Insert trades into _validated
 
                     // Insert candle with validated status
@@ -774,6 +776,28 @@ pub async fn insert_candles_01d(
             .execute(pool)
             .await?;
     }
+    Ok(())
+}
+
+pub async fn delete_candle(
+    pool: &PgPool,
+    exchange_name: &str,
+    market_id: &Uuid,
+    datetime: &DateTime<Utc>,
+) -> Result<(), sqlx::Error> {
+    let sql = format!(
+        r#"
+            DELETE FROM candles_15T_{}
+            WHERE market_id = $1
+            AND datetime = $2
+        "#,
+        exchange_name,
+    );
+    sqlx::query(&sql)
+        .bind(market_id)
+        .bind(datetime)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
@@ -1276,7 +1300,9 @@ mod tests {
             .expect("Could not fetch invalidated candles.");
         for candle in candles.iter() {
             println!("Attempting to revalidate: {:?}", candle);
-            let is_success = qc_unvalidated_candle(&client, &pool, &exchange.exchange_name, &market, &candle).await;
+            let is_success =
+                qc_unvalidated_candle(&client, &pool, &exchange.exchange_name, &market, &candle)
+                    .await;
             println!("Revalidate success? {:?}", is_success);
         }
     }
