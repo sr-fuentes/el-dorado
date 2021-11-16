@@ -222,9 +222,15 @@ pub async fn backfill_ftx(
                         }
                     };
                     // Insert into candles
-                    insert_candle(pool, &exchange.exchange_name, &market.market_id, new_candle, false)
-                        .await
-                        .expect("Could not insert new candle.");
+                    insert_candle(
+                        pool,
+                        &exchange.exchange_name,
+                        &market.market_id,
+                        new_candle,
+                        false,
+                    )
+                    .await
+                    .expect("Could not insert new candle.");
                     println!("Candle {:?} inserted", interval_start);
                     // Delete trades for market between start and end interval
                     delete_ftx_trades_by_time(

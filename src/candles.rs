@@ -518,6 +518,16 @@ pub async fn qc_unvalidated_candle(
     println!("Exchange candle: {:?}", exchange_candles);
     // Create temp trades table
     let table = format!("candle_validation_{}", exchange_name);
+    let sql_drop = format!(
+        r#"
+        DROP TABLE IF EXISTS {}
+        "#,
+        table
+    );
+    sqlx::query(&sql_drop)
+        .execute(pool)
+        .await
+        .expect("Could not drop temp validation table.");
     let sql = format!(
         r#"
         CREATE TABLE IF NOT EXISTS {} (
@@ -660,13 +670,14 @@ pub async fn qc_unvalidated_candle(
                     insert_candle(pool, exchange_name, &market.market_id, new_candle, true)
                         .await
                         .expect("Could not insert validated candle.");
+                    return true;
                 };
             };
             break;
         };
     }
-    // Validate new candle versus exchange candle
-    true
+    // Return false if you get to this point. Valid candle would have been inserted and updated
+    false
 }
 
 pub async fn get_ftx_candles(
