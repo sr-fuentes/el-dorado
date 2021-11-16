@@ -2,8 +2,8 @@ use crate::configuration::*;
 use crate::exchanges::{ftx::Candle as CandleFtx, ftx::RestClient, ftx::RestError, ftx::Trade};
 use crate::markets::{update_market_last_validated, MarketId};
 use crate::trades::{
-    delete_ftx_trades_by_id, insert_ftx_trades, select_ftx_trades_by_table,
-    select_ftx_trades_by_time,
+    delete_ftx_trades_by_id, delete_ftx_trades_by_time, insert_ftx_trades,
+    select_ftx_trades_by_table, select_ftx_trades_by_time,
 };
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal::prelude::*;
@@ -504,6 +504,7 @@ pub fn validate_candle(candle: &Candle, exchange_candles: &mut Vec<CandleFtx>) -
 pub async fn qc_unvalidated_candle(
     client: &RestClient,
     pool: &PgPool,
+    exchange_name: &str,
     market: &MarketId,
     candle: &Candle,
 ) -> bool {
@@ -512,16 +513,17 @@ pub async fn qc_unvalidated_candle(
     let candle_start = candle.datetime;
     let candle_end = candle_start + Duration::seconds(900);
     // Get markets
-    let exchange_candles = get_ftx_candles(client, market, candle_start, candle_start, 900).await;
+    let mut exchange_candles =
+        get_ftx_candles(client, market, candle_start, candle_start, 900).await;
     println!("Exchange candle: {:?}", exchange_candles);
     // Create temp trades table
-    let table = format!("candle_validation_{}", Uuid::new_v4().to_string());
+    let table = format!("candle_validation_{}", exchange_name);
     let sql = format!(
         r#"
         CREATE TABLE IF NOT EXISTS {} (
             market_id uuid NOT NULL,
             trade_id BIGINT NOT NULL,
-            PRIMARY KEY trade_id,
+            PRIMARY KEY (trade_id),
             price NUMERIC NOT NULL,
             size NUMERIC NOT NULL,
             side TEXT NOT NULL,
@@ -531,6 +533,7 @@ pub async fn qc_unvalidated_candle(
         "#,
         table
     );
+    println!("{}", sql);
     sqlx::query(&sql)
         .execute(pool)
         .await
@@ -544,7 +547,7 @@ pub async fn qc_unvalidated_candle(
         let mut new_trades = match client
             .get_trades(
                 market.market_name.as_str(),
-                Some(100),
+                Some(5000),
                 Some(candle_start),
                 Some(candle_end_or_last_trade),
             )
@@ -604,13 +607,52 @@ pub async fn qc_unvalidated_candle(
                 .await
                 .expect("Failed to insert tmp ftx trades.");
         };
-        if num_trades < 100 {
+        if num_trades < 5000 {
             // Trades returned are less than 100, end trade getting and make candle
-            let mut interval_trades = select_ftx_trades_by_table(pool, &table)
+            let interval_trades = select_ftx_trades_by_table(pool, &table)
                 .await
                 .expect("Could not fetch trades from temp table.");
-        }
+            // Create candle from interval trades
+            if interval_trades.len() > 0 {
+                let new_candle = Candle::new_from_trades(candle_start, &interval_trades);
+                println!("New candle to re-validate: {:?}", new_candle);
+                // Validate new candle
+                let is_valid = validate_candle(&new_candle, &mut exchange_candles);
+                if is_valid {
+                    // Delete all trades from _rest _ws and _processed
+                    delete_ftx_trades_by_time(
+                        pool,
+                        &market.market_id,
+                        exchange_name,
+                        new_candle.datetime,
+                        new_candle.datetime + Duration::seconds(900),
+                        false,
+                        false,
+                    )
+                    .await
+                    .expect("Could not delete rest and ws trades.");
+                    delete_ftx_trades_by_time(
+                        pool,
+                        &market.market_id,
+                        exchange_name,
+                        new_candle.datetime,
+                        new_candle.datetime + Duration::seconds(900),
+                        true,
+                        false,
+                    )
+                    .await
+                    .expect("Could not delete processed trades.");
+                    // Delete existing candle
+
+                    // Insert trades into _validated
+
+                    // Insert candle with validated status
+                };
+            };
+            break;
+        };
     }
+    // Validate new candle versus exchange candle
     true
 }
 
@@ -1234,7 +1276,7 @@ mod tests {
             .expect("Could not fetch invalidated candles.");
         for candle in candles.iter() {
             println!("Attempting to revalidate: {:?}", candle);
-            let is_success = qc_unvalidated_candle(&client, &pool, &market, &candle).await;
+            let is_success = qc_unvalidated_candle(&client, &pool, &exchange.exchange_name, &market, &candle).await;
             println!("Revalidate success? {:?}", is_success);
         }
     }
