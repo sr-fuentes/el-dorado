@@ -1,7 +1,7 @@
 use clap::App;
+use el_dorado::cleanup::cleanup_02;
 use el_dorado::configuration::get_configuration;
 use el_dorado::{archive::archive, exchanges::add, historical::run};
-use el_dorado::cleanup::cleanup_02;
 use sqlx::PgPool;
 
 #[tokio::main]

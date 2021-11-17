@@ -1,4 +1,4 @@
-use crate::candles::{Candle, qc_unvalidated_candle};
+use crate::candles::{qc_unvalidated_candle, Candle};
 use crate::configuration::Settings;
 use crate::exchanges::{fetch_exchanges, ftx::RestClient};
 use crate::markets::fetch_markets;
@@ -52,8 +52,8 @@ pub async fn cleanup_02(pool: &PgPool, config: Settings) {
             "Attempting to revalidate: {:?} - {:?}",
             &market.market_name, &candle.datetime
         );
-        let is_success = qc_unvalidated_candle(&client, pool, &exchange.exchange_name, &market, &candle)
-            .await;
+        let is_success =
+            qc_unvalidated_candle(&client, pool, &exchange.exchange_name, &market, &candle).await;
         println!("Revalidation success? {:?}", is_success);
     }
 }
