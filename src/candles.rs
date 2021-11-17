@@ -640,6 +640,7 @@ pub async fn qc_unvalidated_candle(
                 let is_valid = validate_candle(&new_candle, &mut exchange_candles);
                 if is_valid {
                     // Delete all trades from _rest _ws and _processed
+                    println!("New candle is validated. Deleting old trades.");
                     delete_ftx_trades_by_time(
                         pool,
                         &market.market_id,
@@ -663,10 +664,12 @@ pub async fn qc_unvalidated_candle(
                     .await
                     .expect("Could not delete processed trades.");
                     // Delete existing candle
+                    println!("Deleting old candle.");
                     delete_candle(pool, exchange_name, &market.market_id, &new_candle.datetime)
                         .await
                         .expect("Could not delete old candle.");
                     // Insert trades into _validated
+                    println!("Inserting validated trades.");
                     insert_ftx_trades(
                         pool,
                         &market.market_id,
@@ -677,9 +680,16 @@ pub async fn qc_unvalidated_candle(
                     .await
                     .expect("Could not insert validated trades.");
                     // Insert candle with validated status
+                    println!("Inserting validated candle.");
                     insert_candle(pool, exchange_name, &market.market_id, new_candle, true)
                         .await
                         .expect("Could not insert validated candle.");
+                    // Drop temp table
+                    println!("Dropping temp table.");
+                    sqlx::query(&sql_drop)
+                        .execute(pool)
+                        .await
+                        .expect("Could not drop temp validation table.");
                     return true;
                 };
             };
@@ -687,6 +697,11 @@ pub async fn qc_unvalidated_candle(
         };
     }
     // Return false if you get to this point. Valid candle would have been inserted and updated
+    println!("Dropping temp table.");
+    sqlx::query(&sql_drop)
+        .execute(pool)
+        .await
+        .expect("Could not drop temp validation table.");
     false
 }
 
