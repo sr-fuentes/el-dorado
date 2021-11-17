@@ -100,7 +100,7 @@ pub async fn backfill_ftx(
             let mut new_trades = match client
                 .get_trades(
                     market.market_name.as_str(),
-                    Some(100),
+                    Some(5000),
                     Some(interval_start),
                     Some(interval_end_or_last_trade),
                 )
@@ -176,7 +176,7 @@ pub async fn backfill_ftx(
             // Do not create candle for last interval (when interval_end is greater than end time)
             // because the interval_end may not be complete (ie interval_end = 9:15 and current time
             // is 9:13, you dont want to create the candle because it is not closed yet).
-            if num_trades < 100 {
+            if num_trades < 5000 {
                 if interval_end < end {
                     // Move trades from _rest to _processed and create candle
                     // Select trades for market between start and end interval
