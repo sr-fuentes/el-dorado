@@ -34,7 +34,7 @@ pub async fn cleanup_02(pool: &PgPool, config: Settings) {
         r#"
         SELECT * FROM candles_15t_{}
         WHERE not is_validated
-        ORDER BY market_id, time
+        ORDER BY market_id, datetime
         "#,
         exchange.exchange_name
     );
