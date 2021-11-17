@@ -1,4 +1,4 @@
-use crate::candles::Candle;
+use crate::candles::{Candle, qc_unvalidated_candle};
 use crate::configuration::Settings;
 use crate::exchanges::{fetch_exchanges, ftx::RestClient};
 use crate::markets::fetch_markets;
@@ -9,7 +9,7 @@ use sqlx::PgPool;
 // microsecond resulting in missing trades from the candle cause it to not be validated. This script
 // pulls each current unvalidated candle and will re-download the trades and re-calculate the candle.
 
-pub async fn cleanup_01(pool: &PgPool, config: Settings) {
+pub async fn cleanup_02(pool: &PgPool, config: Settings) {
     // Get exchanges from database
     let exchanges = fetch_exchanges(pool)
         .await
@@ -52,5 +52,8 @@ pub async fn cleanup_01(pool: &PgPool, config: Settings) {
             "Attempting to revalidate: {:?} - {:?}",
             &market.market_name, &candle.datetime
         );
+        let is_success = qc_unvalidated_candle(&client, pool, &exchange.exchange_name, &market, &candle)
+            .await;
+        println!("Revalidation success? {:?}", is_success);
     }
 }
