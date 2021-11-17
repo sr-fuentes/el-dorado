@@ -552,7 +552,6 @@ pub async fn qc_unvalidated_candle(
         "#,
         table
     );
-    println!("{}", sql);
     sqlx::query(&sql)
         .execute(pool)
         .await
