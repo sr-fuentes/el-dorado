@@ -207,6 +207,7 @@ pub async fn backfill_ftx(
                             .expect("No previous candle.");
                             // Create Candle
                             Candle::new_from_last(
+                                market.market_id,
                                 interval_start,
                                 previous_candle.close,
                                 previous_candle.last_trade_ts,
@@ -218,7 +219,11 @@ pub async fn backfill_ftx(
                             interval_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
                             interval_trades.dedup_by(|t1, t2| t1.id == t2.id);
                             // Create Candle
-                            Candle::new_from_trades(interval_start, &interval_trades)
+                            Candle::new_from_trades(
+                                market.market_id,
+                                interval_start,
+                                &interval_trades,
+                            )
                         }
                     };
                     // Insert into candles

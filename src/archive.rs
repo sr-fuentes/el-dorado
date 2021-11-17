@@ -171,7 +171,8 @@ mod test {
             .collect();
 
         // Resample to 01d candles
-        let resampled_candles = resample_candles(&filtered_candles, Duration::days(1));
+        let resampled_candles =
+            resample_candles(market.market_id, &filtered_candles, Duration::days(1));
 
         // If there are no resampled candles, then return
         if resampled_candles.len() == 0 {

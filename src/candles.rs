@@ -29,6 +29,7 @@ pub struct Candle {
     pub first_trade_ts: DateTime<Utc>,
     pub first_trade_id: String,
     pub is_validated: bool,
+    pub market_id: Uuid,
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, sqlx::FromRow)]
@@ -59,7 +60,7 @@ impl Candle {
     // datetime passed as argument. Candle built from trades in the order they are in
     // the Vec, sort before calling this function otherwise Open / Close / Datetime may
     // be incorrect.
-    pub fn new_from_trades(datetime: DateTime<Utc>, trades: &Vec<Trade>) -> Self {
+    pub fn new_from_trades(market_id: Uuid, datetime: DateTime<Utc>, trades: &Vec<Trade>) -> Self {
         let candle_tuple = trades.iter().fold(
             (
                 trades.first().expect("No first trade for candle.").price, // open
@@ -117,6 +118,7 @@ impl Candle {
             first_trade_ts: candle_tuple.12,
             first_trade_id: candle_tuple.13,
             is_validated: false,
+            market_id,
         }
     }
 
@@ -124,7 +126,11 @@ impl Candle {
     // datetime passed as argument. Candle built from candes in the order they are in
     // the Vec, sort before calling this function otherwise Open / Close may
     // be incorrect.
-    pub fn new_from_candles(datetime: DateTime<Utc>, candles: &Vec<Candle>) -> Self {
+    pub fn new_from_candles(
+        market_id: Uuid,
+        datetime: DateTime<Utc>,
+        candles: &Vec<Candle>,
+    ) -> Self {
         let candle_tuple = candles.iter().fold(
             (
                 candles.first().expect("No first trade for candle.").open, // open
@@ -182,12 +188,14 @@ impl Candle {
             first_trade_ts: candle_tuple.12,
             first_trade_id: candle_tuple.13,
             is_validated: false,
+            market_id,
         }
     }
 
     // This function will build a placeholder trade with 0 volume and
     // will populate OHLC from the last trade provided.
     pub fn new_from_last(
+        market_id: Uuid,
         datetime: DateTime<Utc>,
         last_trade_price: Decimal,
         last_trade_ts: DateTime<Utc>,
@@ -210,11 +218,12 @@ impl Candle {
             first_trade_ts: last_trade_ts,
             first_trade_id: last_trade_id.to_string(),
             is_validated: false,
+            market_id,
         }
     }
 }
 
-pub fn resample_candles(candles: &Vec<Candle>, duration: Duration) -> Vec<Candle> {
+pub fn resample_candles(market_id: Uuid, candles: &Vec<Candle>, duration: Duration) -> Vec<Candle> {
     match candles.len() {
         0 => Vec::<Candle>::new(),
         _ => {
@@ -241,7 +250,7 @@ pub fn resample_candles(candles: &Vec<Candle>, duration: Duration) -> Vec<Candle
                     .filter(|c| c.datetime.duration_trunc(duration).unwrap() == *d)
                     .cloned()
                     .collect();
-                let resampled_candle = Candle::new_from_candles(*d, &filtered_candles);
+                let resampled_candle = Candle::new_from_candles(market_id, *d, &filtered_candles);
                 v.push(resampled_candle);
                 v
             });
@@ -282,7 +291,7 @@ pub async fn create_01d_candles(pool: &PgPool, exchange_name: &str, market_id: &
         .collect();
 
     // Resample to 01d candles
-    let resampled_candles = resample_candles(&filtered_candles, Duration::days(1));
+    let resampled_candles = resample_candles(*market_id, &filtered_candles, Duration::days(1));
 
     // If there are no resampled candles, then return
     if resampled_candles.len() == 0 {
@@ -624,7 +633,8 @@ pub async fn qc_unvalidated_candle(
                 .expect("Could not fetch trades from temp table.");
             // Create candle from interval trades
             if interval_trades.len() > 0 {
-                let new_candle = Candle::new_from_trades(candle_start, &interval_trades);
+                let new_candle =
+                    Candle::new_from_trades(market.market_id, candle_start, &interval_trades);
                 println!("New candle to re-validate: {:?}", new_candle);
                 // Validate new candle
                 let is_valid = validate_candle(&new_candle, &mut exchange_candles);
@@ -1112,9 +1122,11 @@ mod tests {
 
     #[test]
     pub fn new_from_last_returns_candle_populated_from_last_trade() {
+        let market_id = Uuid::new_v4();
         let mut trades = sample_trades();
         let last_trade = trades.pop().unwrap();
         let candle = Candle::new_from_last(
+            market_id,
             last_trade.time,
             last_trade.price,
             last_trade.time,
@@ -1125,9 +1137,10 @@ mod tests {
 
     #[test]
     pub fn new_from_trades_returns_candle() {
+        let market_id = Uuid::new_v4();
         let trades = sample_trades();
         let first_trade = trades.first().unwrap();
-        let candle = Candle::new_from_trades(first_trade.time, &trades);
+        let candle = Candle::new_from_trades(market_id, first_trade.time, &trades);
         println!("Candle: {:?}", candle);
     }
 
