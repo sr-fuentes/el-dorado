@@ -894,7 +894,7 @@ pub async fn select_candles(
             r#"
             SELECT * FROM candles_01d
             WHERE market_id = $1
-            ORDER BY datatime
+            ORDER BY datetime
             "#
         ),
         _ => panic!("Not a supported candle resolution."),
