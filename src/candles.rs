@@ -484,10 +484,6 @@ pub fn validate_candle(candle: &Candle, exchange_candles: &mut Vec<CandleFtx>) -
         Some(c) => {
             if c.volume == candle.value {
                 return true;
-            } else if (c.volume / candle.value - dec!(1.0)) < dec!(0.0001) {
-                // If there are more than 100 trades in a microsecond they may not be counted in
-                // historical data pooling. Consider validated is volume < 1 bp.
-                return true;
             } else {
                 println!(
                     "Failed to validate: {:?} in \n {:?}",
