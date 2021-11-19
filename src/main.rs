@@ -1,5 +1,5 @@
 use clap::App;
-use el_dorado::cleanup::cleanup_02;
+use el_dorado::cleanup::cleanup_03;
 use el_dorado::configuration::get_configuration;
 use el_dorado::{archive::archive, exchanges::add, historical::run};
 use sqlx::PgPool;
@@ -32,7 +32,7 @@ async fn main() {
         Some("refresh") => println!("Refresh is not yet implemented."),
         Some("edit") => println!("Edit is not yet implemented."),
         Some("run") => run(&connection_pool, configuration).await,
-        Some("cleanup") => cleanup_02(&connection_pool, configuration).await, // Remove options when no cleanup job
+        Some("cleanup") => cleanup_03(&connection_pool, configuration).await, // Remove options when no cleanup job
         Some("archive") => archive(&connection_pool, configuration).await,
         None => println!("Please run with subcommands: `add` `refresh` `edit` or `run`."),
         _ => unreachable!(), // CLAP will error out before running this arm
