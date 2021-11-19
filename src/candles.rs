@@ -844,6 +844,26 @@ pub async fn delete_candle(
     Ok(())
 }
 
+pub async fn delete_candle_01d(
+    pool: &PgPool,
+    market_id: &Uuid,
+    datetime: &DateTime<Utc>,
+) -> Result<(), sqlx::Error> {
+    let sql = format!(
+        r#"
+            DELETE FROM candles_01d
+            WHERE market_id = $1
+            AND datetime = $2
+        "#
+    );
+    sqlx::query(&sql)
+        .bind(market_id)
+        .bind(datetime)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 pub async fn select_unvalidated_candles(
     pool: &PgPool,
     exchange_name: &str,
