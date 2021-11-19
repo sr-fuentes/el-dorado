@@ -121,5 +121,5 @@ pub async fn cleanup_03(pool: &PgPool, config: Settings) {
     for market in markets_with_candles.iter() {
         println!("Validating {:?}", market);
         validate_01d_candles(pool, &client, &exchange.exchange_name, market).await;
-    };
+    }
 }
