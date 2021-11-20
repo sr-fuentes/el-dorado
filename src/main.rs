@@ -17,7 +17,7 @@ async fn main() {
 
     // Load clap commands and arguments
     let matches = App::new("El Dorado")
-        .version("1.0")
+        .version("0.1.4")
         .subcommand(App::new("add").about("add new exchange to app"))
         .subcommand(App::new("refresh").about("refresh markets for exchange"))
         .subcommand(App::new("edit").about("edit exchange information"))
