@@ -1,5 +1,9 @@
-use sqlx::PgPool;
+use crate::candles::{select_candles_by_daterange, DailyCandle};
 use crate::configuration::Settings;
+use crate::exchanges::{fetch_exchanges, ftx::RestClient};
+use crate::markets::fetch_markets;
+use chrono::Duration;
+use sqlx::PgPool;
 
 // Pull all 01d candles that are left after the previous cleanups. The 01d that are not validated
 // have all 15t validated candles but were validated using a 1bps tolerance instead of the an exact
@@ -56,9 +60,9 @@ pub async fn cleanup_04(pool: &PgPool, config: Settings) {
         )
         .await
         .expect("Could not fetch hb candles.");
-        // For each hb candle 
+        // For each hb candle
         // - delete trades from each table
+        for hb_candle in hb_candles.iter() {}
         // - set validation status = false and trade_count = -1
     }
-    
 }
