@@ -13,7 +13,7 @@ pub struct Exchange {
     pub exchange_name: String,
 }
 
-pub async fn add(pool: &PgPool, config: Settings) {
+pub async fn add(pool: &PgPool, config: &Settings) {
     // Get input from user for exchange to add
     // TODO: implemenet new and parse functions for Exchange and
     // parse / validated input

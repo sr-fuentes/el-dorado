@@ -28,12 +28,12 @@ async fn main() {
 
     // Match subcommand and route
     match matches.subcommand_name() {
-        Some("add") => add(&connection_pool, configuration).await,
+        Some("add") => add(&connection_pool, &configuration).await,
         Some("refresh") => println!("Refresh is not yet implemented."),
         Some("edit") => println!("Edit is not yet implemented."),
-        Some("run") => run(&connection_pool, configuration).await,
-        Some("cleanup") => cleanup_03(&connection_pool, configuration).await, // Remove options when no cleanup job
-        Some("archive") => archive(&connection_pool, configuration).await,
+        Some("run") => run(&connection_pool, &configuration).await,
+        Some("cleanup") => cleanup_03(&connection_pool, &configuration).await, // Remove options when no cleanup job
+        Some("archive") => archive(&connection_pool, &configuration).await,
         None => println!("Please run with subcommands: `add` `refresh` `edit` or `run`."),
         _ => unreachable!(), // CLAP will error out before running this arm
     }

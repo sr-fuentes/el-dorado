@@ -6,7 +6,7 @@ use crate::trades::*;
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use sqlx::PgPool;
 
-pub async fn run(pool: &PgPool, config: Settings) {
+pub async fn run(pool: &PgPool, config: &Settings) {
     // Get exchanges from database
     let exchanges = fetch_exchanges(pool)
         .await

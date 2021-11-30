@@ -13,7 +13,7 @@ use sqlx::PgPool;
 // the newly calculated one. Finally re-run the 01D candle validation. Follow up by running the
 // archive funtionality after this script is run.
 
-pub async fn cleanup_03(pool: &PgPool, config: Settings) {
+pub async fn cleanup_03(pool: &PgPool, config: &Settings) {
     // Get exchanges from database
     let exchanges = fetch_exchanges(pool)
         .await

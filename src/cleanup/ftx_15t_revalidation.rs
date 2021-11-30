@@ -1,6 +1,7 @@
 use crate::candles::{select_candles_by_daterange, DailyCandle};
+use crate::cleanup::{cleanup_02, cleanup_03};
 use crate::configuration::Settings;
-use crate::exchanges::{fetch_exchanges, ftx::RestClient};
+use crate::exchanges::fetch_exchanges;
 use crate::markets::fetch_markets;
 use crate::trades::delete_ftx_trades_by_time;
 use chrono::Duration;
@@ -13,7 +14,7 @@ use sqlx::PgPool;
 // that are associated with the 15t candles. Finally it will call the
 // previous cleanup scripts to clean up the 15t candles and 01d candle validations.
 
-pub async fn cleanup_04(pool: &PgPool, config: Settings) {
+pub async fn cleanup_04(pool: &PgPool, config: &Settings) {
     // Get exchanges from database
     let exchanges = fetch_exchanges(pool)
         .await
@@ -111,4 +112,11 @@ pub async fn cleanup_04(pool: &PgPool, config: Settings) {
                 .expect("Could not update candle valdiated and count.");
         }
     }
+    // Now that the 15t candles have been re-set. Call the revalidation script
+    println!("Calling Cleanup 02 to re-validated marked 15t candles.");
+    cleanup_02(pool, config).await;
+
+    // Not re-validted the 01d candles with re-built 15T candles
+    println!("Calling Cleanup 03 to re-validated 01d candles.");
+    cleanup_03(pool, config).await;
 }

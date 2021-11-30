@@ -9,7 +9,7 @@ use sqlx::PgPool;
 // microsecond resulting in missing trades from the candle cause it to not be validated. This script
 // pulls each current unvalidated candle and will re-download the trades and re-calculate the candle.
 
-pub async fn cleanup_02(pool: &PgPool, config: Settings) {
+pub async fn cleanup_02(pool: &PgPool, config: &Settings) {
     // Get exchanges from database
     let exchanges = fetch_exchanges(pool)
         .await

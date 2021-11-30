@@ -6,7 +6,7 @@ use chrono::Duration;
 use csv::Writer;
 use sqlx::PgPool;
 
-pub async fn archive(pool: &PgPool, config: Settings) {
+pub async fn archive(pool: &PgPool, config: &Settings) {
     // Get Active markets
     let markets = select_markets_active(pool)
         .await
