@@ -156,73 +156,51 @@ pub async fn select_ftx_trades_by_table(
 
 pub async fn delete_ftx_trades_by_time(
     pool: &PgPool,
-    market_id: &Uuid,
     exchange_name: &str,
+    market_table_name: &str,
+    trade_table: &str,
     interval_start: DateTime<Utc>,
     interval_end: DateTime<Utc>,
-    is_processed: bool,
-    is_validated: bool,
 ) -> Result<(), sqlx::Error> {
-    let mut tables = Vec::new();
-    if is_processed {
-        tables.push("processed");
-    } else if is_validated {
-        tables.push("validated");
-    } else {
-        tables.push("rest");
-        tables.push("ws");
-    };
-    for table in tables {
-        let sql = format!(
-            r#"
-                DELETE FROM trades_{}_{}
-                WHERE market_id = $1 AND time >= $2 and time <$3
-            "#,
-            exchange_name, table
-        );
-        sqlx::query(&sql)
-            .bind(market_id)
-            .bind(interval_start)
-            .bind(interval_end)
-            .execute(pool)
-            .await?;
-    }
+    let sql = format!(
+        r#"
+        DELETE FROM trades_{}_{}_{}
+        WHERE time >= $1 and time < $2
+        "#,
+        exchange_name, 
+        market_table_name,
+        trade_table,
+    );
+    sqlx::query(&sql)
+        .bind(interval_start)
+        .bind(interval_end)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
 pub async fn delete_ftx_trades_by_id(
     pool: &PgPool,
-    market_id: &Uuid,
     exchange_name: &str,
+    market_table_name: &str,
+    trade_table: &str,
     first_trade_id: i64,
     last_trade_id: i64,
-    is_processed: bool,
-    is_validated: bool,
 ) -> Result<(), sqlx::Error> {
-    let mut tables = Vec::new();
-    if is_processed {
-        tables.push("processed");
-    } else if is_validated {
-        tables.push("validated");
-    } else {
-        tables.push("rest");
-        tables.push("ws");
-    };
-    for table in tables {
-        let sql = format!(
-            r#"
-                DELETE FROM trades_{}_{}
-                WHERE market_id = $1 AND trade_id >= $2 and trade_id <= $3
-            "#,
-            exchange_name, table
-        );
-        sqlx::query(&sql)
-            .bind(market_id)
-            .bind(first_trade_id)
-            .bind(last_trade_id)
-            .execute(pool)
-            .await?;
-    }
+    let sql = format!(
+        r#"
+        DELETE FROM trades_{}_{}_{}
+        WHERE trade_id >= $1 and trade_id <= $2
+        "#,
+        exchange_name, 
+        market_table_name,
+        trade_table,
+    );
+    sqlx::query(&sql)
+        .bind(first_trade_id)
+        .bind(last_trade_id)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
