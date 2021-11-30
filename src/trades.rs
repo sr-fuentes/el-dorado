@@ -112,48 +112,24 @@ pub async fn insert_ftx_trades(
 
 pub async fn select_ftx_trades_by_time(
     pool: &PgPool,
-    market_id: &Uuid,
     exchange_name: &str,
+    market_table_name: &str,
+    trade_table: &str,
     interval_start: DateTime<Utc>,
     interval_end: DateTime<Utc>,
-    is_processed: bool,
-    is_validated: bool,
 ) -> Result<Vec<Trade>, sqlx::Error> {
     // Cannot user query_as! macro because table may not exist at compile time
-    let sql = if is_processed {
-        format!(
-            r#"
+    let sql = format!(
+        r#"
         SELECT trade_id as id, price, size, side, liquidation, time
-        FROM trades_{}_processed
-        WHERE market_id = $1 AND time >= $2 and time < $3
+        FROM trades_{}_{}_{}
+        WHERE time >= $1 and time < $2
         "#,
-            exchange_name
-        )
-    } else if is_validated {
-        format!(
-            r#"
-          SELECT trade_id as id, price, size, side, liquidation, time
-          FROM trades_{}_validated
-          WHERE market_id = $1 AND time >= $2 AND time < $3
-          "#,
-            exchange_name
-        )
-    } else {
-        format!(
-            r#"
-        SELECT trade_id as id, price, size, side, liquidation, time
-        FROM trades_{table}_rest
-        WHERE market_id = $1 AND time >= $2 and time < $3
-        UNION
-        SELECT trade_id as id, price, size, side, liquidation, time
-        FROM trades_{table}_ws
-        WHERE market_id = $1 AND time >= $2 and time < $3
-        "#,
-            table = exchange_name
-        )
-    };
+        exchange_name,
+        market_table_name,
+        trade_table,
+    );
     let rows = sqlx::query_as::<_, Trade>(&sql)
-        .bind(market_id)
         .bind(interval_start)
         .bind(interval_end)
         .fetch_all(pool)
