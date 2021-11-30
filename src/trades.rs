@@ -42,6 +42,25 @@ pub async fn create_ftx_trade_table(
     Ok(())
 }
 
+pub async fn drop_ftx_trade_table(
+    pool: &PgPool,
+    exchange_name: &str,
+    market_table_name: &str,
+    trade_source: &str,
+) -> Result<(), sqlx::Error> {
+    // Drop the table if it exists
+    let sql = format!(
+        r#"
+        DROP TABLE IF EXISTS trades_{}_{}_{}
+        "#,
+        exchange_name,
+        market_table_name,
+        trade_source,
+    );
+    sqlx::query(&sql).execute(pool).await?;
+    Ok(())
+}
+
 pub async fn insert_ftx_trades(
     pool: &PgPool,
     market_id: &Uuid,
