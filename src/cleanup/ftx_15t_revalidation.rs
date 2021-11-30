@@ -2,6 +2,7 @@ use crate::candles::{select_candles_by_daterange, DailyCandle};
 use crate::configuration::Settings;
 use crate::exchanges::{fetch_exchanges, ftx::RestClient};
 use crate::markets::fetch_markets;
+use crate::trades::delete_ftx_trades_by_time;
 use chrono::Duration;
 use sqlx::PgPool;
 
@@ -62,7 +63,27 @@ pub async fn cleanup_04(pool: &PgPool, config: Settings) {
         .expect("Could not fetch hb candles.");
         // For each hb candle
         // - delete trades from each table
-        for hb_candle in hb_candles.iter() {}
         // - set validation status = false and trade_count = -1
+        for hb_candle in hb_candles.iter() {
+            delete_ftx_trades_by_time(
+                pool,
+                &market.market_id,
+                &exchange.exchange_name,
+                hb_candle.datetime,
+                hb_candle.datetime + Duration::seconds(900),
+                false,
+                false,
+            )
+            .await
+            .expect("could not delete rest and ws trades.");
+            let sql_update = format!(r#"
+                UPDATE candles_15t_{}
+                SET (is_validated, trade_count) = ($1, $2)
+                WHERE market_id = $3
+                AND datetime = $4
+                "#,
+                exchange.exchange_name
+            );
+        }
     }
 }
