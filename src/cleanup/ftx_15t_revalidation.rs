@@ -29,6 +29,7 @@ pub async fn cleanup_04(pool: &PgPool, config: &Settings) {
         .await
         .expect("Could not fetch markets.");
     // Get all 01d candles that are not validated
+    println!("Getting 01d unvalidated candles.");
     let sql = format!(
         r#"
         SELECT * FROM candles_01d
@@ -46,6 +47,10 @@ pub async fn cleanup_04(pool: &PgPool, config: &Settings) {
             .iter()
             .find(|m| m.market_id == candle.market_id)
             .unwrap();
+        println!(
+            "Marking 15t candles for re-validation for {} {}",
+            market.market_name, candle.datetime
+        );
         // Get hb candles
         let hb_candles = select_candles_by_daterange(
             pool,
