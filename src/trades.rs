@@ -7,9 +7,11 @@ pub async fn create_ftx_trade_table(
     pool: &PgPool,
     exchange_name: &str,
     market_table_name: &str,
-    trade_source: &str,
+    trade_table: &str,
 ) -> Result<(), sqlx::Error> {
     // Create trade table
+    // trades_EXCHANGE_MARKET_SOURCE
+    // trades_ftx_btcperp_rest
     let sql = format!(
         r#"
         CREATE TABLE IF NOT EXISTS trades_{}_{}_{} (
@@ -25,7 +27,7 @@ pub async fn create_ftx_trade_table(
         "#,
         exchange_name,
         market_table_name,
-        trade_source
+        trade_table
     );
     sqlx::query(&sql).execute(pool).await?;
     // Create index on time
@@ -36,7 +38,7 @@ pub async fn create_ftx_trade_table(
         "#,
         exchange_name,
         market_table_name,
-        trade_source
+        trade_table
     );
     sqlx::query(&sql).execute(pool).await?;
     Ok(())
@@ -46,7 +48,7 @@ pub async fn drop_ftx_trade_table(
     pool: &PgPool,
     exchange_name: &str,
     market_table_name: &str,
-    trade_source: &str,
+    trade_table: &str,
 ) -> Result<(), sqlx::Error> {
     // Drop the table if it exists
     let sql = format!(
@@ -55,7 +57,7 @@ pub async fn drop_ftx_trade_table(
         "#,
         exchange_name,
         market_table_name,
-        trade_source,
+        trade_table,
     );
     sqlx::query(&sql).execute(pool).await?;
     Ok(())
@@ -65,8 +67,9 @@ pub async fn insert_ftx_trades(
     pool: &PgPool,
     market_id: &Uuid,
     exchange_name: &str,
+    market_table_name: &str,
+    trade_table: &str,
     trades: Vec<Trade>,
-    table: &str,
 ) -> Result<(), sqlx::Error> {
     for trade in trades.iter() {
         // Cannot user sqlx query! macro because table may not exist at
@@ -79,16 +82,18 @@ pub async fn insert_ftx_trades(
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
                 ON CONFLICT (trade_id) DO NOTHING
                 "#,
-                table
+                trade_table
             ),
             _ => format!(
                 r#"
-                INSERT INTO trades_{}_{} (
+                INSERT INTO trades_{}_{}_{} (
                     market_id, trade_id, price, size, side, liquidation, time)
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
                 ON CONFLICT (trade_id) DO NOTHING
                 "#,
-                exchange_name, table
+                exchange_name, 
+                market_table_name,
+                trade_table
             ),
         };
         sqlx::query(&sql)
