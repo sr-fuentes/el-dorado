@@ -53,7 +53,7 @@ pub async fn run(pool: &PgPool, config: &Settings) {
         Err(sqlx::Error::RowNotFound) => get_ftx_start(&client, &market).await,
         Err(e) => panic!("Sqlx Error: {:?}", e),
     };
-    let end = Utc::now().duration_trunc(Duration::seconds(900)).unwrap(); // 9/15/2021 02:00
+    let end = Utc::now().duration_trunc(Duration::days(1)).unwrap(); // 9/15/2021 02:00
 
     // Update market status to `Syncing`
     update_market_data_status(
