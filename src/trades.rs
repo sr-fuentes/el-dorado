@@ -3,6 +3,45 @@ use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+pub async fn create_ftx_trade_table(
+    pool: &PgPool,
+    exchange_name: &str,
+    market_table_name: &str,
+    trade_source: &str,
+) -> Result<(), sqlx::Error> {
+    // Create trade table
+    let sql = format!(
+        r#"
+        CREATE TABLE IF NOT EXISTS trades_{}_{}_{} (
+            market_id uuid NOT NULL,
+            trade_id BIGINT NOT NULL,
+            PRIMARY KEY trade_id,
+            price NUMERIC NOT NULL,
+            size NUMERIC NOT NULL,
+            side TEXT NOT NULL,
+            liquidation BOOLEAN NOT NULL,
+            time timestamptz NOT NULL
+        )
+        "#,
+        exchange_name,
+        market_table_name,
+        trade_source
+    );
+    sqlx::query(&sql).execute(pool).await?;
+    // Create index on time
+    let sql = format!(
+        r#"
+        CREATE INDEX trades_time
+        ON trades_{}_{}_{} (time)
+        "#,
+        exchange_name,
+        market_table_name,
+        trade_source
+    );
+    sqlx::query(&sql).execute(pool).await?;
+    Ok(())
+}
+
 pub async fn insert_ftx_trades(
     pool: &PgPool,
     market_id: &Uuid,
