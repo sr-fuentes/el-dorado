@@ -23,12 +23,6 @@ pub async fn cleanup_04(pool: &PgPool, config: Settings) {
         .iter()
         .find(|e| e.exchange_name == config.application.exchange)
         .unwrap();
-    // Get REST client for exchange
-    let client = match exchange.exchange_name.as_str() {
-        "ftxus" => RestClient::new_us(),
-        "ftx" => RestClient::new_intl(),
-        _ => panic!("No client exists for {}", exchange.exchange_name),
-    };
     // Get all markets and ids for markets
     let market_ids = fetch_markets(pool, &exchange)
         .await
@@ -76,7 +70,30 @@ pub async fn cleanup_04(pool: &PgPool, config: Settings) {
             )
             .await
             .expect("could not delete rest and ws trades.");
-            let sql_update = format!(r#"
+            delete_ftx_trades_by_time(
+                pool,
+                &market.market_id,
+                &exchange.exchange_name,
+                hb_candle.datetime,
+                hb_candle.datetime + Duration::seconds(900),
+                true,
+                false,
+            )
+            .await
+            .expect("could not delete processed trades.");
+            delete_ftx_trades_by_time(
+                pool,
+                &market.market_id,
+                &exchange.exchange_name,
+                hb_candle.datetime,
+                hb_candle.datetime + Duration::seconds(900),
+                false,
+                true,
+            )
+            .await
+            .expect("could not delete validated trades.");
+            let sql_update = format!(
+                r#"
                 UPDATE candles_15t_{}
                 SET (is_validated, trade_count) = ($1, $2)
                 WHERE market_id = $3
@@ -84,6 +101,14 @@ pub async fn cleanup_04(pool: &PgPool, config: Settings) {
                 "#,
                 exchange.exchange_name
             );
+            sqlx::query(&sql_update)
+                .bind(false)
+                .bind(-1)
+                .bind(hb_candle.market_id)
+                .bind(hb_candle.datetime)
+                .execute(pool)
+                .await
+                .expect("Could not update candle valdiated and count.");
         }
     }
 }
