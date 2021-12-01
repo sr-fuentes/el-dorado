@@ -35,6 +35,12 @@ pub struct MarketDetail {
     pub last_update_ip_address: sqlx::types::ipnetwork::IpNetwork,
 }
 
+impl MarketId {
+    pub fn strip_name(&self) -> String {
+        self.market_name.replace(&['/', '-'][..], "")
+    }
+}
+
 pub async fn pull_usd_markets_from_ftx(exchange: &str) -> Result<Vec<Market>, RestError> {
     // Get Rest Client
     let client = match exchange {
