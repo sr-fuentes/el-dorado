@@ -43,7 +43,11 @@ pub async fn run(pool: &PgPool, config: &Settings) {
     validate_01d_candles(pool, &client, &exchange.exchange_name, &market).await;
 
     // Delete trades from _rest table for market
-    delete_trades_by_market_table(pool, &market.market_id, &exchange.exchange_name, "rest")
+    delete_trades_by_market_table(
+        pool, 
+        &exchange.exchange_name,
+        market.strip_name().as_str(),
+        "rest")
         .await
         .expect("Could not clear _rest trades.");
 
@@ -165,8 +169,9 @@ pub async fn backfill_ftx(
                     pool,
                     &market.market_id,
                     &exchange.exchange_name,
-                    new_trades,
+                    market.strip_name().as_str(),
                     "rest",
+                    new_trades,
                 )
                 .await
                 .expect("Failed to insert ftx trades.");
@@ -182,12 +187,11 @@ pub async fn backfill_ftx(
                     // Select trades for market between start and end interval
                     let mut interval_trades = select_ftx_trades_by_time(
                         pool,
-                        &market.market_id,
                         &exchange.exchange_name,
+                        market.strip_name().as_str(),
+                        "rest",
                         interval_start,
                         interval_end,
-                        false,
-                        false,
                     )
                     .await
                     .expect("Could not fetch trades from db.");
@@ -240,12 +244,11 @@ pub async fn backfill_ftx(
                     // Delete trades for market between start and end interval
                     delete_ftx_trades_by_time(
                         pool,
-                        &market.market_id,
                         &exchange.exchange_name,
+                        market.strip_name().as_str(),
+                        "rest",
                         interval_start,
                         interval_end,
-                        false,
-                        false,
                     )
                     .await
                     .expect("Could not delete trades from db.");
@@ -254,8 +257,9 @@ pub async fn backfill_ftx(
                         pool,
                         &market.market_id,
                         &exchange.exchange_name,
-                        interval_trades,
+                        market.strip_name().as_str(),
                         "processed",
+                        interval_trades,
                     )
                     .await
                     .expect("Could not insert processed trades.");
