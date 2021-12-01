@@ -97,21 +97,21 @@ pub async fn add(pool: &PgPool, config: &Settings) {
         }
     }
 
-    // Create tables for new exchanges (trades, candles, etc)
-    create_ftx_trade_tables(pool, &exchange)
-        .await
-        .expect(&format!(
-            "Could not create new tables for exchange {}.",
-            exchange.exchange_name
-        ));
+    // // Create tables for new exchanges (trades, candles, etc)
+    // create_ftx_trade_tables(pool, &exchange)
+    //     .await
+    //     .expect(&format!(
+    //         "Could not create new tables for exchange {}.",
+    //         exchange.exchange_name
+    //     ));
 
-    // Create exchanges for new exchanges trades tables
-    create_ftx_trade_table_indexes(pool, &exchange)
-        .await
-        .expect(&format!(
-            "Could not create new indexes for exchange {}.",
-            exchange.exchange_name
-        ));
+    // // Create exchanges for new exchanges trades tables
+    // create_ftx_trade_table_indexes(pool, &exchange)
+    //     .await
+    //     .expect(&format!(
+    //         "Could not create new indexes for exchange {}.",
+    //         exchange.exchange_name
+    //     ));
 }
 
 pub async fn fetch_exchanges(pool: &PgPool) -> Result<Vec<Exchange>, sqlx::Error> {
@@ -237,7 +237,7 @@ mod tests {
     use super::*;
     use crate::configuration::get_configuration;
     use crate::exchanges::ftx::*;
-    use crate::trades::insert_ftx_trades;
+    use crate::trades::{create_ftx_trade_table, insert_ftx_trades};
 
     #[tokio::test]
     async fn fetch_exchanges_returns_all_exchanges() {
@@ -298,15 +298,7 @@ mod tests {
             exchange_name: "ftxus".to_string(),
         };
 
-        // Create db tables
-        create_ftx_trade_tables(&connection_pool, &exchange)
-            .await
-            .expect("Failed to create tables.");
-
-        // Create rest client
-        let client = RestClient::new_us();
-
-        // Get last 10 BTC/USD trades
+        // Set market for test
         let markets = fetch_markets(&connection_pool, &exchange)
             .await
             .expect("Failed to fetch markets.");
@@ -314,6 +306,25 @@ mod tests {
             .iter()
             .find(|m| m.market_name == "BTC/USD")
             .expect("Failed to grab BTC/USD market.");
+
+        // Set table name variables
+        let market_table_name = market.market_name.replace(&['/', '-'][..], "");
+        let test_trade_table = "dynamic_test";
+
+        // Create db tables
+        create_ftx_trade_table(
+            &connection_pool,
+            &exchange.exchange_name,
+            &market_table_name,
+            &test_trade_table,
+        )
+        .await
+        .expect("Failed to create tables.");
+
+        // Create rest client
+        let client = RestClient::new_us();
+
+        // Get last 10 BTC/USD trades
         let trades = client
             .get_trades(&market.market_name, Some(10), None, Some(Utc::now()))
             .await
@@ -323,13 +334,11 @@ mod tests {
             &connection_pool,
             &market.market_id,
             &exchange.exchange_name,
+            &market_table_name,
+            &test_trade_table,
             trades,
-            "rest",
         )
         .await
         .expect("Failed to insert trades.");
-        // Assert
-        // Find a way to query db for table to assert that it was created
-        //todo!()
     }
 }
