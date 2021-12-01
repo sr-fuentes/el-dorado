@@ -25,9 +25,7 @@ pub async fn create_ftx_trade_table(
             time timestamptz NOT NULL
         )
         "#,
-        exchange_name,
-        market_table_name,
-        trade_table
+        exchange_name, market_table_name, trade_table
     );
     sqlx::query(&sql).execute(pool).await?;
     // Create index on time
@@ -36,9 +34,7 @@ pub async fn create_ftx_trade_table(
         CREATE INDEX trades_time
         ON trades_{}_{}_{} (time)
         "#,
-        exchange_name,
-        market_table_name,
-        trade_table
+        exchange_name, market_table_name, trade_table
     );
     sqlx::query(&sql).execute(pool).await?;
     Ok(())
@@ -55,9 +51,7 @@ pub async fn drop_ftx_trade_table(
         r#"
         DROP TABLE IF EXISTS trades_{}_{}_{}
         "#,
-        exchange_name,
-        market_table_name,
-        trade_table,
+        exchange_name, market_table_name, trade_table,
     );
     sqlx::query(&sql).execute(pool).await?;
     Ok(())
@@ -71,31 +65,18 @@ pub async fn insert_ftx_trades(
     trade_table: &str,
     trades: Vec<Trade>,
 ) -> Result<(), sqlx::Error> {
+    // Cannot user sqlx query! macro because table may not exist at
+    // compile time and table name is dynamic to ftx and ftxus.
+    let sql = format!(
+        r#"
+        INSERT INTO trades_{}_{}_{} (
+            market_id, trade_id, price, size, side, liquidation, time)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (trade_id) DO NOTHING
+        "#,
+        exchange_name, market_table_name, trade_table
+    );
     for trade in trades.iter() {
-        // Cannot user sqlx query! macro because table may not exist at
-        // compile time and table name is dynamic to ftx and ftxus.
-        let sql = match exchange_name {
-            "temp" => format!(
-                r#"
-                INSERT INTO {} (
-                        market_id, trade_id, price, size, side, liquidation, time)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
-                ON CONFLICT (trade_id) DO NOTHING
-                "#,
-                trade_table
-            ),
-            _ => format!(
-                r#"
-                INSERT INTO trades_{}_{}_{} (
-                    market_id, trade_id, price, size, side, liquidation, time)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
-                ON CONFLICT (trade_id) DO NOTHING
-                "#,
-                exchange_name, 
-                market_table_name,
-                trade_table
-            ),
-        };
         sqlx::query(&sql)
             .bind(market_id)
             .bind(trade.id)
@@ -125,9 +106,7 @@ pub async fn select_ftx_trades_by_time(
         FROM trades_{}_{}_{}
         WHERE time >= $1 and time < $2
         "#,
-        exchange_name,
-        market_table_name,
-        trade_table,
+        exchange_name, market_table_name, trade_table,
     );
     let rows = sqlx::query_as::<_, Trade>(&sql)
         .bind(interval_start)
@@ -167,9 +146,7 @@ pub async fn delete_ftx_trades_by_time(
         DELETE FROM trades_{}_{}_{}
         WHERE time >= $1 and time < $2
         "#,
-        exchange_name, 
-        market_table_name,
-        trade_table,
+        exchange_name, market_table_name, trade_table,
     );
     sqlx::query(&sql)
         .bind(interval_start)
@@ -192,9 +169,7 @@ pub async fn delete_ftx_trades_by_id(
         DELETE FROM trades_{}_{}_{}
         WHERE trade_id >= $1 and trade_id <= $2
         "#,
-        exchange_name, 
-        market_table_name,
-        trade_table,
+        exchange_name, market_table_name, trade_table,
     );
     sqlx::query(&sql)
         .bind(first_trade_id)
@@ -206,18 +181,18 @@ pub async fn delete_ftx_trades_by_id(
 
 pub async fn delete_trades_by_market_table(
     pool: &PgPool,
-    market_id: &Uuid,
     exchange_name: &str,
+    market_table_name: &str,
     trade_table: &str,
 ) -> Result<(), sqlx::Error> {
     let sql = format!(
         r#"
-            DELETE FROM trades_{}_{}
-            WHERE market_id = $1
+        DELETE FROM trades_{}_{}_{}
+        WHERE 1 = 1
         "#,
-        exchange_name, trade_table
+        exchange_name, market_table_name, trade_table
     );
-    sqlx::query(&sql).bind(market_id).execute(pool).await?;
+    sqlx::query(&sql).execute(pool).await?;
     Ok(())
 }
 
