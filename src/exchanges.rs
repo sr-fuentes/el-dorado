@@ -1,6 +1,7 @@
 use crate::configuration::*;
 use crate::markets::{fetch_markets, insert_new_market, pull_usd_markets_from_ftx};
 use crate::utilities::get_input;
+use crate::candles::create_exchange_candle_table;
 use chrono::Utc;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -95,7 +96,10 @@ pub async fn add(pool: &PgPool, config: &Settings) {
             .await
             .expect("Failed to insert market.");
         }
-    }
+    };
+
+    // Create candle table for exchange
+    create_exchange_candle_table(pool, &exchange.exchange_name).await.expect("Could not create candle table.");
 }
 
 pub async fn fetch_exchanges(pool: &PgPool) -> Result<Vec<Exchange>, sqlx::Error> {
@@ -131,88 +135,6 @@ pub async fn insert_new_exchange(pool: &PgPool, exchange: &Exchange) -> Result<(
     )
     .execute(pool)
     .await?;
-    Ok(())
-}
-
-pub async fn create_ftx_trade_tables(
-    pool: &PgPool,
-    exchange: &Exchange,
-) -> Result<(), sqlx::Error> {
-    // Create trades, trades_ws, and candles tables for ftx
-    // trade_id is primary key only. FTX does not have duplicate trade ids
-    // for each market but one trade id across the platform
-    let tables = ["rest", "ws", "processed", "validated"];
-    for table in tables {
-        let sql = format!(
-            r#"
-            CREATE TABLE IF NOT EXISTS trades_{}_{} (
-                market_id uuid NOT NULL,
-                trade_id BIGINT NOT NULL,
-                PRIMARY KEY trade_id,
-                price NUMERIC NOT NULL,
-                size NUMERIC NOT NULL,
-                side TEXT NOT NULL,
-                liquidation BOOLEAN NOT NULL,
-                time timestamptz NOT NULL
-            )
-            "#,
-            exchange.exchange_name, table
-        );
-        sqlx::query(&sql).execute(pool).await?;
-    }
-    let sql = format!(
-        r#"
-            CREATE TABLE IF NOT EXISTS candles_15t_{} (
-                datetime timestamptz NOT NULL,
-                open NUMERIC NOT NULL,
-                high NUMERIC NOT NULL,
-                low NUMERIC NOT NULL,
-                close NUMERIC NOT NULL,
-                volume NUMERIC NOT NULL,
-                volume_net NUMERIC NOT NULL,
-                volume_liquidation NUMERIC NOT NULL,
-                value NUMERIC NOT NULL,
-                trade_count BIGINT NOT NULL,
-                liquidation_count BIGINT NOT NULL,
-                last_trade_ts timestamptz NOT NULL,
-                last_trade_id TEXT NOT NULL,
-                is_validated BOOLEAN NOT NULL,
-                market_id uuid NOT NULL,
-                PRIMARY KEY (datetime, market_id)
-            )
-        "#,
-        exchange.exchange_name
-    );
-    sqlx::query(&sql).execute(pool).await?;
-    Ok(())
-}
-
-pub async fn create_ftx_trade_table_indexes(
-    pool: &PgPool,
-    exchange: &Exchange,
-) -> Result<(), sqlx::Error> {
-    // Create indexes for _processed and _validated
-    let tables = ["processed", "validated"];
-    for table in tables {
-        let sql = format!(
-            r#"
-            CREATE INDEX trades_{e}_{t}_market_id
-            ON trades_{e}_{t} (market_id)
-            "#,
-            e = exchange.exchange_name,
-            t = table
-        );
-        sqlx::query(&sql).execute(pool).await?;
-        let sql = format!(
-            r#"
-            CREATE INDEX trades_{e}_{t}_time
-            ON trades_{e}_{t} (time)
-            "#,
-            e = exchange.exchange_name,
-            t = table
-        );
-        sqlx::query(&sql).execute(pool).await?;
-    }
     Ok(())
 }
 
