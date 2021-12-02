@@ -31,7 +31,7 @@ pub async fn create_ftx_trade_table(
     // Create index on time
     let sql = format!(
         r#"
-        CREATE INDEX trades_time
+        CREATE INDEX IF NOT EXISTS trades_time
         ON trades_{}_{}_{} (time)
         "#,
         exchange_name, market_table_name, trade_table
