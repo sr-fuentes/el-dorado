@@ -370,9 +370,6 @@ pub async fn validate_hb_candles(
                     )
                     .await
                     .expect("Could not fetch validated trades.");
-                    // Get first and last trades to get id for delete query
-                    let first_trade = validated_trades.first().unwrap().id;
-                    let last_trade = validated_trades.last().unwrap().id;
                     insert_ftx_trades(
                         pool,
                         &market.market_id,
