@@ -67,34 +67,31 @@ pub async fn cleanup_04(pool: &PgPool, config: &Settings) {
         for hb_candle in hb_candles.iter() {
             delete_ftx_trades_by_time(
                 pool,
-                &market.market_id,
                 &exchange.exchange_name,
+                market.strip_name().as_str(),
+                "rest",
                 hb_candle.datetime,
                 hb_candle.datetime + Duration::seconds(900),
-                false,
-                false,
             )
             .await
             .expect("could not delete rest and ws trades.");
             delete_ftx_trades_by_time(
                 pool,
-                &market.market_id,
                 &exchange.exchange_name,
+                market.strip_name().as_str(),
+                "processed",
                 hb_candle.datetime,
                 hb_candle.datetime + Duration::seconds(900),
-                true,
-                false,
             )
             .await
             .expect("could not delete processed trades.");
             delete_ftx_trades_by_time(
                 pool,
-                &market.market_id,
                 &exchange.exchange_name,
+                market.strip_name().as_str(),
+                "validated",
                 hb_candle.datetime,
                 hb_candle.datetime + Duration::seconds(900),
-                false,
-                true,
             )
             .await
             .expect("could not delete validated trades.");
