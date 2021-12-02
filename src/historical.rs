@@ -44,12 +44,13 @@ pub async fn run(pool: &PgPool, config: &Settings) {
 
     // Delete trades from _rest table for market
     delete_trades_by_market_table(
-        pool, 
+        pool,
         &exchange.exchange_name,
         market.strip_name().as_str(),
-        "rest")
-        .await
-        .expect("Could not clear _rest trades.");
+        "rest",
+    )
+    .await
+    .expect("Could not clear _rest trades.");
 
     // Get last state of market, return status, start and finish
     let start = match select_last_candle(pool, &exchange.exchange_name, &market.market_id).await {

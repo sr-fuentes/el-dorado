@@ -54,11 +54,7 @@ pub async fn archive(pool: &PgPool, config: &Settings) {
                 continue;
             }
             // Define filename = TICKER_YYYYMMDD.csv
-            let f = format!(
-                "{}_{}.csv",
-                market_table_name,
-                candle.datetime.format("%F")
-            );
+            let f = format!("{}_{}.csv", market_table_name, candle.datetime.format("%F"));
             // Set filepath and file name
             let fp = std::path::Path::new(&p).join(f);
             // Write trades to file

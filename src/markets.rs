@@ -201,14 +201,13 @@ pub async fn update_market_data_status(
     Ok(())
 }
 
-
 #[cfg(test)]
 mod tests {
     use crate::configuration::*;
     use crate::exchanges::fetch_exchanges;
     use crate::markets::fetch_markets;
     use sqlx::PgPool;
-    
+
     #[tokio::test]
     pub async fn strip_name_removes_dash_and_slash() {
         // Load configuration
