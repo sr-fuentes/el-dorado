@@ -33,6 +33,24 @@ pub async fn run(pool: &PgPool, config: &Settings) {
         .find(|m| m.market_name == config.application.market)
         .unwrap();
 
+    // Create the processed and validated trade tables if they do not already exists
+    create_ftx_trade_table(
+        pool,
+        &exchange.exchange_name,
+        market.strip_name().as_str(),
+        "processed",
+    )
+    .await
+    .expect("Could not create processed table.");
+    create_ftx_trade_table(
+        pool,
+        &exchange.exchange_name,
+        market.strip_name().as_str(),
+        "validated",
+    )
+    .await
+    .expect("Could not create validated table.");
+
     // Validate / clean up current candles / trades for market
     validate_hb_candles(pool, &client, &exchange.exchange_name, &market, &config).await;
 
@@ -42,15 +60,23 @@ pub async fn run(pool: &PgPool, config: &Settings) {
     // Validate 01d candles
     validate_01d_candles(pool, &client, &exchange.exchange_name, &market).await;
 
-    // Delete trades from _rest table for market
-    delete_trades_by_market_table(
+    // Drop and re-create  _rest table for market
+    drop_ftx_trade_table(
         pool,
         &exchange.exchange_name,
         market.strip_name().as_str(),
         "rest",
     )
     .await
-    .expect("Could not clear _rest trades.");
+    .expect("Could not drop rest table.");
+    create_ftx_trade_table(
+        pool,
+        &exchange.exchange_name,
+        market.strip_name().as_str(),
+        "rest",
+    )
+    .await
+    .expect("Could not create rest table.");
 
     // Get last state of market, return status, start and finish
     let start = match select_last_candle(pool, &exchange.exchange_name, &market.market_id).await {
