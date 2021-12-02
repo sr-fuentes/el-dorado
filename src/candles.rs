@@ -1,10 +1,7 @@
 use crate::configuration::*;
 use crate::exchanges::{ftx::Candle as CandleFtx, ftx::RestClient, ftx::RestError, ftx::Trade};
 use crate::markets::{update_market_last_validated, MarketId};
-use crate::trades::{
-    delete_ftx_trades_by_id, delete_ftx_trades_by_time, insert_ftx_trades,
-    select_ftx_trades_by_table, select_ftx_trades_by_time,
-};
+use crate::trades::*;
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
@@ -365,12 +362,11 @@ pub async fn validate_hb_candles(
                     // Update validated trades and move from processed to validated
                     let validated_trades = select_ftx_trades_by_time(
                         pool,
-                        &market.market_id,
                         exchange_name,
+                        market.strip_name().as_str(),
+                        "processed",
                         unvalidated_candle.datetime,
                         unvalidated_candle.datetime + Duration::seconds(900),
-                        true,
-                        false,
                     )
                     .await
                     .expect("Could not fetch validated trades.");
@@ -381,19 +377,19 @@ pub async fn validate_hb_candles(
                         pool,
                         &market.market_id,
                         exchange_name,
-                        validated_trades,
+                        market.strip_name().as_str(),
                         "validated",
+                        validated_trades,
                     )
                     .await
                     .expect("Could not insert validated trades.");
-                    delete_ftx_trades_by_id(
+                    delete_ftx_trades_by_time(
                         pool,
-                        &market.market_id,
                         exchange_name,
-                        first_trade,
-                        last_trade,
-                        true,
-                        false,
+                        market.strip_name().as_str(),
+                        "processed",
+                        unvalidated_candle.datetime,
+                        unvalidated_candle.datetime + Duration::seconds(900),
                     )
                     .await
                     .expect("Could not delete processed trades.");
@@ -522,34 +518,10 @@ pub async fn qc_unvalidated_candle(
         get_ftx_candles(client, market, candle_start, candle_start, 900).await;
     println!("Exchange candle: {:?}", exchange_candles);
     // Create temp trades table
-    let table = format!("candle_validation_{}", exchange_name);
-    let sql_drop = format!(
-        r#"
-        DROP TABLE IF EXISTS {}
-        "#,
-        table
-    );
-    sqlx::query(&sql_drop)
-        .execute(pool)
+    drop_ftx_trade_table(pool, exchange_name, market.strip_name().as_str(), "qc")
         .await
-        .expect("Could not drop temp validation table.");
-    let sql = format!(
-        r#"
-        CREATE TABLE IF NOT EXISTS {} (
-            market_id uuid NOT NULL,
-            trade_id BIGINT NOT NULL,
-            PRIMARY KEY (trade_id),
-            price NUMERIC NOT NULL,
-            size NUMERIC NOT NULL,
-            side TEXT NOT NULL,
-            liquidation BOOLEAN NOT NULL,
-            time timestamptz NOT NULL
-        )
-        "#,
-        table
-    );
-    sqlx::query(&sql)
-        .execute(pool)
+        .expect("Could not drop qc table.");
+    create_ftx_trade_table(pool, exchange_name, market.strip_name().as_str(), "qc")
         .await
         .expect("Could not create temp trade table.");
     // Get trades for candle period
@@ -617,13 +589,21 @@ pub async fn qc_unvalidated_candle(
             println!("Inserting trades in temp table.");
             // Temp table name can be used instead of exhcange name as logic for table name is
             // located in the insert function
-            insert_ftx_trades(pool, &market.market_id, "temp", new_trades, &table)
-                .await
-                .expect("Failed to insert tmp ftx trades.");
+            insert_ftx_trades(
+                pool,
+                &market.market_id,
+                exchange_name,
+                market.strip_name().as_str(),
+                "qc",
+                new_trades,
+            )
+            .await
+            .expect("Failed to insert tmp ftx trades.");
         };
         if num_trades < 5000 {
             // Trades returned are less than 100, end trade getting and make candle
-            let interval_trades = select_ftx_trades_by_table(pool, &table)
+            let qc_table = format!("trades_{}_{}_qc", exchange_name, market.strip_name());
+            let interval_trades = select_ftx_trades_by_table(pool, qc_table.as_str())
                 .await
                 .expect("Could not fetch trades from temp table.");
             // Create candle from interval trades
@@ -638,23 +618,21 @@ pub async fn qc_unvalidated_candle(
                     println!("New candle is validated. Deleting old trades.");
                     delete_ftx_trades_by_time(
                         pool,
-                        &market.market_id,
                         exchange_name,
+                        market.strip_name().as_str(),
+                        "rest",
                         new_candle.datetime,
                         new_candle.datetime + Duration::seconds(900),
-                        false,
-                        false,
                     )
                     .await
                     .expect("Could not delete rest and ws trades.");
                     delete_ftx_trades_by_time(
                         pool,
-                        &market.market_id,
                         exchange_name,
+                        market.strip_name().as_str(),
+                        "processed",
                         new_candle.datetime,
                         new_candle.datetime + Duration::seconds(900),
-                        true,
-                        false,
                     )
                     .await
                     .expect("Could not delete processed trades.");
@@ -669,8 +647,9 @@ pub async fn qc_unvalidated_candle(
                         pool,
                         &market.market_id,
                         exchange_name,
-                        interval_trades,
+                        market.strip_name().as_str(),
                         "validated",
+                        interval_trades,
                     )
                     .await
                     .expect("Could not insert validated trades.");
@@ -681,10 +660,9 @@ pub async fn qc_unvalidated_candle(
                         .expect("Could not insert validated candle.");
                     // Drop temp table
                     println!("Dropping temp table.");
-                    sqlx::query(&sql_drop)
-                        .execute(pool)
+                    drop_ftx_trade_table(pool, exchange_name, market.strip_name().as_str(), "qc")
                         .await
-                        .expect("Could not drop temp validation table.");
+                        .expect("Could not drop qc table.");
                     return true;
                 };
             };
@@ -693,10 +671,9 @@ pub async fn qc_unvalidated_candle(
     }
     // Return false if you get to this point. Valid candle would have been inserted and updated
     println!("Dropping temp table.");
-    sqlx::query(&sql_drop)
-        .execute(pool)
+    drop_ftx_trade_table(pool, exchange_name, market.strip_name().as_str(), "qc")
         .await
-        .expect("Could not drop temp validation table.");
+        .expect("Could not drop qc table.");
     false
 }
 
