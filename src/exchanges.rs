@@ -96,22 +96,6 @@ pub async fn add(pool: &PgPool, config: &Settings) {
             .expect("Failed to insert market.");
         }
     }
-
-    // // Create tables for new exchanges (trades, candles, etc)
-    // create_ftx_trade_tables(pool, &exchange)
-    //     .await
-    //     .expect(&format!(
-    //         "Could not create new tables for exchange {}.",
-    //         exchange.exchange_name
-    //     ));
-
-    // // Create exchanges for new exchanges trades tables
-    // create_ftx_trade_table_indexes(pool, &exchange)
-    //     .await
-    //     .expect(&format!(
-    //         "Could not create new indexes for exchange {}.",
-    //         exchange.exchange_name
-    //     ));
 }
 
 pub async fn fetch_exchanges(pool: &PgPool) -> Result<Vec<Exchange>, sqlx::Error> {
