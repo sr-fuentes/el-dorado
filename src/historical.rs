@@ -33,6 +33,11 @@ pub async fn run(pool: &PgPool, config: &Settings) {
         .find(|m| m.market_name == config.application.market)
         .unwrap();
 
+    // Get market details from configuration
+    let market_detail = select_market_detail(pool, &market)
+        .await
+        .expect("Could not fetch market detail.");
+
     // Validate / clean up current candles / trades for market
     validate_hb_candles(pool, &client, &exchange.exchange_name, &market, &config).await;
 
@@ -53,7 +58,11 @@ pub async fn run(pool: &PgPool, config: &Settings) {
         Err(sqlx::Error::RowNotFound) => get_ftx_start(&client, &market).await,
         Err(e) => panic!("Sqlx Error: {:?}", e),
     };
-    let end = Utc::now().duration_trunc(Duration::days(1)).unwrap(); // 9/15/2021 02:00
+    // let end = Utc::now().duration_trunc(Duration::days(1)).unwrap(); // 9/15/2021 02:00
+    // Temp end to set clean end to archive / processing to convert trade tables
+    let end = (market_detail.last_validated_candle.unwrap() + Duration::days(1))
+        .duration_trunc(Duration::days(1))
+        .unwrap();
 
     // Update market status to `Syncing`
     update_market_data_status(
