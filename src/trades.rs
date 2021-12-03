@@ -17,7 +17,7 @@ pub async fn create_ftx_trade_table(
         CREATE TABLE IF NOT EXISTS trades_{}_{}_{} (
             market_id uuid NOT NULL,
             trade_id BIGINT NOT NULL,
-            PRIMARY KEY trade_id,
+            PRIMARY KEY (trade_id),
             price NUMERIC NOT NULL,
             size NUMERIC NOT NULL,
             side TEXT NOT NULL,
