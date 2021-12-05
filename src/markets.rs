@@ -35,6 +35,18 @@ pub struct MarketDetail {
     pub last_update_ip_address: sqlx::types::ipnetwork::IpNetwork,
 }
 
+impl MarketId {
+    pub fn strip_name(&self) -> String {
+        self.market_name.replace(&['/', '-'][..], "")
+    }
+}
+
+impl MarketDetail {
+    pub fn strip_name(&self) -> String {
+        self.market_name.replace(&['/', '-'][..], "")
+    }
+}
+
 pub async fn pull_usd_markets_from_ftx(exchange: &str) -> Result<Vec<Market>, RestError> {
     // Get Rest Client
     let client = match exchange {
@@ -187,4 +199,48 @@ pub async fn update_market_data_status(
     .execute(pool)
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::configuration::*;
+    use crate::exchanges::fetch_exchanges;
+    use crate::markets::fetch_markets;
+    use sqlx::PgPool;
+
+    #[tokio::test]
+    pub async fn strip_name_removes_dash_and_slash() {
+        // Load configuration
+        let configuration = get_configuration().expect("Failed to read configuration.");
+        println!("Configuration: {:?}", configuration);
+
+        // Create db connection
+        let pool = PgPool::connect_with(configuration.database.with_db())
+            .await
+            .expect("Failed to connect to Postgres.");
+
+        // Get exchanges from database
+        let exchanges = fetch_exchanges(&pool)
+            .await
+            .expect("Could not fetch exchanges.");
+        // Match exchange to exchanges in database
+        let exchange = exchanges
+            .iter()
+            .find(|e| e.exchange_name == configuration.application.exchange)
+            .unwrap();
+
+        // Get input from config for market to archive
+        let market_ids = fetch_markets(&pool, &exchange)
+            .await
+            .expect("Could not fetch exchanges.");
+        let market = market_ids
+            .iter()
+            .find(|m| m.market_name == configuration.application.market)
+            .unwrap();
+
+        // Print market and strip market
+        println!("Market: {:?}", market);
+        let stripped_market = market.strip_name();
+        println!("Stripped Market: {}", stripped_market);
+    }
 }

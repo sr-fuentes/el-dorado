@@ -14,6 +14,8 @@ pub async fn archive(pool: &PgPool, config: &Settings) {
 
     // Check for trades to archive for each active market
     for market in markets.iter() {
+        // Get market table name for table and file
+        let market_table_name = market.strip_name();
         // Check directory for exchange csv is created
         let p = format!(
             "{}/csv/{}",
@@ -34,12 +36,11 @@ pub async fn archive(pool: &PgPool, config: &Settings) {
             // Select trades associated w/ candle
             let trades_to_archive = select_ftx_trades_by_time(
                 pool,
-                &market.market_id,
                 &market.exchange_name,
+                market_table_name.as_str(),
+                "validated",
                 candle.datetime,
                 candle.datetime + Duration::days(1),
-                false,
-                true,
             )
             .await
             .expect("Could not fetch validated trades.");
@@ -53,11 +54,7 @@ pub async fn archive(pool: &PgPool, config: &Settings) {
                 continue;
             }
             // Define filename = TICKER_YYYYMMDD.csv
-            let f = format!(
-                "{}_{}.csv",
-                market.market_name.replace(&['/', '-'][..], ""),
-                candle.datetime.format("%F")
-            );
+            let f = format!("{}_{}.csv", market_table_name, candle.datetime.format("%F"));
             // Set filepath and file name
             let fp = std::path::Path::new(&p).join(f);
             // Write trades to file
@@ -69,12 +66,11 @@ pub async fn archive(pool: &PgPool, config: &Settings) {
             // Delete trades from validated table
             delete_ftx_trades_by_time(
                 pool,
-                &market.market_id,
                 &market.exchange_name,
+                market_table_name.as_str(),
+                "validated",
                 candle.datetime,
                 candle.datetime + Duration::days(1),
-                false,
-                true,
             )
             .await
             .expect("Could not delete archived trades.");
@@ -229,12 +225,11 @@ mod test {
             // Select trades associated w/ candle
             let _trades_to_archive = select_ftx_trades_by_time(
                 &pool,
-                &market.market_id,
                 &exchange.exchange_name,
+                market.strip_name().as_str(),
+                "validated",
                 candle.datetime,
                 candle.datetime + Duration::days(1),
-                false,
-                true,
             )
             .await
             .expect("Could not fetch validated trades.");

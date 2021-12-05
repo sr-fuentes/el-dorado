@@ -1,3 +1,4 @@
+use crate::candles::create_exchange_candle_table;
 use crate::configuration::*;
 use crate::markets::{fetch_markets, insert_new_market, pull_usd_markets_from_ftx};
 use crate::utilities::get_input;
@@ -97,21 +98,10 @@ pub async fn add(pool: &PgPool, config: &Settings) {
         }
     }
 
-    // Create tables for new exchanges (trades, candles, etc)
-    create_ftx_trade_tables(pool, &exchange)
+    // Create candle table for exchange
+    create_exchange_candle_table(pool, &exchange.exchange_name)
         .await
-        .expect(&format!(
-            "Could not create new tables for exchange {}.",
-            exchange.exchange_name
-        ));
-
-    // Create exchanges for new exchanges trades tables
-    create_ftx_trade_table_indexes(pool, &exchange)
-        .await
-        .expect(&format!(
-            "Could not create new indexes for exchange {}.",
-            exchange.exchange_name
-        ));
+        .expect("Could not create candle table.");
 }
 
 pub async fn fetch_exchanges(pool: &PgPool) -> Result<Vec<Exchange>, sqlx::Error> {
@@ -150,94 +140,12 @@ pub async fn insert_new_exchange(pool: &PgPool, exchange: &Exchange) -> Result<(
     Ok(())
 }
 
-pub async fn create_ftx_trade_tables(
-    pool: &PgPool,
-    exchange: &Exchange,
-) -> Result<(), sqlx::Error> {
-    // Create trades, trades_ws, and candles tables for ftx
-    // trade_id is primary key only. FTX does not have duplicate trade ids
-    // for each market but one trade id across the platform
-    let tables = ["rest", "ws", "processed", "validated"];
-    for table in tables {
-        let sql = format!(
-            r#"
-            CREATE TABLE IF NOT EXISTS trades_{}_{} (
-                market_id uuid NOT NULL,
-                trade_id BIGINT NOT NULL,
-                PRIMARY KEY trade_id,
-                price NUMERIC NOT NULL,
-                size NUMERIC NOT NULL,
-                side TEXT NOT NULL,
-                liquidation BOOLEAN NOT NULL,
-                time timestamptz NOT NULL
-            )
-            "#,
-            exchange.exchange_name, table
-        );
-        sqlx::query(&sql).execute(pool).await?;
-    }
-    let sql = format!(
-        r#"
-            CREATE TABLE IF NOT EXISTS candles_15t_{} (
-                datetime timestamptz NOT NULL,
-                open NUMERIC NOT NULL,
-                high NUMERIC NOT NULL,
-                low NUMERIC NOT NULL,
-                close NUMERIC NOT NULL,
-                volume NUMERIC NOT NULL,
-                volume_net NUMERIC NOT NULL,
-                volume_liquidation NUMERIC NOT NULL,
-                value NUMERIC NOT NULL,
-                trade_count BIGINT NOT NULL,
-                liquidation_count BIGINT NOT NULL,
-                last_trade_ts timestamptz NOT NULL,
-                last_trade_id TEXT NOT NULL,
-                is_validated BOOLEAN NOT NULL,
-                market_id uuid NOT NULL,
-                PRIMARY KEY (datetime, market_id)
-            )
-        "#,
-        exchange.exchange_name
-    );
-    sqlx::query(&sql).execute(pool).await?;
-    Ok(())
-}
-
-pub async fn create_ftx_trade_table_indexes(
-    pool: &PgPool,
-    exchange: &Exchange,
-) -> Result<(), sqlx::Error> {
-    // Create indexes for _processed and _validated
-    let tables = ["processed", "validated"];
-    for table in tables {
-        let sql = format!(
-            r#"
-            CREATE INDEX trades_{e}_{t}_market_id
-            ON trades_{e}_{t} (market_id)
-            "#,
-            e = exchange.exchange_name,
-            t = table
-        );
-        sqlx::query(&sql).execute(pool).await?;
-        let sql = format!(
-            r#"
-            CREATE INDEX trades_{e}_{t}_time
-            ON trades_{e}_{t} (time)
-            "#,
-            e = exchange.exchange_name,
-            t = table
-        );
-        sqlx::query(&sql).execute(pool).await?;
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::configuration::get_configuration;
     use crate::exchanges::ftx::*;
-    use crate::trades::insert_ftx_trades;
+    use crate::trades::{create_ftx_trade_table, insert_ftx_trades};
 
     #[tokio::test]
     async fn fetch_exchanges_returns_all_exchanges() {
@@ -298,15 +206,7 @@ mod tests {
             exchange_name: "ftxus".to_string(),
         };
 
-        // Create db tables
-        create_ftx_trade_tables(&connection_pool, &exchange)
-            .await
-            .expect("Failed to create tables.");
-
-        // Create rest client
-        let client = RestClient::new_us();
-
-        // Get last 10 BTC/USD trades
+        // Set market for test
         let markets = fetch_markets(&connection_pool, &exchange)
             .await
             .expect("Failed to fetch markets.");
@@ -314,6 +214,25 @@ mod tests {
             .iter()
             .find(|m| m.market_name == "BTC/USD")
             .expect("Failed to grab BTC/USD market.");
+
+        // Set table name variables
+        let market_table_name = market.market_name.replace(&['/', '-'][..], "");
+        let test_trade_table = "dynamic_test";
+
+        // Create db tables
+        create_ftx_trade_table(
+            &connection_pool,
+            &exchange.exchange_name,
+            &market_table_name,
+            &test_trade_table,
+        )
+        .await
+        .expect("Failed to create tables.");
+
+        // Create rest client
+        let client = RestClient::new_us();
+
+        // Get last 10 BTC/USD trades
         let trades = client
             .get_trades(&market.market_name, Some(10), None, Some(Utc::now()))
             .await
@@ -323,13 +242,11 @@ mod tests {
             &connection_pool,
             &market.market_id,
             &exchange.exchange_name,
+            &market_table_name,
+            &test_trade_table,
             trades,
-            "rest",
         )
         .await
         .expect("Failed to insert trades.");
-        // Assert
-        // Find a way to query db for table to assert that it was created
-        //todo!()
     }
 }
