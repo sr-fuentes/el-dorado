@@ -31,10 +31,12 @@ pub async fn create_ftx_trade_table(
     // Create index on time
     let sql = format!(
         r#"
-        CREATE INDEX IF NOT EXISTS trades_time
-        ON trades_{}_{}_{} (time)
+        CREATE INDEX IF NOT EXISTS trades_{e}_{m}_{t}_time_asc
+        ON trades_{e}_{m}_{t} (time)
         "#,
-        exchange_name, market_table_name, trade_table
+        e = exchange_name,
+        m = market_table_name,
+        t = trade_table
     );
     sqlx::query(&sql).execute(pool).await?;
     Ok(())
