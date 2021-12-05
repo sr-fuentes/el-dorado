@@ -50,8 +50,9 @@ pub async fn run(pool: &PgPool, config: &Settings) {
     )
     .await
     .expect("Could not create validated table.");
+
     // Get market details from configuration
-    let market_detail = select_market_detail(pool, &market)
+    let _market_detail = select_market_detail(pool, &market)
         .await
         .expect("Could not fetch market detail.");
 
@@ -90,9 +91,7 @@ pub async fn run(pool: &PgPool, config: &Settings) {
     };
     // let end = Utc::now().duration_trunc(Duration::days(1)).unwrap(); // 9/15/2021 02:00
     // Temp end to set clean end to archive / processing to convert trade tables
-    let end = (market_detail.last_validated_candle.unwrap() + Duration::days(1))
-        .duration_trunc(Duration::days(1))
-        .unwrap();
+    let end = Utc::now().duration_trunc(Duration::days(1)).unwrap();
 
     // Update market status to `Syncing`
     update_market_data_status(
