@@ -1,7 +1,7 @@
+use crate::candles::create_exchange_candle_table;
 use crate::configuration::*;
 use crate::markets::{fetch_markets, insert_new_market, pull_usd_markets_from_ftx};
 use crate::utilities::get_input;
-use crate::candles::create_exchange_candle_table;
 use chrono::Utc;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -96,10 +96,12 @@ pub async fn add(pool: &PgPool, config: &Settings) {
             .await
             .expect("Failed to insert market.");
         }
-    };
+    }
 
     // Create candle table for exchange
-    create_exchange_candle_table(pool, &exchange.exchange_name).await.expect("Could not create candle table.");
+    create_exchange_candle_table(pool, &exchange.exchange_name)
+        .await
+        .expect("Could not create candle table.");
 }
 
 pub async fn fetch_exchanges(pool: &PgPool) -> Result<Vec<Exchange>, sqlx::Error> {
