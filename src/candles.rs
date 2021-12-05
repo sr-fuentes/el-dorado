@@ -2,7 +2,7 @@ use crate::configuration::*;
 use crate::exchanges::{ftx::Candle as CandleFtx, ftx::RestClient, ftx::RestError, ftx::Trade};
 use crate::markets::{update_market_last_validated, MarketId};
 use crate::trades::*;
-use chrono::{DateTime, Duration, DurationRound, Utc};
+use chrono::{DateTime, Duration, DurationRound, TimeZone, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use sqlx::PgPool;
@@ -510,6 +510,27 @@ pub fn validate_candle(candle: &Candle, exchange_candles: &mut Vec<CandleFtx>) -
     match exchange_candle {
         Some(c) => {
             if c.volume == candle.value {
+                return true;
+            } else if candle.market_id
+                == Uuid::parse_str("05a8faa1-b7ae-4afb-9ae4-0a036b9d2b02").unwrap()
+                && candle.datetime == Utc.ymd(2021, 9, 02).and_hms(14, 00, 0)
+            {
+                // These three 15t candles have accurate trades from FTX API but the candle returned
+                // does not match on volume / value. Accept the trade generated candle.
+                return true;
+            } else if candle.market_id
+                == Uuid::parse_str("7890c36a-d927-4ce8-bbf9-186a2ae22c78").unwrap()
+                && candle.datetime == Utc.ymd(2021, 9, 19).and_hms(15, 15, 0)
+            {
+                // These three 15t candles have accurate trades from FTX API but the candle returned
+                // does not match on volume / value. Accept the trade generated candle.
+                return true;
+            } else if candle.market_id
+                == Uuid::parse_str("19994c6a-fa3c-4b0b-96c4-c744c43a9514").unwrap()
+                && candle.datetime == Utc.ymd(2021, 9, 19).and_hms(15, 15, 0)
+            {
+                // These three 15t candles have accurate trades from FTX API but the candle returned
+                // does not match on volume / value. Accept the trade generated candle.
                 return true;
             } else {
                 println!(
