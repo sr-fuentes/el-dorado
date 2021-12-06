@@ -247,6 +247,7 @@ impl WsClient {
                 Some(msg) = self.stream.next() => {
                     let msg = msg?;
                     if let Message::Text(text) = msg {
+                        println!("Text: {}", text);
                         let response: Response = serde_json::from_str(&text)?;
                         // Don't return pong responses
                         if let Response {r#type: Type::Pong, .. } = response { continue;}
@@ -300,6 +301,7 @@ impl Stream for WsClient {
 #[cfg(test)]
 mod tests {
     use crate::exchanges::ftx::RestClient;
+    use super::*;
 
     #[test]
     fn new_intl_fn_returns_client_with_intl_header_and_endpoint() {
@@ -313,5 +315,24 @@ mod tests {
         let client = RestClient::new_us();
         assert_eq!(client.header, "FTXUS");
         assert_eq!(client.endpoint, "https://ftx.us/api");
+    }
+
+    #[tokio::test]
+    async fn trades() {
+        let mut ws = WsClient::connect_intl().await.expect("Could not connect ws");
+        let market = "BTC-PERP".to_string();
+        ws.subscribe(vec![Channel::Trades(market.to_owned())]).await.expect("Could not subscribe to market.");
+        loop {
+            let data = ws.next().await.expect("No data received.");
+            match data {
+                Ok((_, Data::Trade(trade))) => {
+                    println!("\n{:?} {} {} at {} - liquidation = {}",
+                    trade.side, trade.size, market, trade.price, trade.liquidation
+                );
+                }
+                _ => panic!("Unexpected data type"),
+            }
+        }
+
     }
 }
