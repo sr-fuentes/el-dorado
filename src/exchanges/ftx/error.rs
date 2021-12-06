@@ -1,5 +1,5 @@
-use thiserror::Error;
 use super::Channel;
+use thiserror::Error;
 use tokio_tungstenite::tungstenite;
 
 #[derive(Debug, Error)]
