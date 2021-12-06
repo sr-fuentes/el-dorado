@@ -1,9 +1,14 @@
 use super::{RestError, Trade, WsError};
-use futures::{SinkExt, StreamExt};
+use futures::{
+    ready,
+    task::{Context, Poll},
+    Future, SinkExt, Stream, StreamExt,
+};
 use reqwest::{Client, Method};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{from_reader, json, Map, Value};
 use std::collections::VecDeque;
+use std::pin::Pin;
 use tokio::net::TcpStream;
 use tokio::time;
 use tokio::time::{Duration, Interval};
@@ -257,7 +262,8 @@ impl WsClient {
             match data {
                 ResponseData::Trades(trades) => {
                     for trade in trades {
-                        self.buf.push_back((response.market.clone(), Data::Trade(trade)))
+                        self.buf
+                            .push_back((response.market.clone(), Data::Trade(trade)))
                     }
                 }
             }
@@ -265,6 +271,31 @@ impl WsClient {
     }
 }
 
+impl Stream for WsClient {
+    type Item = Result<(Option<String>, Data), WsError>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        loop {
+            if let Some(data) = self.buf.pop_front() {
+                return Poll::Ready(Some(Ok(data)));
+            }
+            let response = {
+                // Fetch new response if buffer is empty.
+                // safety: this is ok because the future from self.next_response() will only live
+                // in this function. It won't be moved anymore.
+                let mut next_response = self.next_response();
+                let pinned = unsafe { Pin::new_unchecked(&mut next_response) };
+                match ready!(pinned.poll(cx)) {
+                    Ok(response) => response,
+                    Err(e) => {
+                        return Poll::Ready(Some(Err(e)));
+                    }
+                }
+            };
+            self.handle_response(response);
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
