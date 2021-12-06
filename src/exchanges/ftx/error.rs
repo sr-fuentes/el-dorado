@@ -13,7 +13,7 @@ pub enum RestError {
 }
 
 #[derive(Debug, Error)]
-pub enum WSError {
+pub enum WsError {
     #[error("Not subscribed to this channel {0:?}")]
     NotSubscribedToThisChannel(Channel),
     #[error("Missing subscription confirmation")]
