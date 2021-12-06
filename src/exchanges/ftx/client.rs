@@ -1,5 +1,5 @@
 use super::{RestError, Trade, WsError};
-use futures::SinkExt;
+use futures::{SinkExt, StreamExt};
 use reqwest::{Client, Method};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{from_reader, json, Map, Value};
@@ -232,7 +232,40 @@ impl WsClient {
         }
         Ok(())
     }
+
+    async fn next_response(&mut self) -> Result<Response, WsError> {
+        loop {
+            tokio::select! {
+                _ = self.ping_timer.tick() => {
+                    self.ping().await?;
+                },
+                Some(msg) = self.stream.next() => {
+                    let msg = msg?;
+                    if let Message::Text(text) = msg {
+                        let response: Response = serde_json::from_str(&text)?;
+                        // Don't return pong responses
+                        if let Response {r#type: Type::Pong, .. } = response { continue;}
+                        return Ok(response)
+                    }
+                },
+            }
+        }
+    }
+
+    fn handle_response(&mut self, response: Response) {
+        if let Some(data) = response.data {
+            match data {
+                ResponseData::Trades(trades) => {
+                    for trade in trades {
+                        self.buf.push_back((response.market.clone(), Data::Trade(trade)))
+                    }
+                }
+            }
+        }
+    }
 }
+
+
 #[cfg(test)]
 mod tests {
     use crate::exchanges::ftx::RestClient;
