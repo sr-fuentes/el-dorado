@@ -194,6 +194,44 @@ impl WsClient {
             .await?;
         Ok(())
     }
+
+    pub async fn subscribe(&mut self, channels: Vec<Channel>) -> Result<(), WsError> {
+        for channel in channels.iter() {
+            self.channels.push(channel.clone());
+        }
+        'channels: for channel in channels {
+            let (channel, symbol) = match channel {
+                Channel::Trades(symbol) => ("trades", symbol),
+                Channel::Orderbook(symbol) => ("orderbook", symbol),
+                Channel::Ticker(symbol) => ("ticker", symbol),
+                Channel::Fills => ("fills", "".to_string()),
+                Channel::Orders => ("orders", "".to_string()),
+            };
+            self.stream
+                .send(Message::Text(
+                    json!({"op": "subscribe", "channel": channel, "market": symbol}).to_string(),
+                ))
+                .await?;
+
+            // Confirmation should arrive within 100 updates
+            for _ in 0..100 {
+                let response = self.next_response().await?;
+                match response {
+                    Response {
+                        r#type: Type::Subscribed,
+                        ..
+                    } => {
+                        continue 'channels;
+                    }
+                    _ => {
+                        self.handle_response(response);
+                    }
+                }
+            }
+            return Err(WsError::MissingSubscriptionConfirmation);
+        }
+        Ok(())
+    }
 }
 #[cfg(test)]
 mod tests {
