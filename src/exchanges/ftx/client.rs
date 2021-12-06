@@ -1,12 +1,13 @@
-use super::{RestError, WsError, Trade};
+use super::{RestError, Trade, WsError};
+use futures::SinkExt;
 use reqwest::{Client, Method};
 use serde::{de::DeserializeOwned, Deserialize};
-use serde_json::{from_reader, Map, Value};
+use serde_json::{from_reader, json, Map, Value};
 use std::collections::VecDeque;
 use tokio::net::TcpStream;
 use tokio::time;
-use tokio::time::{Interval, Duration};
-use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
+use tokio::time::{Duration, Interval};
+use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 pub struct RestClient {
     pub header: &'static str,
@@ -185,6 +186,13 @@ impl WsClient {
 
     pub async fn connect_us() -> Result<Self, WsError> {
         Ok(Self::connect(Self::US_ENDPOINT).await?)
+    }
+
+    pub async fn ping(&mut self) -> Result<(), WsError> {
+        self.stream
+            .send(Message::Text(json!({"op": "ping",}).to_string()))
+            .await?;
+        Ok(())
     }
 }
 #[cfg(test)]
