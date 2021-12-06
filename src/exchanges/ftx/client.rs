@@ -1,11 +1,12 @@
-use super::{RestError, Trade};
+use super::{RestError, WsError, Trade};
 use reqwest::{Client, Method};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{from_reader, Map, Value};
 use std::collections::VecDeque;
 use tokio::net::TcpStream;
-use tokio::time::Interval;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+use tokio::time;
+use tokio::time::{Interval, Duration};
+use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 
 pub struct RestClient {
     pub header: &'static str,
@@ -164,6 +165,28 @@ impl RestClient {
     }
 }
 
+impl WsClient {
+    pub const INTL_ENDPOINT: &'static str = "wss://ftx.com/ws";
+    pub const US_ENDPOINT: &'static str = "wss://ftx.us/ws";
+
+    pub async fn connect(endpoint: &'static str) -> Result<Self, WsError> {
+        let (mut stream, _) = connect_async(endpoint).await?;
+        Ok(Self {
+            channels: Vec::new(),
+            stream,
+            buf: VecDeque::new(),
+            ping_timer: time::interval(Duration::from_secs(15)),
+        })
+    }
+
+    pub async fn connect_intl() -> Result<Self, WsError> {
+        Ok(Self::connect(Self::INTL_ENDPOINT).await?)
+    }
+
+    pub async fn connect_us() -> Result<Self, WsError> {
+        Ok(Self::connect(Self::US_ENDPOINT).await?)
+    }
+}
 #[cfg(test)]
 mod tests {
     use crate::exchanges::ftx::RestClient;
