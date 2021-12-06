@@ -1,7 +1,24 @@
-use super::RestError;
+use super::{RestError, Trade};
 use reqwest::{Client, Method};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{from_reader, Map, Value};
+use std::collections::VecDeque;
+use tokio::net::TcpStream;
+use tokio::time::Interval;
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+
+pub struct RestClient {
+    pub header: &'static str,
+    pub endpoint: &'static str,
+    pub client: Client,
+}
+
+pub struct WsClient {
+    channels: Vec<Channel>,
+    stream: WebSocketStream<MaybeTlsStream<TcpStream>>,
+    buf: VecDeque<(Option<String>, Data)>,
+    ping_timer: Interval,
+}
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct SuccessResponse<T> {
@@ -15,10 +32,47 @@ pub struct ErrorResponse {
     pub error: String,
 }
 
-pub struct RestClient {
-    pub header: &'static str,
-    pub endpoint: &'static str,
-    pub client: Client,
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum Channel {
+    Orderbook(String),
+    Trades(String),
+    Ticker(String),
+    Fills,
+    Orders,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Response {
+    pub market: Option<String>,
+    pub r#type: Type,
+    pub data: Option<ResponseData>,
+}
+
+#[derive(Copy, Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Type {
+    Subscribed,
+    Unsubscribed,
+    Update,
+    Error,
+    Partial,
+    Pong,
+    Info,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(untagged)]
+pub enum ResponseData {
+    Trades(Vec<Trade>),
+}
+
+/// Represents the data we return to the user
+#[derive(Clone, Debug)]
+pub enum Data {
+    Trade(Trade),
 }
 
 impl RestClient {
