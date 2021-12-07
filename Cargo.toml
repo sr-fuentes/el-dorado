@@ -18,6 +18,7 @@ clap = "3.0.0-beta.4"
 config = "0.11.0"
 csv = "1.1.6"
 flate2 = "1.0.22"
+futures = "0.3.18"
 ipnetwork = "0.18.0"
 reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls"] }
 rust_decimal = "1.15.0"
@@ -27,4 +28,5 @@ serde_json = "1.0.64"
 sqlx = { version = "0.5.7", features = ["runtime-tokio-rustls", "postgres", "macros", "uuid", "chrono", "ipnetwork", "migrate", "decimal", "offline"] }
 thiserror = "1.0.29"
 tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = {version = "0.16.0", features = ["native-tls"]}
 uuid = { version = "0.8.2", features = ["v4"] }
