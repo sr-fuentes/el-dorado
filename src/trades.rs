@@ -93,6 +93,38 @@ pub async fn insert_ftx_trades(
     Ok(())
 }
 
+pub async fn insert_ftx_trade(
+    pool: &PgPool,
+    market_id: &Uuid,
+    exchange_name: &str,
+    market_table_name: &str,
+    trade_table: &str,
+    trade: Trade,
+) -> Result<(), sqlx::Error> {
+    // Cannot user sqlx query! macro because table may not exist at
+    // compile time and table name is dynamic to ftx and ftxus.
+    let sql = format!(
+        r#"
+        INSERT INTO trades_{}_{}_{} (
+            market_id, trade_id, price, size, side, liquidation, time)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (trade_id) DO NOTHING
+        "#,
+        exchange_name, market_table_name, trade_table
+    );
+    sqlx::query(&sql)
+        .bind(market_id)
+        .bind(trade.id)
+        .bind(trade.price)
+        .bind(trade.size)
+        .bind(&trade.side)
+        .bind(trade.liquidation)
+        .bind(trade.time)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 pub async fn select_ftx_trades_by_time(
     pool: &PgPool,
     exchange_name: &str,
