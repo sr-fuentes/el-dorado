@@ -300,8 +300,8 @@ impl Stream for WsClient {
 
 #[cfg(test)]
 mod tests {
-    use crate::exchanges::ftx::RestClient;
     use super::*;
+    use crate::exchanges::ftx::RestClient;
 
     #[test]
     fn new_intl_fn_returns_client_with_intl_header_and_endpoint() {
@@ -319,20 +319,24 @@ mod tests {
 
     #[tokio::test]
     async fn trades() {
-        let mut ws = WsClient::connect_intl().await.expect("Could not connect ws");
+        let mut ws = WsClient::connect_intl()
+            .await
+            .expect("Could not connect ws");
         let market = "BTC-PERP".to_string();
-        ws.subscribe(vec![Channel::Trades(market.to_owned())]).await.expect("Could not subscribe to market.");
+        ws.subscribe(vec![Channel::Trades(market.to_owned())])
+            .await
+            .expect("Could not subscribe to market.");
         loop {
             let data = ws.next().await.expect("No data received.");
             match data {
                 Ok((_, Data::Trade(trade))) => {
-                    println!("\n{:?} {} {} at {} - liquidation = {}",
-                    trade.side, trade.size, market, trade.price, trade.liquidation
-                );
+                    println!(
+                        "\n{:?} {} {} at {} - liquidation = {}",
+                        trade.side, trade.size, market, trade.price, trade.liquidation
+                    );
                 }
                 _ => panic!("Unexpected data type"),
             }
         }
-
     }
 }
