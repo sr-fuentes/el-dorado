@@ -2,7 +2,7 @@ use crate::configuration::*;
 use crate::exchanges::{ftx::Candle as CandleFtx, ftx::RestClient, ftx::RestError, ftx::Trade};
 use crate::markets::{update_market_last_validated, MarketId};
 use crate::trades::*;
-use chrono::{DateTime, Duration, DurationRound, TimeZone, Utc};
+use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use sqlx::PgPool;
