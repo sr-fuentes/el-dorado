@@ -57,7 +57,7 @@ impl Candle {
     // datetime passed as argument. Candle built from trades in the order they are in
     // the Vec, sort before calling this function otherwise Open / Close / Datetime may
     // be incorrect.
-    pub fn new_from_trades(market_id: Uuid, datetime: DateTime<Utc>, trades: &Vec<Trade>) -> Self {
+    pub fn new_from_trades(market_id: Uuid, datetime: DateTime<Utc>, trades: &[Trade]) -> Self {
         let candle_tuple = trades.iter().fold(
             (
                 trades.first().expect("No first trade for candle.").price, // open
@@ -123,11 +123,7 @@ impl Candle {
     // datetime passed as argument. Candle built from candes in the order they are in
     // the Vec, sort before calling this function otherwise Open / Close may
     // be incorrect.
-    pub fn new_from_candles(
-        market_id: Uuid,
-        datetime: DateTime<Utc>,
-        candles: &Vec<Candle>,
-    ) -> Self {
+    pub fn new_from_candles(market_id: Uuid, datetime: DateTime<Utc>, candles: &[Candle]) -> Self {
         let candle_tuple = candles.iter().fold(
             (
                 candles.first().expect("No first trade for candle.").open, // open
@@ -254,7 +250,7 @@ pub async fn create_exchange_candle_table(
     Ok(())
 }
 
-pub fn resample_candles(market_id: Uuid, candles: &Vec<Candle>, duration: Duration) -> Vec<Candle> {
+pub fn resample_candles(market_id: Uuid, candles: &[Candle], duration: Duration) -> Vec<Candle> {
     match candles.len() {
         0 => Vec::<Candle>::new(),
         _ => {
@@ -267,7 +263,7 @@ pub fn resample_candles(market_id: Uuid, candles: &Vec<Candle>, duration: Durati
             let floor_end = last_candle.datetime.duration_trunc(duration).unwrap();
 
             // Create Daterange for resample period
-            let mut dr_start = floor_start.clone();
+            let mut dr_start = floor_start;
             let mut date_range = Vec::new();
             while dr_start <= floor_end {
                 date_range.push(dr_start);
@@ -308,7 +304,7 @@ pub async fn create_01d_candles(pool: &PgPool, exchange_name: &str, market_id: &
     };
 
     // If there are no candles, then return, nothing to archive
-    if candles.len() == 0 {
+    if candles.is_empty() {
         return;
     };
 
@@ -325,7 +321,7 @@ pub async fn create_01d_candles(pool: &PgPool, exchange_name: &str, market_id: &
     let resampled_candles = resample_candles(*market_id, &filtered_candles, Duration::days(1));
 
     // If there are no resampled candles, then return
-    if resampled_candles.len() == 0 {
+    if resampled_candles.is_empty() {
         return;
     };
 
@@ -346,7 +342,7 @@ pub async fn validate_hb_candles(
         select_unvalidated_candles(pool, exchange_name, &market.market_id, 900)
             .await
             .expect("Could not fetch unvalidated candles.");
-    if unvalidated_candles.len() > 0 {
+    if !unvalidated_candles.is_empty() {
         let first_candle = unvalidated_candles.first().unwrap().datetime;
         let last_candle = unvalidated_candles.last().unwrap().datetime;
         println!(
@@ -354,7 +350,7 @@ pub async fn validate_hb_candles(
             first_candle, last_candle
         );
         let mut exchange_candles =
-            get_ftx_candles(&client, market, first_candle, last_candle, 900).await;
+            get_ftx_candles(client, market, first_candle, last_candle, 900).await;
         println!("Pulled {} candles from exchange.", exchange_candles.len());
         println!(
             "First returned candle is: {:?}",
@@ -451,14 +447,14 @@ pub async fn validate_01d_candles(
         };
     println!("Unvalidated 01D candles: {:?}", unvalidated_candles);
     // If no candles returned from query - return function
-    if unvalidated_candles.len() == 0 {
+    if unvalidated_candles.is_empty() {
         return;
     };
     // Get exchange candles for validation
     let first_candle = unvalidated_candles.first().unwrap().datetime;
     let last_candle = unvalidated_candles.last().unwrap().datetime;
     let mut exchange_candles =
-        get_ftx_candles(&client, &market, first_candle, last_candle, 86400).await;
+        get_ftx_candles(client, market, first_candle, last_candle, 86400).await;
     println!("Pulled {} candles from exchange.", exchange_candles.len());
 
     // Get 15T candles to compare
@@ -487,10 +483,10 @@ pub async fn validate_01d_candles(
         // Check if all hb candles are valid
         let hb_is_validated = filtered_candles.iter().all(|c| c.is_validated);
         // Check if volume matches value
-        let vol_is_validated = validate_candle(&candle, &mut exchange_candles);
+        let vol_is_validated = validate_candle(candle, &mut exchange_candles);
         // Updated candle validation status
         if hb_is_validated && vol_is_validated {
-            update_candle_validation(pool, exchange_name, &market.market_id, &candle, 86400)
+            update_candle_validation(pool, exchange_name, &market.market_id, candle, 86400)
                 .await
                 .expect("Could not update candle validation status.");
         } else {
@@ -510,45 +506,45 @@ pub fn validate_candle(candle: &Candle, exchange_candles: &mut Vec<CandleFtx>) -
     match exchange_candle {
         Some(c) => {
             if c.volume == candle.value {
-                return true;
+                true
             } else if candle.market_id
                 == Uuid::parse_str("05a8faa1-b7ae-4afb-9ae4-0a036b9d2b02").unwrap()
-                && candle.datetime == Utc.ymd(2021, 9, 02).and_hms(14, 00, 0)
+                && candle.datetime == Utc.ymd(2021, 9, 2).and_hms(14, 00, 0)
             {
                 // These three 15t candles have accurate trades from FTX API but the candle returned
                 // does not match on volume / value. Accept the trade generated candle.
-                return true;
+                true
             } else if candle.market_id
                 == Uuid::parse_str("7890c36a-d927-4ce8-bbf9-186a2ae22c78").unwrap()
                 && candle.datetime == Utc.ymd(2021, 9, 19).and_hms(15, 15, 0)
             {
                 // These three 15t candles have accurate trades from FTX API but the candle returned
                 // does not match on volume / value. Accept the trade generated candle.
-                return true;
+                true
             } else if candle.market_id
                 == Uuid::parse_str("19994c6a-fa3c-4b0b-96c4-c744c43a9514").unwrap()
                 && candle.datetime == Utc.ymd(2021, 9, 19).and_hms(15, 15, 0)
             {
                 // These three 15t candles have accurate trades from FTX API but the candle returned
                 // does not match on volume / value. Accept the trade generated candle.
-                return true;
+                true
             } else {
                 println!(
                     "Failed to validate: {:?} in \n {:?}",
                     candle, exchange_candle
                 );
-                return false;
+                false
             }
         }
         None => {
             if candle.volume == dec!(0) {
-                return true;
+                true
             } else {
                 println!(
                     "Failed to validate: {:?}. Volume not 0 and no exchange candle.",
                     candle
                 );
-                return false;
+                false
             }
         }
     }
@@ -577,8 +573,8 @@ pub async fn qc_unvalidated_candle(
         .await
         .expect("Could not create temp trade table.");
     // Get trades for candle period
-    let mut counter = 0;
-    let mut candle_end_or_last_trade = candle_end.clone();
+    let mut _counter = 0;
+    let mut candle_end_or_last_trade = candle_end;
     while candle_start < candle_end_or_last_trade {
         // Prevent 429 errors by only requesting 4 per second
         tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
@@ -632,7 +628,7 @@ pub async fn qc_unvalidated_candle(
             );
             if candle_end_or_last_trade == first_trade {
                 candle_end_or_last_trade = candle_end_or_last_trade - Duration::microseconds(1);
-                counter = counter + 1;
+                _counter += 1;
                 println!(
                     "More than 100 trades in microsecond. Resetting to: {}",
                     candle_end_or_last_trade
@@ -659,7 +655,7 @@ pub async fn qc_unvalidated_candle(
                 .await
                 .expect("Could not fetch trades from temp table.");
             // Create candle from interval trades
-            if interval_trades.len() > 0 {
+            if !interval_trades.is_empty() {
                 let new_candle =
                     Candle::new_from_trades(market.market_id, candle_start, &interval_trades);
                 println!("New candle to re-validate: {:?}", new_candle);
@@ -814,7 +810,7 @@ pub async fn insert_candle(
 pub async fn insert_candles_01d(
     pool: &PgPool,
     market_id: &Uuid,
-    candles: &Vec<Candle>,
+    candles: &[Candle],
 ) -> Result<(), sqlx::Error> {
     let sql = r#"
         INSERT INTO candles_01d (
@@ -825,7 +821,7 @@ pub async fn insert_candles_01d(
             $16, $17, $18, $19)
         "#;
     for candle in candles.iter() {
-        sqlx::query(&sql)
+        sqlx::query(sql)
             .bind(candle.datetime)
             .bind(candle.open)
             .bind(candle.high)
@@ -878,14 +874,12 @@ pub async fn delete_candle_01d(
     market_id: &Uuid,
     datetime: &DateTime<Utc>,
 ) -> Result<(), sqlx::Error> {
-    let sql = format!(
-        r#"
+    let sql = r#"
             DELETE FROM candles_01d
             WHERE market_id = $1
             AND datetime = $2
-        "#
-    );
-    sqlx::query(&sql)
+        "#;
+    sqlx::query(sql)
         .bind(market_id)
         .bind(datetime)
         .execute(pool)
@@ -908,13 +902,12 @@ pub async fn select_unvalidated_candles(
             "#,
             exchange_name
         ),
-        86400 => format!(
-            r#"
+        86400 => r#"
             SELECT * FROM candles_01d
             WHERE market_id = $1 and not is_validated
             ORDER BY datetime
             "#
-        ),
+        .to_string(),
         _ => panic!("Candle resolution not supported."),
     };
     let rows = sqlx::query_as::<_, Candle>(&sql)
@@ -939,13 +932,12 @@ pub async fn select_candles(
             "#,
             exchange_name
         ),
-        86400 => format!(
-            r#"
+        86400 => r#"
             SELECT * FROM candles_01d
             WHERE market_id = $1
             ORDER BY datetime
             "#
-        ),
+        .to_string(),
         _ => panic!("Not a supported candle resolution."),
     };
     let rows = sqlx::query_as::<_, Candle>(&sql)
@@ -1012,7 +1004,7 @@ pub async fn select_last_01d_candle(
         WHERE market_id = $1
         ORDER BY datetime DESC
         "#;
-    let row = sqlx::query_as::<_, DailyCandle>(&sql)
+    let row = sqlx::query_as::<_, DailyCandle>(sql)
         .bind(market_id)
         .fetch_one(pool)
         .await?;
@@ -1050,7 +1042,7 @@ pub async fn select_candles_valid_not_archived(
         AND NOT is_archived
         ORDER BY datetime DESC
         "#;
-    let rows = sqlx::query_as::<_, DailyCandle>(&sql)
+    let rows = sqlx::query_as::<_, DailyCandle>(sql)
         .bind(market_id)
         .fetch_all(pool)
         .await?;
@@ -1097,14 +1089,13 @@ pub async fn update_candle_validation(
         "#,
             exchange_name
         ),
-        86400 => format!(
-            r#"
+        86400 => r#"
             UPDATE candles_01d
             SET is_validated = True
             WHERE datetime = $1
             AND market_id = $2
         "#
-        ),
+        .to_string(),
         _ => panic!("Unsupported candle resolution."),
     };
     sqlx::query(&sql)
@@ -1126,7 +1117,7 @@ pub async fn update_candle_archived(
             WHERE datetime = $1
             AND market_id = $2
         "#;
-    sqlx::query(&sql)
+    sqlx::query(sql)
         .bind(candle.datetime)
         .bind(market_id)
         .execute(pool)
