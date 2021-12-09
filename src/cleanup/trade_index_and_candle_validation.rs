@@ -111,7 +111,7 @@ pub async fn cleanup_01(pool: &PgPool, config: Settings) {
             };
             // If there are trades, set the first id and ts. If not, get previous candle
             // and forward fill last trade data from previous candle.
-            if trades.len() > 0 {
+            if !trades.is_empty() {
                 println!("Setting first trade from trades.");
                 trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
                 let first_trade = trades.first().unwrap();

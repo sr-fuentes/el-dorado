@@ -30,18 +30,16 @@ pub async fn cleanup_03(pool: &PgPool, config: &Settings) {
         _ => panic!("No client exists for {}", exchange.exchange_name),
     };
     // Get all markets and ids for markets
-    let market_ids = fetch_markets(pool, &exchange)
+    let market_ids = fetch_markets(pool, exchange)
         .await
         .expect("Could not fetch markets.");
     // Get all 01d candles that are not validated
-    let sql = format!(
-        r#"
+    let sql = r#"
         SELECT * FROM candles_01d
         WHERE not is_validated
         ORDER BY market_id, datetime
-        "#
-    );
-    let candles = sqlx::query_as::<_, DailyCandle>(&sql)
+        "#;
+    let candles = sqlx::query_as::<_, DailyCandle>(sql)
         .fetch_all(pool)
         .await
         .expect("Could not fetch invalid daily candles.");
@@ -101,15 +99,13 @@ pub async fn cleanup_03(pool: &PgPool, config: &Settings) {
     // Now that daily candles have been resampled - revalidate them market by market
     println!("Re-validating resampled candles.");
     // Get markets that have candles
-    let sql = format!(
-        r#"
+    let sql = r#"
         SELECT DISTINCT c.market_id, m.market_name
         FROM candles_01d c
         INNER JOIN markets m
         ON c.market_id = m.market_id
-        "#
-    );
-    let markets_with_candles = sqlx::query_as::<_, MarketId>(&sql)
+        "#;
+    let markets_with_candles = sqlx::query_as::<_, MarketId>(sql)
         .fetch_all(pool)
         .await
         .expect("Failed to fetch markets with candles.");

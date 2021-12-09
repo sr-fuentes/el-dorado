@@ -25,19 +25,17 @@ pub async fn cleanup_04(pool: &PgPool, config: &Settings) {
         .find(|e| e.exchange_name == config.application.exchange)
         .unwrap();
     // Get all markets and ids for markets
-    let market_ids = fetch_markets(pool, &exchange)
+    let market_ids = fetch_markets(pool, exchange)
         .await
         .expect("Could not fetch markets.");
     // Get all 01d candles that are not validated
     println!("Getting 01d unvalidated candles.");
-    let sql = format!(
-        r#"
+    let sql = r#"
         SELECT * FROM candles_01d
         WHERE not is_validated
         ORDER BY market_id, datetime
-        "#
-    );
-    let candles = sqlx::query_as::<_, DailyCandle>(&sql)
+        "#;
+    let candles = sqlx::query_as::<_, DailyCandle>(sql)
         .fetch_all(pool)
         .await
         .expect("Could not fetch invalid daily candles.");

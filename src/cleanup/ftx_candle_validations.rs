@@ -26,7 +26,7 @@ pub async fn cleanup_02(pool: &PgPool, config: &Settings) {
         _ => panic!("No client exists for {}", exchange.exchange_name),
     };
     // Get all markets and ids for markets
-    let market_ids = fetch_markets(pool, &exchange)
+    let market_ids = fetch_markets(pool, exchange)
         .await
         .expect("Could not fetch markets.");
     // Get all hb candles that are not validated
@@ -53,7 +53,7 @@ pub async fn cleanup_02(pool: &PgPool, config: &Settings) {
             &market.market_name, &candle.datetime
         );
         let is_success =
-            qc_unvalidated_candle(&client, pool, &exchange.exchange_name, &market, &candle).await;
+            qc_unvalidated_candle(&client, pool, &exchange.exchange_name, market, candle).await;
         println!("Revalidation success? {:?}", is_success);
     }
 }

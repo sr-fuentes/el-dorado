@@ -25,7 +25,7 @@ pub async fn run(pool: &PgPool, config: &Settings) {
     };
 
     // Get market id from configuration
-    let market_ids = fetch_markets(pool, &exchange)
+    let market_ids = fetch_markets(pool, exchange)
         .await
         .expect("Could not fetch exchanges.");
     let market = market_ids
@@ -52,18 +52,18 @@ pub async fn run(pool: &PgPool, config: &Settings) {
     .expect("Could not create validated table.");
 
     // Get market details from configuration
-    let _market_detail = select_market_detail(pool, &market)
+    let _market_detail = select_market_detail(pool, market)
         .await
         .expect("Could not fetch market detail.");
 
     // Validate / clean up current candles / trades for market
-    validate_hb_candles(pool, &client, &exchange.exchange_name, &market, &config).await;
+    validate_hb_candles(pool, &client, &exchange.exchange_name, market, config).await;
 
     // Create 01d candles
     create_01d_candles(pool, &exchange.exchange_name, &market.market_id).await;
 
     // Validate 01d candles
-    validate_01d_candles(pool, &client, &exchange.exchange_name, &market).await;
+    validate_01d_candles(pool, &client, &exchange.exchange_name, market).await;
 
     // Drop and re-create  _rest table for market
     drop_ftx_trade_table(
@@ -86,7 +86,7 @@ pub async fn run(pool: &PgPool, config: &Settings) {
     // Get last state of market, return status, start and finish
     let start = match select_last_candle(pool, &exchange.exchange_name, &market.market_id).await {
         Ok(c) => c.datetime + Duration::seconds(900),
-        Err(sqlx::Error::RowNotFound) => get_ftx_start(&client, &market).await,
+        Err(sqlx::Error::RowNotFound) => get_ftx_start(&client, market).await,
         Err(e) => panic!("Sqlx Error: {:?}", e),
     };
     // let end = Utc::now().duration_trunc(Duration::days(1)).unwrap(); // 9/15/2021 02:00
@@ -98,7 +98,7 @@ pub async fn run(pool: &PgPool, config: &Settings) {
         pool,
         &market.market_id,
         "Syncing",
-        &config.application.ip_addr.as_str(),
+        config.application.ip_addr.as_str(),
     )
     .await
     .expect("Could not update market status.");
@@ -106,7 +106,7 @@ pub async fn run(pool: &PgPool, config: &Settings) {
     // Backfill historical
     // Match exchange for backfill routine
     println!("Backfilling from {} to {}.", start, end);
-    backfill_ftx(pool, &client, &exchange, market, start, end).await;
+    backfill_ftx(pool, &client, exchange, market, start, end).await;
 }
 
 pub async fn backfill_ftx(
@@ -123,7 +123,7 @@ pub async fn backfill_ftx(
     // Until trades returned is < 100 meaning there are no further trades for interval
     // Then advance interval start by interval length and set new end timestamp and begin
     // To reterive trades.
-    let mut interval_start = start.clone();
+    let mut interval_start = start;
     while interval_start < end {
         // Set end of bucket to end of interval
         let interval_end = interval_start + Duration::seconds(900);
@@ -317,7 +317,7 @@ pub async fn get_ftx_start(client: &RestClient, market: &MarketId) -> DateTime<U
             .await
             .expect("Failed to get trades.");
         println!("New Trades: {:?}", new_trades);
-        if new_trades.len() > 0 {
+        if !new_trades.is_empty() {
             return start_time;
         } else {
             start_time = start_time + Duration::days(1)

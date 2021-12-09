@@ -87,14 +87,9 @@ pub async fn add(pool: &PgPool, config: &Settings) {
         if market_ids.iter().any(|m| m.market_name == market.name) {
             println!("{} already in markets table.", market.name);
         } else {
-            insert_new_market(
-                pool,
-                &exchange,
-                &market,
-                config.application.ip_addr.as_str(),
-            )
-            .await
-            .expect("Failed to insert market.");
+            insert_new_market(pool, &exchange, market, config.application.ip_addr.as_str())
+                .await
+                .expect("Failed to insert market.");
         }
     }
 

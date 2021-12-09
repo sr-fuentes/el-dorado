@@ -58,9 +58,7 @@ pub async fn pull_usd_markets_from_ftx(exchange: &str) -> Result<Vec<Market>, Re
     // Get Markets
     let mut markets = client.get_markets().await?;
     //let filtered_markets = markets.retain(|m| m.base_currency == Some("USD"));
-    markets.retain(|m| {
-        m.quote_currency == Some("USD".to_string()) || m.market_type == "future".to_string()
-    });
+    markets.retain(|m| m.quote_currency == Some("USD".to_string()) || m.market_type == *"future");
     Ok(markets)
 }
 

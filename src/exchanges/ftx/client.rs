@@ -176,7 +176,7 @@ impl WsClient {
     pub const US_ENDPOINT: &'static str = "wss://ftx.us/ws";
 
     pub async fn connect(endpoint: &'static str) -> Result<Self, WsError> {
-        let (mut stream, _) = connect_async(endpoint).await?;
+        let (stream, _) = connect_async(endpoint).await?;
         Ok(Self {
             channels: Vec::new(),
             stream,
