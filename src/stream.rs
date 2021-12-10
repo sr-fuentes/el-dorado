@@ -1,3 +1,78 @@
+use sqlx::PgPool;
+use futures::StreamExt;
+use crate::configuration::Settings;
+use crate::exchanges::{fetch_exchanges, ftx::Channel, ftx::WsClient, ftx::Data};
+use crate::markets::fetch_markets;
+use crate::trades::{drop_ftx_trade_table, create_ftx_trade_table, insert_ftx_trade};
+
+
+pub async fn stream(pool: &PgPool, config: &Settings) {
+    // Get exchanges from database
+    let exchanges = fetch_exchanges(pool)
+        .await
+        .expect("Could not fetch exchanges.");
+    // Match exchange to exchanges in databse
+    let exchange = exchanges
+        .iter()
+        .find(|e| e.exchange_name == config.application.exchange)
+        .unwrap();
+    // Get market id from configuration
+    let market_ids = fetch_markets(pool, exchange)
+        .await
+        .expect("Could not fetch exchanges.");
+    let market = market_ids
+        .iter()
+        .find(|m| m.market_name == config.application.market)
+        .unwrap();
+    // Drop and re-create _ws table for market
+    drop_ftx_trade_table(
+        pool,
+        &exchange.exchange_name,
+        market.strip_name().as_str(),
+        "ws",
+    )
+    .await
+    .expect("Could not drop ws table.");
+    create_ftx_trade_table(
+        pool,
+        &exchange.exchange_name,
+        market.strip_name().as_str(),
+        "ws"
+    )
+    .await
+    .expect("Could not create ws table.");
+    // Get WS client for exchange
+    let mut ws = match exchange.exchange_name.as_str() {
+        "ftxus" => WsClient::connect_us().await.expect("Could not connect ws."),
+        "ftx" => WsClient::connect_intl().await.expect("could not conenct ws."),
+        _ => panic!("No ws client exists for this exchange."),
+    };
+    // Subscribe to markets
+    ws.subscribe(vec![Channel::Trades(market.market_name.to_owned())])
+        .await
+        .expect("Could not subscribe to market.");
+    // Loop forever saving each trade that comes in on the socket to the db
+    loop {
+        let data = ws.next().await.expect("No data received.");
+        match data {
+            Ok((_, Data::Trade(trade))) => {
+                insert_ftx_trade(
+                    pool,
+                    &market.market_id,
+                    &exchange.exchange_name,
+                    market.strip_name().as_str(),
+                    "ws",
+                    trade,
+                )
+                .await
+                .expect("Could not insert trade into db.");
+            }
+            _ => panic!("Unexpected data type."),
+        }
+    }
+
+}
+
 #[cfg(test)]
 mod tests {
     use crate::configuration::get_configuration;

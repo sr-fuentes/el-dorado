@@ -1,7 +1,7 @@
 use clap::App;
 use el_dorado::cleanup::cleanup_03;
 use el_dorado::configuration::get_configuration;
-use el_dorado::{archive::archive, exchanges::add, historical::run};
+use el_dorado::{archive::archive, exchanges::add, historical::run, stream::stream};
 use sqlx::PgPool;
 
 #[tokio::main]
@@ -24,6 +24,7 @@ async fn main() {
         .subcommand(App::new("run").about("run el-dorado for a market"))
         .subcommand(App::new("cleanup").about("run current cleanup script"))
         .subcommand(App::new("archive").about("archive trade for valid candles"))
+        .subcommand(App::new("stream").about("stream trades to db"))
         .get_matches();
 
     // Match subcommand and route
@@ -34,6 +35,7 @@ async fn main() {
         Some("run") => run(&connection_pool, &configuration).await,
         Some("cleanup") => cleanup_03(&connection_pool, &configuration).await, // Remove options when no cleanup job
         Some("archive") => archive(&connection_pool, &configuration).await,
+        Some("stream") => stream(&connection_pool, &configuration).await,
         None => println!("Please run with subcommands: `add` `refresh` `edit` or `run`."),
         _ => unreachable!(), // CLAP will error out before running this arm
     }
