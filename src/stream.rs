@@ -1,10 +1,9 @@
-use sqlx::PgPool;
-use futures::StreamExt;
 use crate::configuration::Settings;
-use crate::exchanges::{fetch_exchanges, ftx::Channel, ftx::WsClient, ftx::Data};
+use crate::exchanges::{fetch_exchanges, ftx::Channel, ftx::Data, ftx::WsClient};
 use crate::markets::fetch_markets;
-use crate::trades::{drop_ftx_trade_table, create_ftx_trade_table, insert_ftx_trade};
-
+use crate::trades::{create_ftx_trade_table, drop_ftx_trade_table, insert_ftx_trade};
+use futures::StreamExt;
+use sqlx::PgPool;
 
 pub async fn stream(pool: &PgPool, config: &Settings) {
     // Get exchanges from database
@@ -37,14 +36,16 @@ pub async fn stream(pool: &PgPool, config: &Settings) {
         pool,
         &exchange.exchange_name,
         market.strip_name().as_str(),
-        "ws"
+        "ws",
     )
     .await
     .expect("Could not create ws table.");
     // Get WS client for exchange
     let mut ws = match exchange.exchange_name.as_str() {
         "ftxus" => WsClient::connect_us().await.expect("Could not connect ws."),
-        "ftx" => WsClient::connect_intl().await.expect("could not conenct ws."),
+        "ftx" => WsClient::connect_intl()
+            .await
+            .expect("could not conenct ws."),
         _ => panic!("No ws client exists for this exchange."),
     };
     // Subscribe to markets
@@ -70,7 +71,6 @@ pub async fn stream(pool: &PgPool, config: &Settings) {
             _ => panic!("Unexpected data type."),
         }
     }
-
 }
 
 #[cfg(test)]
