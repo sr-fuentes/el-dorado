@@ -34,6 +34,7 @@ pub async fn run(pool: &PgPool, config: &Settings) {
         .unwrap();
 
     // Create the processed and validated trade tables if they do not already exists
+    // TODO - move to alt table, drop, recreate and move back to reset tables on each load
     create_ftx_trade_table(
         pool,
         &exchange.exchange_name,
