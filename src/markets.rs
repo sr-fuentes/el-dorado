@@ -33,6 +33,9 @@ pub struct MarketDetail {
     pub last_validated_candle: Option<DateTime<Utc>>,
     pub last_update_ts: DateTime<Utc>,
     pub last_update_ip_address: sqlx::types::ipnetwork::IpNetwork,
+    pub first_candle: Option<DateTime<Utc>>,
+    pub last_candle: Option<DateTime<Utc>>,
+    pub mita: Option<String>,
 }
 
 impl MarketId {
@@ -78,6 +81,27 @@ pub async fn fetch_markets(
     .fetch_all(pool)
     .await?;
     // println!("Rows: {:?}", rows);
+    Ok(rows)
+}
+
+pub async fn select_market_detail_by_exchange_mita(
+    pool: &PgPool,
+    exchange_name: &str,
+    mita: &str,
+) -> Result<Vec<MarketDetail>, sqlx::Error> {
+    let rows = sqlx::query_as!(
+        MarketDetail,
+        r#"
+        SELECT *
+        FROM markets
+        WHERE exchange_name = $1
+        AND mita = $2
+        "#,
+        exchange_name,
+        mita
+    )
+    .fetch_all(pool)
+    .await?;
     Ok(rows)
 }
 
