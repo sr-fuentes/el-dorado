@@ -5,7 +5,7 @@ pub mod configuration;
 pub mod exchanges;
 pub mod historical;
 pub mod markets;
+pub mod mita;
 pub mod stream;
 pub mod trades;
 pub mod utilities;
-pub mod mita;

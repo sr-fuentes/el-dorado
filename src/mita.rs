@@ -1,6 +1,6 @@
-use crate::configuration::{Settings, get_configuration};
-use crate::markets::{MarketDetail, select_market_detail_by_exchange_mita};
-use crate::exchanges::{Exchange, fetch_exchanges};
+use crate::configuration::{get_configuration, Settings};
+use crate::exchanges::{fetch_exchanges, Exchange};
+use crate::markets::{select_market_detail_by_exchange_mita, MarketDetail};
 use sqlx::PgPool;
 
 #[derive(Debug)]
@@ -20,15 +20,28 @@ impl Mita {
             .await
             .expect("Failed to connect to postgres db.");
         // Get exchange details
-        let exchanges = fetch_exchanges(&pool).await.expect("Could not select exchanges from db.");
-        // Match exchange to exchanges in database
-        let exchange = exchanges.into_iter().find(|e| e.exchange_name == settings.application.exchange)
-        .unwrap();
-        // Get market details assigned to mita
-        let markets = select_market_detail_by_exchange_mita(&pool, &exchange.exchange_name, &settings.application.droplet)
+        let exchanges = fetch_exchanges(&pool)
             .await
-            .expect("Could not select market details from exchange.");
-        Self {settings, markets, exchange, pool}
+            .expect("Could not select exchanges from db.");
+        // Match exchange to exchanges in database
+        let exchange = exchanges
+            .into_iter()
+            .find(|e| e.exchange_name == settings.application.exchange)
+            .unwrap();
+        // Get market details assigned to mita
+        let markets = select_market_detail_by_exchange_mita(
+            &pool,
+            &exchange.exchange_name,
+            &settings.application.droplet,
+        )
+        .await
+        .expect("Could not select market details from exchange.");
+        Self {
+            settings,
+            markets,
+            exchange,
+            pool,
+        }
     }
 }
 
