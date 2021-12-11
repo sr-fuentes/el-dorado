@@ -33,6 +33,9 @@ pub struct MarketDetail {
     pub last_validated_candle: Option<DateTime<Utc>>,
     pub last_update_ts: DateTime<Utc>,
     pub last_update_ip_address: sqlx::types::ipnetwork::IpNetwork,
+    pub first_candle: Option<DateTime<Utc>>,
+    pub last_candle: Option<DateTime<Utc>>,
+    pub mita: Option<String>,
 }
 
 impl MarketId {
