@@ -148,6 +148,21 @@
           "ordinal": 18,
           "name": "last_update_ip_address",
           "type_info": "Inet"
+        },
+        {
+          "ordinal": 19,
+          "name": "first_candle",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 20,
+          "name": "last_candle",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 21,
+          "name": "mita",
+          "type_info": "Text"
         }
       ],
       "parameters": {
@@ -172,7 +187,157 @@
         true,
         true,
         false,
-        false
+        false,
+        true,
+        true,
+        true
+      ]
+    }
+  },
+  "bf00b77bf3170f291dae8dbd86137bb01f0f3c56254012a023d00bb2263eed65": {
+    "query": "\n        SELECT *\n        FROM markets\n        WHERE exchange_name = $1\n        AND mita = $2\n        ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "market_id",
+          "type_info": "Uuid"
+        },
+        {
+          "ordinal": 1,
+          "name": "exchange_name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 2,
+          "name": "market_name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 3,
+          "name": "market_type",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "base_currency",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 5,
+          "name": "quote_currency",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 6,
+          "name": "underlying",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 7,
+          "name": "market_status",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 8,
+          "name": "market_data_status",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 9,
+          "name": "first_validated_trade_id",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 10,
+          "name": "first_validated_trade_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 11,
+          "name": "last_validated_trade_id",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 12,
+          "name": "last_validated_trade_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 13,
+          "name": "candle_base_interval",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 14,
+          "name": "candle_base_in_seconds",
+          "type_info": "Int4"
+        },
+        {
+          "ordinal": 15,
+          "name": "first_validated_candle",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 16,
+          "name": "last_validated_candle",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 17,
+          "name": "last_update_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 18,
+          "name": "last_update_ip_address",
+          "type_info": "Inet"
+        },
+        {
+          "ordinal": 19,
+          "name": "first_candle",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 20,
+          "name": "last_candle",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 21,
+          "name": "mita",
+          "type_info": "Text"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true
       ]
     }
   },
@@ -274,6 +439,21 @@
           "ordinal": 18,
           "name": "last_update_ip_address",
           "type_info": "Inet"
+        },
+        {
+          "ordinal": 19,
+          "name": "first_candle",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 20,
+          "name": "last_candle",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 21,
+          "name": "mita",
+          "type_info": "Text"
         }
       ],
       "parameters": {
@@ -300,7 +480,10 @@
         true,
         true,
         false,
-        false
+        false,
+        true,
+        true,
+        true
       ]
     }
   },
