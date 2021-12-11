@@ -68,7 +68,10 @@ pub async fn stream(pool: &PgPool, config: &Settings) {
                 .await
                 .expect("Could not insert trade into db.");
             }
-            _ => panic!("Unexpected data type."),
+            Err(e) => {
+                println!("WsError: {:?}", e);
+                panic!("Unexpected error.");
+            }
         }
     }
 }
