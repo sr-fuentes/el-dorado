@@ -1,5 +1,5 @@
 use crate::configuration::{Settings, get_configuration};
-use crate::markets::MarketDetail;
+use crate::markets::{MarketDetail, select_market_detail_by_exchange_mita};
 use crate::exchanges::{Exchange, fetch_exchanges};
 use sqlx::PgPool;
 
@@ -22,9 +22,12 @@ impl Mita {
         // Get exchange details
         let exchanges = fetch_exchanges(&pool).await.expect("Could not select exchanges from db.");
         // Match exchange to exchanges in database
-        let exchange = exchanges.iter().find(|e| e.exchange_name == settings.application.exchange)
+        let exchange = exchanges.into_iter().find(|e| e.exchange_name == settings.application.exchange)
         .unwrap();
         // Get market details assigned to mita
-
+        let markets = select_market_detail_by_exchange_mita(&pool, &exchange.exchange_name, &settings.application.droplet)
+            .await
+            .expect("Could not select market details from exchange.");
+        Self {settings, markets, exchange, pool}
     }
 }
