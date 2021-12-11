@@ -8,3 +8,4 @@ pub mod markets;
 pub mod stream;
 pub mod trades;
 pub mod utilities;
+pub mod mita;
