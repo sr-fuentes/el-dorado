@@ -31,3 +31,14 @@ impl Mita {
         Self {settings, markets, exchange, pool}
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn create_new_mita() {
+        let mita = Mita::new().await;
+        println!("Mita: {:?}", mita);
+    }
+}
