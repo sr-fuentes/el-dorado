@@ -1,9 +1,11 @@
 use crate::configuration::Settings;
 use crate::exchanges::{fetch_exchanges, ftx::Channel, ftx::Data, ftx::WsClient};
 use crate::markets::fetch_markets;
+use crate::mita::Mita;
 use crate::trades::{create_ftx_trade_table, drop_ftx_trade_table, insert_ftx_trade};
 use futures::StreamExt;
 use sqlx::PgPool;
+use std::collections::HashMap;
 
 pub async fn stream(pool: &PgPool, config: &Settings) {
     // Get exchanges from database
@@ -71,6 +73,77 @@ pub async fn stream(pool: &PgPool, config: &Settings) {
             Err(e) => {
                 println!("WsError: {:?}", e);
                 panic!("Unexpected error.");
+            }
+        }
+    }
+}
+
+impl Mita {
+    pub async fn stream(&self) {
+        // Initiate channel and map data structures
+        let mut channels = Vec::new();
+        let mut map_ids = HashMap::new();
+        let mut map_strip_names = HashMap::new();
+        // Drop and re-create _ws table for markets and populate data structures
+        for market in self.markets.iter() {
+            drop_ftx_trade_table(
+                &self.pool,
+                &self.exchange.exchange_name,
+                market.strip_name().as_str(),
+                "ws",
+            )
+            .await
+            .expect("Could not drop ws table.");
+            create_ftx_trade_table(
+                &self.pool,
+                &self.exchange.exchange_name,
+                market.strip_name().as_str(),
+                "ws",
+            )
+            .await
+            .expect("Could not create ws table.");
+            channels.push(Channel::Trades(market.market_name.to_owned()));
+            map_ids.insert(market.market_name.as_str(), market.market_id);
+            map_strip_names.insert(market.market_name.as_str(), market.strip_name());
+        }
+        // Create ws client
+        let mut ws = match self.exchange.exchange_name.as_str() {
+            "ftxus" => WsClient::connect_us()
+                .await
+                .expect("Could not connect to ws."),
+            "ftx" => WsClient::connect_intl()
+                .await
+                .expect("Could not connect ws."),
+            _ => panic!("No ws client exists for this exchange."),
+        };
+        // Subscribe to trades channels for each market
+        ws.subscribe(channels)
+            .await
+            .expect("Could not subscribe to each market.");
+        // Loop forever writing each trade to the database
+        loop {
+            let data = ws.next().await.expect("No data received.");
+            match data {
+                Ok((Some(market), Data::Trade(trade))) => {
+                    insert_ftx_trade(
+                        &self.pool,
+                        &map_ids[market.as_str()],
+                        &self.exchange.exchange_name,
+                        map_strip_names[market.as_str()].as_str(),
+                        "ws",
+                        trade,
+                    )
+                    .await
+                    .expect("Could not insert trade from ws into db.");
+                }
+                Ok((None, Data::Trade(trade))) => {
+                    println!("Market missing from ws trade: {:?}", trade);
+                    panic!("Unexpected error.");
+                }
+                Err(e) => {
+                    println!("WsError {:?}", e);
+                    panic!("Unexpected error.");
+                }
             }
         }
     }
