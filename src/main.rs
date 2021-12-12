@@ -29,7 +29,7 @@ async fn main() {
         .subcommand(App::new("cleanup").about("run current cleanup script"))
         .subcommand(App::new("archive").about("archive trade for valid candles"))
         .subcommand(App::new("stream").about("stream trades to db"))
-        .subcommand(App::new("steam2").about("steam trades to db w/mita"))
+        .subcommand(App::new("stream2").about("steam trades to db w/mita"))
         .get_matches();
 
     // Match subcommand and route
