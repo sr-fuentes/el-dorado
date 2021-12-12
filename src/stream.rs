@@ -1,11 +1,12 @@
 use crate::configuration::Settings;
-use crate::exchanges::{fetch_exchanges, ftx::Channel, ftx::Data, ftx::WsClient};
+use crate::exchanges::{fetch_exchanges, ftx::Channel, ftx::Data, ftx::WsClient, ftx::WsError};
 use crate::markets::fetch_markets;
 use crate::mita::Mita;
 use crate::trades::{create_ftx_trade_table, drop_ftx_trade_table, insert_ftx_trade};
 use futures::StreamExt;
 use sqlx::PgPool;
 use std::collections::HashMap;
+use std::io::ErrorKind;
 
 pub async fn stream(pool: &PgPool, config: &Settings) {
     // Get exchanges from database
@@ -137,12 +138,35 @@ impl Mita {
                     .expect("Could not insert trade from ws into db.");
                 }
                 Ok((None, Data::Trade(trade))) => {
-                    println!("Market missing from ws trade: {:?}", trade);
-                    panic!("Unexpected error.");
+                    panic!("Market missing from ws trade: {:?}", trade);
                 }
+                Err(WsError::Tungstenite(e)) => match e {
+                    tokio_tungstenite::tungstenite::Error::Io(ioerr) => match ioerr.kind() {
+                        ErrorKind::ConnectionReset => {
+                            println!("Error Kind: ConnectionReset.");
+                            ioerr.to_string();
+                            panic!();
+                        }
+                        ErrorKind::UnexpectedEof => {
+                            println!("Error Kind: UnexpectedEof.");
+                            ioerr.to_string();
+                            panic!();
+                        }
+                        _ => {
+                            println!("Other Error Kind: {:?}.", ioerr.kind());
+                            ioerr.to_string();
+                            panic!();
+                        }
+                    },
+                    _ => {
+                        println!("Other WSError::Tungstenite error {:?}", e);
+                        e.to_string();
+                        panic!();
+                    }
+                },
+                // Err(WsError::Tungstenite(tokio_tungstenite::tungstenite::Error::Io(std::io::Error(ErrorKind)))) => {
                 Err(e) => {
-                    println!("WsError {:?}", e);
-                    panic!("Unexpected error.");
+                    panic!("Other WsError {:?}", e);
                 }
             }
         }
