@@ -1,6 +1,7 @@
 use clap::App;
 use el_dorado::cleanup::cleanup_03;
 use el_dorado::configuration::get_configuration;
+use el_dorado::mita::Mita;
 use el_dorado::{archive::archive, exchanges::add, historical::run, stream::stream};
 use sqlx::PgPool;
 
@@ -15,6 +16,9 @@ async fn main() {
         .await
         .expect("Failed to connect to Postgres.");
 
+    // Create new mita instance
+    let mita = Mita::new().await;
+
     // Load clap commands and arguments
     let matches = App::new("El Dorado")
         .version("0.1.4")
@@ -25,6 +29,7 @@ async fn main() {
         .subcommand(App::new("cleanup").about("run current cleanup script"))
         .subcommand(App::new("archive").about("archive trade for valid candles"))
         .subcommand(App::new("stream").about("stream trades to db"))
+        .subcommand(App::new("steam2").about("steam trades to db w/mita"))
         .get_matches();
 
     // Match subcommand and route
@@ -36,6 +41,7 @@ async fn main() {
         Some("cleanup") => cleanup_03(&connection_pool, &configuration).await, // Remove options when no cleanup job
         Some("archive") => archive(&connection_pool, &configuration).await,
         Some("stream") => stream(&connection_pool, &configuration).await,
+        Some("stream2") => mita.stream().await,
         None => println!("Please run with subcommands: `add` `refresh` `edit` or `run`."),
         _ => unreachable!(), // CLAP will error out before running this arm
     }
