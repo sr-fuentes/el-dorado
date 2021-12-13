@@ -1,7 +1,43 @@
 use crate::exchanges::ftx::Trade;
+use crate::mita::Mita;
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
+
+impl Mita {
+    pub async fn reset_trade_tables(&self, tables: &[&str]) {
+        for market in self.markets.iter() {
+            match self.exchange.exchange_name.as_str() {
+                "ftx" | "ftxus" => {
+                    for table in tables.iter() {
+                        if *table == "processed" || *table == "validated" {
+                            // Alter table, migrate, drop, re-create
+                        } else {
+                            // "ws" or "rest", just drop and re-create each time
+                            drop_ftx_trade_table(
+                                &self.pool,
+                                &self.exchange.exchange_name,
+                                market.strip_name().as_str(),
+                                *table,
+                            )
+                            .await
+                            .expect("Could not drop ftx trade table.");
+                            create_ftx_trade_table(
+                                &self.pool,
+                                &self.exchange.exchange_name,
+                                market.strip_name().as_str(),
+                                *table,
+                            )
+                            .await
+                            .expect("Could not create ftx trade table.");
+                        }
+                    }
+                }
+                _ => panic!("Exchange not supported."),
+            }
+        }
+    }
+}
 
 pub async fn create_ftx_trade_table(
     pool: &PgPool,
