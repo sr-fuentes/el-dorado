@@ -9,13 +9,13 @@ use sqlx::PgPool;
 
 impl Mita {
     pub async fn historical(&self, end: &str) {
+        // Get REST client for exchange
+        let client = match self.exchange.exchange_name.as_str() {
+            "ftxus" => RestClient::new_us(),
+            "ftx" => RestClient::new_intl(),
+            _ => panic!("No client exists for that exchange."),
+        };
         for market in self.markets.iter() {
-            // Get REST client for exchange
-            let client = match self.exchange.exchange_name.as_str() {
-                "ftxus" => RestClient::new_us(),
-                "ftx" => RestClient::new_intl(),
-                _ => panic!("No client exists for that exchange."),
-            };
             // Validate hb, create and validate 01 candles
             validate_hb_candles(
                 &self.pool,
