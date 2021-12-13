@@ -11,7 +11,39 @@ impl Mita {
                 "ftx" | "ftxus" => {
                     for table in tables.iter() {
                         if *table == "processed" || *table == "validated" {
-                            // Alter table, migrate, drop, re-create
+                            // Alter table, create, migrate, drop
+                            alter_trade_table_to_temp(
+                                &self.pool,
+                                &self.exchange.exchange_name,
+                                market.strip_name().as_str(),
+                                *table,
+                            )
+                            .await
+                            .expect("Could not alter trade table.");
+                            create_ftx_trade_table(
+                                &self.pool,
+                                &self.exchange.exchange_name,
+                                market.strip_name().as_str(),
+                                *table,
+                            )
+                            .await
+                            .expect("Could not create ftx trade table.");
+                            migrate_ftx_trades_from_temp(
+                                &self.pool,
+                                &self.exchange.exchange_name,
+                                market.strip_name().as_str(),
+                                *table,
+                            )
+                            .await
+                            .expect("Could not migrate trades from temp table.");
+                            drop_ftx_trade_table(
+                                &self.pool,
+                                &self.exchange.exchange_name,
+                                market.strip_name().as_str(),
+                                format!("{}_temp", table).as_str(),
+                            )
+                            .await
+                            .expect("Could not drop temp table.");
                         } else {
                             // "ws" or "rest", just drop and re-create each time
                             drop_ftx_trade_table(
