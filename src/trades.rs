@@ -147,8 +147,8 @@ pub async fn alter_trade_table_to_temp(
 ) -> Result<(), sqlx::Error> {
     let sql = format!(
         r#"
-        ALTER TABLE IF EXISTS {e}_{m}_{t}
-        RENAME TO {e}_{m}_{t}_temp
+        ALTER TABLE IF EXISTS trades_{e}_{m}_{t}
+        RENAME TO trades_{e}_{m}_{t}_temp
         "#,
         e = exchange_name,
         m = market_table_name,
@@ -166,8 +166,8 @@ pub async fn migrate_trades_from_temp(
 ) -> Result<(), sqlx::Error> {
     let sql = format!(
         r#"
-        INSERT INTO {e}_{m}_{t}
-        SELECT * FROM {e}_{m}_{t}_temp
+        INSERT INTO trades_{e}_{m}_{t}
+        SELECT * FROM trades_{e}_{m}_{t}_temp
         "#,
         e = exchange_name,
         m = market_table_name,
