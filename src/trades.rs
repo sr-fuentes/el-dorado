@@ -20,6 +20,10 @@ impl Mita {
                             )
                             .await
                             .expect("Could not alter trade table.");
+                            // Create both the original trade table AND the temp table. There is a
+                            // scenario where the original table does not exists, thus the altered
+                            // table is not created. This will cause a panic in the migrate
+                            // function when it tries to select from a table that does not exists.
                             create_ftx_trade_table(
                                 &self.pool,
                                 &self.exchange.exchange_name,
@@ -28,7 +32,15 @@ impl Mita {
                             )
                             .await
                             .expect("Could not create ftx trade table.");
-                            migrate_ftx_trades_from_temp(
+                            create_ftx_trade_table(
+                                &self.pool,
+                                &self.exchange.exchange_name,
+                                market.strip_name().as_str(),
+                                format!("{}_temp", table).as_str(),
+                            )
+                            .await
+                            .expect("Could not create temp trade table.");
+                            migrate_trades_from_temp(
                                 &self.pool,
                                 &self.exchange.exchange_name,
                                 market.strip_name().as_str(),
@@ -122,6 +134,44 @@ pub async fn drop_ftx_trade_table(
         DROP TABLE IF EXISTS trades_{}_{}_{}
         "#,
         exchange_name, market_table_name, trade_table,
+    );
+    sqlx::query(&sql).execute(pool).await?;
+    Ok(())
+}
+
+pub async fn alter_trade_table_to_temp(
+    pool: &PgPool,
+    exchange_name: &str,
+    market_table_name: &str,
+    trade_table: &str,
+) -> Result<(), sqlx::Error> {
+    let sql = format!(
+        r#"
+        ALTER TABLE IF EXISTS {e}_{m}_{t}
+        RENAME TO {e}_{m}_{t}_temp
+        "#,
+        e = exchange_name,
+        m = market_table_name,
+        t = trade_table,
+    );
+    sqlx::query(&sql).execute(pool).await?;
+    Ok(())
+}
+
+pub async fn migrate_trades_from_temp(
+    pool: &PgPool,
+    exchange_name: &str,
+    market_table_name: &str,
+    trade_table: &str,
+) -> Result<(), sqlx::Error> {
+    let sql = format!(
+        r#"
+        INSERT INTO {e}_{m}_{t}
+        SELECT * FROM {e}_{m}_{t}_temp
+        "#,
+        e = exchange_name,
+        m = market_table_name,
+        t = trade_table,
     );
     sqlx::query(&sql).execute(pool).await?;
     Ok(())
