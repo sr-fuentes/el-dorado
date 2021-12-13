@@ -41,7 +41,7 @@ async fn main() {
         Some("historical") => {
             mita.reset_trade_tables(&["rest", "processed", "validated"])
                 .await;
-            mita.historical().await;
+            mita.historical("eod").await;
         }
         Some("cleanup") => cleanup_03(&connection_pool, &configuration).await, // Remove options when no cleanup job
         Some("archive") => archive(&connection_pool, &configuration).await,
