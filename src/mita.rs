@@ -2,6 +2,7 @@ use crate::configuration::{get_configuration, Settings};
 use crate::exchanges::{fetch_exchanges, Exchange};
 use crate::markets::{select_market_detail_by_exchange_mita, MarketDetail};
 use sqlx::PgPool;
+use chrono::{DateTime, Utc};
 
 #[derive(Debug)]
 pub struct Mita {
@@ -9,6 +10,8 @@ pub struct Mita {
     pub markets: Vec<MarketDetail>,
     pub exchange: Exchange,
     pub pool: PgPool,
+    pub run: bool,
+    pub last_restart: DateTime<Utc>,
 }
 
 impl Mita {
@@ -41,6 +44,8 @@ impl Mita {
             markets,
             exchange,
             pool,
+            run: true,
+            last_restart: Utc::now(),
         }
     }
 }
