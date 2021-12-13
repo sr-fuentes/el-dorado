@@ -30,7 +30,6 @@ async fn main() {
         .subcommand(App::new("cleanup").about("run current cleanup script"))
         .subcommand(App::new("archive").about("archive trade for valid candles"))
         .subcommand(App::new("stream").about("stream trades to db"))
-        .subcommand(App::new("stream2").about("steam trades to db w/mita"))
         .get_matches();
 
     // Match subcommand and route
@@ -42,8 +41,7 @@ async fn main() {
         Some("historical") => run(&connection_pool, &configuration).await,
         Some("cleanup") => cleanup_03(&connection_pool, &configuration).await, // Remove options when no cleanup job
         Some("archive") => archive(&connection_pool, &configuration).await,
-        Some("stream") => stream(&connection_pool, &configuration).await,
-        Some("stream2") => {
+        Some("stream") => {
             mita.reset_trade_tables(&["ws"]).await;
             mita.stream().await;
         }
