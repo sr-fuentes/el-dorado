@@ -43,7 +43,10 @@ async fn main() {
         Some("cleanup") => cleanup_03(&connection_pool, &configuration).await, // Remove options when no cleanup job
         Some("archive") => archive(&connection_pool, &configuration).await,
         Some("stream") => stream(&connection_pool, &configuration).await,
-        Some("stream2") => mita.stream().await,
+        Some("stream2") => {
+            mita.reset_trade_tables(&["ws"]).await;
+            mita.stream().await;
+        }
         None => println!("Please run with subcommands: `add` `refresh` `edit` or `run`."),
         _ => unreachable!(), // CLAP will error out before running this arm
     }
