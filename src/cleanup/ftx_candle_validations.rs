@@ -1,7 +1,7 @@
 use crate::candles::{qc_unvalidated_candle, Candle};
 use crate::configuration::Settings;
 use crate::exchanges::{fetch_exchanges, ftx::RestClient};
-use crate::markets::fetch_markets;
+use crate::markets::{fetch_markets, select_market_detail};
 use sqlx::PgPool;
 
 // Clean up FTX candles that are not validated. Initial setup used a limit of 100 trades for each
@@ -48,12 +48,13 @@ pub async fn cleanup_02(pool: &PgPool, config: &Settings) {
             .iter()
             .find(|m| m.market_id == candle.market_id)
             .unwrap();
+        let market_detail = select_market_detail(pool, market).await.expect("Could not fetch market detail.");
         println!(
             "Attempting to revalidate: {:?} - {:?}",
             &market.market_name, &candle.datetime
         );
         let is_success =
-            qc_unvalidated_candle(&client, pool, &exchange.exchange_name, market, candle).await;
+            qc_unvalidated_candle(&client, pool, &exchange.exchange_name, &market_detail, candle).await;
         println!("Revalidation success? {:?}", is_success);
     }
 }
