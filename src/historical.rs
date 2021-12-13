@@ -45,12 +45,12 @@ impl Mita {
                 &self.pool,
                 &market.market_id,
                 "Syncing",
-                &self.settings.application.ip_addr.as_str(),
+                self.settings.application.ip_addr.as_str(),
             )
             .await
             .expect("Could not update market status.");
             // Backfill from start to end
-            backfill_ftx(&self.pool, &client, &self.exchange, &market, start, end).await;
+            backfill_ftx(&self.pool, &client, &self.exchange, market, start, end).await;
         }
     }
 }
