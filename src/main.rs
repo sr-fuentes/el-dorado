@@ -2,7 +2,7 @@ use clap::App;
 use el_dorado::cleanup::cleanup_03;
 use el_dorado::configuration::get_configuration;
 use el_dorado::mita::Mita;
-use el_dorado::{archive::archive, exchanges::add, historical::run, stream::stream};
+use el_dorado::{archive::archive, exchanges::add, historical::run};
 use sqlx::PgPool;
 
 #[tokio::main]
@@ -38,7 +38,11 @@ async fn main() {
         Some("refresh") => println!("Refresh is not yet implemented."),
         Some("edit") => println!("Edit is not yet implemented."),
         Some("run") => run(&connection_pool, &configuration).await,
-        Some("historical") => run(&connection_pool, &configuration).await,
+        Some("historical") => {
+            mita.reset_trade_tables(&["rest", "processed", "validated"])
+                .await;
+            mita.historical().await;
+        }
         Some("cleanup") => cleanup_03(&connection_pool, &configuration).await, // Remove options when no cleanup job
         Some("archive") => archive(&connection_pool, &configuration).await,
         Some("stream") => {
