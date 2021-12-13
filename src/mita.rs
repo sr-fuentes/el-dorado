@@ -48,6 +48,14 @@ impl Mita {
             last_restart: Utc::now(),
         }
     }
+
+    pub async fn run() {
+        // Get end time
+        // validate candles
+        // backfill candles
+        // sync
+        // loop
+    }
 }
 
 #[cfg(test)]
