@@ -48,13 +48,21 @@ pub async fn cleanup_02(pool: &PgPool, config: &Settings) {
             .iter()
             .find(|m| m.market_id == candle.market_id)
             .unwrap();
-        let market_detail = select_market_detail(pool, market).await.expect("Could not fetch market detail.");
+        let market_detail = select_market_detail(pool, market)
+            .await
+            .expect("Could not fetch market detail.");
         println!(
             "Attempting to revalidate: {:?} - {:?}",
             &market.market_name, &candle.datetime
         );
-        let is_success =
-            qc_unvalidated_candle(&client, pool, &exchange.exchange_name, &market_detail, candle).await;
+        let is_success = qc_unvalidated_candle(
+            &client,
+            pool,
+            &exchange.exchange_name,
+            &market_detail,
+            candle,
+        )
+        .await;
         println!("Revalidation success? {:?}", is_success);
     }
 }

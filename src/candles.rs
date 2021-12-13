@@ -1109,7 +1109,7 @@ mod tests {
     use super::*;
     use crate::configuration::get_configuration;
     use crate::exchanges::fetch_exchanges;
-    use crate::markets::{select_market_detail, fetch_markets};
+    use crate::markets::{fetch_markets, select_market_detail};
     use chrono::{TimeZone, Utc};
 
     pub fn sample_trades() -> Vec<Trade> {
@@ -1368,9 +1368,14 @@ mod tests {
             .expect("Could not fetch invalidated candles.");
         for candle in candles.iter() {
             println!("Attempting to revalidate: {:?}", candle);
-            let is_success =
-                qc_unvalidated_candle(&client, &pool, &exchange.exchange_name, &market_detail, &candle)
-                    .await;
+            let is_success = qc_unvalidated_candle(
+                &client,
+                &pool,
+                &exchange.exchange_name,
+                &market_detail,
+                &candle,
+            )
+            .await;
             println!("Revalidate success? {:?}", is_success);
         }
     }
