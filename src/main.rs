@@ -26,6 +26,7 @@ async fn main() {
         .subcommand(App::new("refresh").about("refresh markets for exchange"))
         .subcommand(App::new("edit").about("edit exchange information"))
         .subcommand(App::new("run").about("run el-dorado for a market"))
+        .subcommand(App::new("historical").about("backfill to current start of day"))
         .subcommand(App::new("cleanup").about("run current cleanup script"))
         .subcommand(App::new("archive").about("archive trade for valid candles"))
         .subcommand(App::new("stream").about("stream trades to db"))
@@ -38,6 +39,7 @@ async fn main() {
         Some("refresh") => println!("Refresh is not yet implemented."),
         Some("edit") => println!("Edit is not yet implemented."),
         Some("run") => run(&connection_pool, &configuration).await,
+        Some("historical") => run(&connection_pool, &configuration).await,
         Some("cleanup") => cleanup_03(&connection_pool, &configuration).await, // Remove options when no cleanup job
         Some("archive") => archive(&connection_pool, &configuration).await,
         Some("stream") => stream(&connection_pool, &configuration).await,
