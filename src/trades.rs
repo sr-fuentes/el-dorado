@@ -285,6 +285,24 @@ pub async fn select_ftx_trades_by_table(
     Ok(rows)
 }
 
+pub async fn select_ftx_trade_first_stream(
+    pool: &PgPool,
+    exchange_name: &str,
+    market_table_name: &str,
+) -> Result<Trade, sqlx::Error> {
+    let sql = format!(
+        r#"
+        SELECT trade_id as id, price, size, side, liquidation, time
+        FROM trades_{}_{}_ws
+        ORDER BY time
+        LIMIT 1
+        "#,
+        exchange_name, market_table_name
+    );
+    let row = sqlx::query_as::<_, Trade>(&sql).fetch_one(pool).await?;
+    Ok(row)
+}
+
 pub async fn delete_ftx_trades_by_time(
     pool: &PgPool,
     exchange_name: &str,
