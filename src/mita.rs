@@ -1,7 +1,8 @@
+use crate::candles::select_last_candle;
 use crate::configuration::{get_configuration, Settings};
 use crate::exchanges::{fetch_exchanges, Exchange};
 use crate::markets::{select_market_detail_by_exchange_mita, MarketDetail};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, DurationRound, Utc};
 use sqlx::PgPool;
 
 #[derive(Debug)]
@@ -49,12 +50,35 @@ impl Mita {
         }
     }
 
-    pub async fn run() {
-        // Get end time
-        // validate candles
-        // backfill candles
-        // sync
-        // loop
+    pub async fn run(&self) {
+        // Backfill trades from last candle to first trade of live stream
+        self.historical("stream").await;
+        // Sync from last candle to current stream last trade
+        self.sync().await;
+        // Loop forever making a new candle at each new interval
+    }
+
+    pub async fn sync(&self) {
+        for market in self.markets.iter() {
+            // Get start time for candle sync
+            let start = match select_last_candle(
+                &self.pool,
+                &self.exchange.exchange_name,
+                &market.market_id,
+            )
+            .await
+            {
+                Ok(c) => c.datetime + Duration::seconds(900),
+                Err(_) => panic!("Sqlx Error getting start time in sync."),
+            };
+            // Get current hb floor for end time of sync
+            let end = Utc::now().duration_trunc(Duration::seconds(900)).unwrap();
+            // Create and save any candles necessary
+            if start != end {}
+            // Update mita heartbeat interval
+            //self.update_market_heartbeat(market, end);
+            // Clean up tables
+        }
     }
 }
 
