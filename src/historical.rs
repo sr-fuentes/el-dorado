@@ -41,7 +41,27 @@ impl Mita {
             };
             let end = match end {
                 "eod" => Utc::now().duration_trunc(Duration::days(1)).unwrap(),
-                "stream" => Utc::now(),
+                // Loop until there is a trade in the ws table. If there is no trade, sleep
+                // and check back until there is a trade.
+                "stream" => {
+                    loop {
+                        match select_ftx_trade_first_stream(
+                            &self.pool,
+                            &self.exchange.exchange_name,
+                            market.strip_name().as_str(),
+                        )
+                        .await
+                        {
+                            Ok(t) => break t.time + Duration::microseconds(1), // set trade time + 1 micro
+                            Err(sqlx::Error::RowNotFound) => {
+                                // There are no trades, sleep for 5 seconds
+                                println!("Awaiting for ws trade for {}", market.market_name);
+                                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                            }
+                            Err(e) => panic!("Sqlx Error: {:?}", e),
+                        };
+                    }
+                }
                 _ => panic!("Unsupported end time."),
             };
             // Update market data status to 'Syncing'
