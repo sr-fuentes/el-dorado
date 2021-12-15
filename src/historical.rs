@@ -212,10 +212,11 @@ pub async fn backfill_ftx(
     while interval_start < end {
         // Set end of bucket to end of interval
         let interval_end = interval_start + Duration::seconds(900);
-        let mut interval_end_or_last_trade = interval_start + Duration::seconds(900);
+        let mut interval_end_or_last_trade =
+            std::cmp::min(interval_start + Duration::seconds(900), end);
         println!(
-            "Filling trades for interval from {} to {}.",
-            interval_start, interval_end
+            "Filling {} trades for interval from {} to {}.",
+            market.market_name, interval_start, interval_end_or_last_trade
         );
         while interval_start < interval_end_or_last_trade {
             // Prevent 429 errors by only requesting 4 per second
@@ -268,8 +269,8 @@ pub async fn backfill_ftx(
                 interval_end_or_last_trade = new_trades.first().unwrap().time;
                 let first_trade = new_trades.last().unwrap().time;
                 println!(
-                    "{} trades returned. First: {}, Last: {}",
-                    num_trades, interval_end_or_last_trade, first_trade
+                    "{} {} trades returned. First: {}, Last: {}",
+                    num_trades, market.market_name, interval_end_or_last_trade, first_trade
                 );
                 println!("New last trade ts: {}", interval_end_or_last_trade);
                 // FTX trades API takes time in microseconds. This could lead to a
