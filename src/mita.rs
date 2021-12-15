@@ -82,7 +82,10 @@ impl Mita {
             };
             // Get current hb floor for end time of sync
             let end = Utc::now().duration_trunc(Duration::seconds(900)).unwrap();
-            println!("Syncing {} from {:?} to {:?}", market.market_name, start, end);
+            println!(
+                "Syncing {} from {:?} to {:?}",
+                market.market_name, start, end
+            );
             // Migrate rest trades to ws
             let rest_trades = select_ftx_trades_by_time(
                 &self.pool,

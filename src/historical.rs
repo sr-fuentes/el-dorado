@@ -44,7 +44,10 @@ impl Mita {
                 // Loop until there is a trade in the ws table. If there is no trade, sleep
                 // and check back until there is a trade.
                 "stream" => {
-                    println!("Fetching first {} streamed trade from ws.", market.market_name);
+                    println!(
+                        "Fetching first {} streamed trade from ws.",
+                        market.market_name
+                    );
                     loop {
                         match select_ftx_trade_first_stream(
                             &self.pool,
