@@ -134,7 +134,7 @@ impl Mita {
                 // Get date range
                 let mut dr_start = start;
                 let mut date_range = Vec::new();
-                while dr_start <= end {
+                while dr_start < end {
                     date_range.push(dr_start);
                     dr_start = dr_start + Duration::seconds(900);
                 }
