@@ -87,7 +87,7 @@ mod test {
     use crate::candles::*;
     use crate::configuration::get_configuration;
     use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::Trade};
-    use crate::markets::fetch_markets;
+    use crate::markets::{fetch_markets, select_market_detail};
     use crate::trades::select_ftx_trades_by_time;
     use chrono::{Duration, DurationRound};
     use csv::Writer;
@@ -133,6 +133,9 @@ mod test {
             .iter()
             .find(|m| m.market_name == configuration.application.market)
             .unwrap();
+        let market_detail = select_market_detail(&pool, market)
+            .await
+            .expect("Could not fetch market detail.");
 
         // Gets 15t candles for market newer than last 01d candle
         let candles = match select_last_01d_candle(&pool, &market.market_id).await {
@@ -184,7 +187,7 @@ mod test {
         let first_candle = resampled_candles.first().unwrap().datetime;
         let last_candle = resampled_candles.last().unwrap().datetime;
         let mut exchange_candles =
-            get_ftx_candles(&client, &market, first_candle, last_candle, 86400).await;
+            get_ftx_candles(&client, &market_detail, first_candle, last_candle, 86400).await;
 
         // Validate 01d candles - if all 15T candles are validated (trades archived)
         for candle in resampled_candles.iter() {

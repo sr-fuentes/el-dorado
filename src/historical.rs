@@ -2,9 +2,86 @@ use crate::candles::*;
 use crate::configuration::*;
 use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::RestError, Exchange};
 use crate::markets::*;
+use crate::mita::Mita;
 use crate::trades::*;
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use sqlx::PgPool;
+
+impl Mita {
+    pub async fn historical(&self, end: &str) {
+        // Get REST client for exchange
+        let client = match self.exchange.exchange_name.as_str() {
+            "ftxus" => RestClient::new_us(),
+            "ftx" => RestClient::new_intl(),
+            _ => panic!("No client exists for that exchange."),
+        };
+        for market in self.markets.iter() {
+            // Validate hb, create and validate 01 candles
+            validate_hb_candles(
+                &self.pool,
+                &client,
+                &self.exchange.exchange_name,
+                market,
+                &self.settings,
+            )
+            .await;
+            create_01d_candles(&self.pool, &self.exchange.exchange_name, &market.market_id).await;
+            validate_01d_candles(&self.pool, &client, &self.exchange.exchange_name, market).await;
+            // Set start and end times for backfill
+            let start = match select_last_candle(
+                &self.pool,
+                &self.exchange.exchange_name,
+                &market.market_id,
+            )
+            .await
+            {
+                Ok(c) => c.datetime + Duration::seconds(900),
+                Err(sqlx::Error::RowNotFound) => get_ftx_start(&client, market).await,
+                Err(e) => panic!("Sqlx Error getting start time: {:?}", e),
+            };
+            let end = match end {
+                "eod" => Utc::now().duration_trunc(Duration::days(1)).unwrap(),
+                // Loop until there is a trade in the ws table. If there is no trade, sleep
+                // and check back until there is a trade.
+                "stream" => {
+                    println!(
+                        "Fetching first {} streamed trade from ws.",
+                        market.market_name
+                    );
+                    loop {
+                        match select_ftx_trade_first_stream(
+                            &self.pool,
+                            &self.exchange.exchange_name,
+                            market.strip_name().as_str(),
+                        )
+                        .await
+                        {
+                            Ok(t) => break t.time + Duration::microseconds(1), // set trade time + 1 micro
+                            Err(sqlx::Error::RowNotFound) => {
+                                // There are no trades, sleep for 5 seconds
+                                println!("Awaiting for ws trade for {}", market.market_name);
+                                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                            }
+                            Err(e) => panic!("Sqlx Error: {:?}", e),
+                        };
+                    }
+                }
+                _ => panic!("Unsupported end time."),
+            };
+            // Update market data status to 'Syncing'
+            update_market_data_status(
+                &self.pool,
+                &market.market_id,
+                "Syncing",
+                self.settings.application.ip_addr.as_str(),
+            )
+            .await
+            .expect("Could not update market status.");
+            // Backfill from start to end
+            backfill_ftx(&self.pool, &client, &self.exchange, market, start, end).await;
+        }
+    }
+}
 
 pub async fn run(pool: &PgPool, config: &Settings) {
     // Get exchanges from database
@@ -53,18 +130,25 @@ pub async fn run(pool: &PgPool, config: &Settings) {
     .expect("Could not create validated table.");
 
     // Get market details from configuration
-    let _market_detail = select_market_detail(pool, market)
+    let market_detail = select_market_detail(pool, market)
         .await
         .expect("Could not fetch market detail.");
 
     // Validate / clean up current candles / trades for market
-    validate_hb_candles(pool, &client, &exchange.exchange_name, market, config).await;
+    validate_hb_candles(
+        pool,
+        &client,
+        &exchange.exchange_name,
+        &market_detail,
+        config,
+    )
+    .await;
 
     // Create 01d candles
     create_01d_candles(pool, &exchange.exchange_name, &market.market_id).await;
 
     // Validate 01d candles
-    validate_01d_candles(pool, &client, &exchange.exchange_name, market).await;
+    validate_01d_candles(pool, &client, &exchange.exchange_name, &market_detail).await;
 
     // Drop and re-create  _rest table for market
     drop_ftx_trade_table(
@@ -87,7 +171,7 @@ pub async fn run(pool: &PgPool, config: &Settings) {
     // Get last state of market, return status, start and finish
     let start = match select_last_candle(pool, &exchange.exchange_name, &market.market_id).await {
         Ok(c) => c.datetime + Duration::seconds(900),
-        Err(sqlx::Error::RowNotFound) => get_ftx_start(&client, market).await,
+        Err(sqlx::Error::RowNotFound) => get_ftx_start(&client, &market_detail).await,
         Err(e) => panic!("Sqlx Error: {:?}", e),
     };
     // let end = Utc::now().duration_trunc(Duration::days(1)).unwrap(); // 9/15/2021 02:00
@@ -107,14 +191,14 @@ pub async fn run(pool: &PgPool, config: &Settings) {
     // Backfill historical
     // Match exchange for backfill routine
     println!("Backfilling from {} to {}.", start, end);
-    backfill_ftx(pool, &client, exchange, market, start, end).await;
+    backfill_ftx(pool, &client, exchange, &market_detail, start, end).await;
 }
 
 pub async fn backfill_ftx(
     pool: &PgPool,
     client: &RestClient,
     exchange: &Exchange,
-    market: &MarketId,
+    market: &MarketDetail,
     start: DateTime<Utc>,
     end: DateTime<Utc>,
 ) {
@@ -128,10 +212,11 @@ pub async fn backfill_ftx(
     while interval_start < end {
         // Set end of bucket to end of interval
         let interval_end = interval_start + Duration::seconds(900);
-        let mut interval_end_or_last_trade = interval_start + Duration::seconds(900);
+        let mut interval_end_or_last_trade =
+            std::cmp::min(interval_start + Duration::seconds(900), end);
         println!(
-            "Filling trades for interval from {} to {}.",
-            interval_start, interval_end
+            "Filling {} trades for interval from {} to {}.",
+            market.market_name, interval_start, interval_end_or_last_trade
         );
         while interval_start < interval_end_or_last_trade {
             // Prevent 429 errors by only requesting 4 per second
@@ -184,8 +269,8 @@ pub async fn backfill_ftx(
                 interval_end_or_last_trade = new_trades.first().unwrap().time;
                 let first_trade = new_trades.last().unwrap().time;
                 println!(
-                    "{} trades returned. First: {}, Last: {}",
-                    num_trades, interval_end_or_last_trade, first_trade
+                    "{} {} trades returned. First: {}, Last: {}",
+                    num_trades, market.market_name, interval_end_or_last_trade, first_trade
                 );
                 println!("New last trade ts: {}", interval_end_or_last_trade);
                 // FTX trades API takes time in microseconds. This could lead to a
@@ -306,7 +391,7 @@ pub async fn backfill_ftx(
     }
 }
 
-pub async fn get_ftx_start(client: &RestClient, market: &MarketId) -> DateTime<Utc> {
+pub async fn get_ftx_start(client: &RestClient, market: &MarketDetail) -> DateTime<Utc> {
     // Set end time to floor of today's date, start time to 90 days prior. Check each day if there
     // are trades and return the start date - 1 that first returns trades
     let end_time = Utc::now().duration_trunc(Duration::days(1)).unwrap();

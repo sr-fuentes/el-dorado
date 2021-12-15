@@ -1,6 +1,6 @@
 use crate::configuration::*;
 use crate::exchanges::{ftx::Candle as CandleFtx, ftx::RestClient, ftx::RestError, ftx::Trade};
-use crate::markets::{update_market_last_validated, MarketId};
+use crate::markets::{update_market_last_validated, MarketDetail};
 use crate::trades::*;
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal::prelude::*;
@@ -335,7 +335,7 @@ pub async fn validate_hb_candles(
     pool: &PgPool,
     client: &RestClient,
     exchange_name: &str,
-    market: &MarketId,
+    market: &MarketDetail,
     config: &Settings,
 ) {
     let unvalidated_candles =
@@ -436,7 +436,7 @@ pub async fn validate_01d_candles(
     pool: &PgPool,
     client: &RestClient,
     exchange_name: &str,
-    market: &MarketId,
+    market: &MarketDetail,
 ) {
     // Get unvalidated 01d candles
     let unvalidated_candles =
@@ -445,7 +445,7 @@ pub async fn validate_01d_candles(
             Err(sqlx::Error::RowNotFound) => return,
             Err(e) => panic!("Sqlx Error: {:?}", e),
         };
-    println!("Unvalidated 01D candles: {:?}", unvalidated_candles);
+    // println!("Unvalidated 01D candles: {:?}", unvalidated_candles);
     // If no candles returned from query - return function
     if unvalidated_candles.is_empty() {
         return;
@@ -533,7 +533,7 @@ pub async fn qc_unvalidated_candle(
     client: &RestClient,
     pool: &PgPool,
     exchange_name: &str,
-    market: &MarketId,
+    market: &MarketDetail,
     candle: &Candle,
 ) -> bool {
     // Create temp trade table and re-download trades for candle time period then
@@ -706,7 +706,7 @@ pub async fn qc_unvalidated_candle(
 
 pub async fn get_ftx_candles(
     client: &RestClient,
-    market: &MarketId,
+    market: &MarketDetail,
     start: DateTime<Utc>,
     mut end_or_last: DateTime<Utc>,
     seconds: u32,
@@ -1109,7 +1109,7 @@ mod tests {
     use super::*;
     use crate::configuration::get_configuration;
     use crate::exchanges::fetch_exchanges;
-    use crate::markets::fetch_markets;
+    use crate::markets::{fetch_markets, select_market_detail};
     use chrono::{TimeZone, Utc};
 
     pub fn sample_trades() -> Vec<Trade> {
@@ -1281,6 +1281,9 @@ mod tests {
             .iter()
             .find(|m| m.market_name == "BTC-PERP")
             .unwrap();
+        let market_detail = select_market_detail(&pool, &market)
+            .await
+            .expect("Could not fetch market detail.");
 
         // Create test table
         let table = "invalid_candle";
@@ -1365,9 +1368,14 @@ mod tests {
             .expect("Could not fetch invalidated candles.");
         for candle in candles.iter() {
             println!("Attempting to revalidate: {:?}", candle);
-            let is_success =
-                qc_unvalidated_candle(&client, &pool, &exchange.exchange_name, &market, &candle)
-                    .await;
+            let is_success = qc_unvalidated_candle(
+                &client,
+                &pool,
+                &exchange.exchange_name,
+                &market_detail,
+                &candle,
+            )
+            .await;
             println!("Revalidate success? {:?}", is_success);
         }
     }

@@ -1,7 +1,87 @@
 use crate::exchanges::ftx::Trade;
+use crate::mita::Mita;
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
+
+impl Mita {
+    pub async fn reset_trade_tables(&self, tables: &[&str]) {
+        for market in self.markets.iter() {
+            match self.exchange.exchange_name.as_str() {
+                "ftx" | "ftxus" => {
+                    for table in tables.iter() {
+                        if *table == "processed" || *table == "validated" {
+                            // Alter table, create, migrate, drop
+                            alter_trade_table_to_temp(
+                                &self.pool,
+                                &self.exchange.exchange_name,
+                                market.strip_name().as_str(),
+                                *table,
+                            )
+                            .await
+                            .expect("Could not alter trade table.");
+                            // Create both the original trade table AND the temp table. There is a
+                            // scenario where the original table does not exists, thus the altered
+                            // table is not created. This will cause a panic in the migrate
+                            // function when it tries to select from a table that does not exists.
+                            create_ftx_trade_table(
+                                &self.pool,
+                                &self.exchange.exchange_name,
+                                market.strip_name().as_str(),
+                                *table,
+                            )
+                            .await
+                            .expect("Could not create ftx trade table.");
+                            create_ftx_trade_table(
+                                &self.pool,
+                                &self.exchange.exchange_name,
+                                market.strip_name().as_str(),
+                                format!("{}_temp", table).as_str(),
+                            )
+                            .await
+                            .expect("Could not create temp trade table.");
+                            migrate_trades_from_temp(
+                                &self.pool,
+                                &self.exchange.exchange_name,
+                                market.strip_name().as_str(),
+                                *table,
+                            )
+                            .await
+                            .expect("Could not migrate trades from temp table.");
+                            drop_ftx_trade_table(
+                                &self.pool,
+                                &self.exchange.exchange_name,
+                                market.strip_name().as_str(),
+                                format!("{}_temp", table).as_str(),
+                            )
+                            .await
+                            .expect("Could not drop temp table.");
+                        } else {
+                            // "ws" or "rest", just drop and re-create each time
+                            drop_ftx_trade_table(
+                                &self.pool,
+                                &self.exchange.exchange_name,
+                                market.strip_name().as_str(),
+                                *table,
+                            )
+                            .await
+                            .expect("Could not drop ftx trade table.");
+                            create_ftx_trade_table(
+                                &self.pool,
+                                &self.exchange.exchange_name,
+                                market.strip_name().as_str(),
+                                *table,
+                            )
+                            .await
+                            .expect("Could not create ftx trade table.");
+                        }
+                    }
+                }
+                _ => panic!("Exchange not supported."),
+            }
+        }
+    }
+}
 
 pub async fn create_ftx_trade_table(
     pool: &PgPool,
@@ -54,6 +134,44 @@ pub async fn drop_ftx_trade_table(
         DROP TABLE IF EXISTS trades_{}_{}_{}
         "#,
         exchange_name, market_table_name, trade_table,
+    );
+    sqlx::query(&sql).execute(pool).await?;
+    Ok(())
+}
+
+pub async fn alter_trade_table_to_temp(
+    pool: &PgPool,
+    exchange_name: &str,
+    market_table_name: &str,
+    trade_table: &str,
+) -> Result<(), sqlx::Error> {
+    let sql = format!(
+        r#"
+        ALTER TABLE IF EXISTS trades_{e}_{m}_{t}
+        RENAME TO trades_{e}_{m}_{t}_temp
+        "#,
+        e = exchange_name,
+        m = market_table_name,
+        t = trade_table,
+    );
+    sqlx::query(&sql).execute(pool).await?;
+    Ok(())
+}
+
+pub async fn migrate_trades_from_temp(
+    pool: &PgPool,
+    exchange_name: &str,
+    market_table_name: &str,
+    trade_table: &str,
+) -> Result<(), sqlx::Error> {
+    let sql = format!(
+        r#"
+        INSERT INTO trades_{e}_{m}_{t}
+        SELECT * FROM trades_{e}_{m}_{t}_temp
+        "#,
+        e = exchange_name,
+        m = market_table_name,
+        t = trade_table,
     );
     sqlx::query(&sql).execute(pool).await?;
     Ok(())
@@ -165,6 +283,24 @@ pub async fn select_ftx_trades_by_table(
     );
     let rows = sqlx::query_as::<_, Trade>(&sql).fetch_all(pool).await?;
     Ok(rows)
+}
+
+pub async fn select_ftx_trade_first_stream(
+    pool: &PgPool,
+    exchange_name: &str,
+    market_table_name: &str,
+) -> Result<Trade, sqlx::Error> {
+    let sql = format!(
+        r#"
+        SELECT trade_id as id, price, size, side, liquidation, time
+        FROM trades_{}_{}_ws
+        ORDER BY time
+        LIMIT 1
+        "#,
+        exchange_name, market_table_name
+    );
+    let row = sqlx::query_as::<_, Trade>(&sql).fetch_one(pool).await?;
+    Ok(row)
 }
 
 pub async fn delete_ftx_trades_by_time(

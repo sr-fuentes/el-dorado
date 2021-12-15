@@ -81,28 +81,14 @@ pub async fn stream(pool: &PgPool, config: &Settings) {
 
 impl Mita {
     pub async fn stream(&self) {
+        // Run ::reset_trade_tables for ws before calling this function or the table
+        // may not exist that the streamed trades write to.
         // Initiate channel and map data structures
         let mut channels = Vec::new();
         let mut map_ids = HashMap::new();
         let mut map_strip_names = HashMap::new();
         // Drop and re-create _ws table for markets and populate data structures
         for market in self.markets.iter() {
-            drop_ftx_trade_table(
-                &self.pool,
-                &self.exchange.exchange_name,
-                market.strip_name().as_str(),
-                "ws",
-            )
-            .await
-            .expect("Could not drop ws table.");
-            create_ftx_trade_table(
-                &self.pool,
-                &self.exchange.exchange_name,
-                market.strip_name().as_str(),
-                "ws",
-            )
-            .await
-            .expect("Could not create ws table.");
             channels.push(Channel::Trades(market.market_name.to_owned()));
             map_ids.insert(market.market_name.as_str(), market.market_id);
             map_strip_names.insert(market.market_name.as_str(), market.strip_name());

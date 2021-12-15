@@ -4,7 +4,7 @@ use crate::candles::{
 };
 use crate::configuration::Settings;
 use crate::exchanges::{fetch_exchanges, ftx::RestClient};
-use crate::markets::{fetch_markets, MarketId};
+use crate::markets::{fetch_markets, select_market_detail, MarketId};
 use chrono::Duration;
 use sqlx::PgPool;
 
@@ -116,6 +116,9 @@ pub async fn cleanup_03(pool: &PgPool, config: &Settings) {
     // For each market, revalidated 01d candles
     for market in markets_with_candles.iter() {
         println!("Validating {:?}", market);
-        validate_01d_candles(pool, &client, &exchange.exchange_name, market).await;
+        let market_detail = select_market_detail(pool, market)
+            .await
+            .expect("Could not fetch market detail.");
+        validate_01d_candles(pool, &client, &exchange.exchange_name, &market_detail).await;
     }
 }
