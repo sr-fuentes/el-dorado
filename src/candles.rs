@@ -445,7 +445,7 @@ pub async fn validate_01d_candles(
             Err(sqlx::Error::RowNotFound) => return,
             Err(e) => panic!("Sqlx Error: {:?}", e),
         };
-    println!("Unvalidated 01D candles: {:?}", unvalidated_candles);
+    // println!("Unvalidated 01D candles: {:?}", unvalidated_candles);
     // If no candles returned from query - return function
     if unvalidated_candles.is_empty() {
         return;

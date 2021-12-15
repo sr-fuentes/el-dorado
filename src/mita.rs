@@ -59,6 +59,7 @@ impl Mita {
         // Backfill trades from last candle to first trade of live stream
         self.historical("stream").await;
         // Sync from last candle to current stream last trade
+        println!("Starting sync.");
         let map_heartbeats = self.sync().await;
         // Loop forever making a new candle at each new interval
         println!("Heartbeats: {:?}", map_heartbeats);
@@ -81,6 +82,7 @@ impl Mita {
             };
             // Get current hb floor for end time of sync
             let end = Utc::now().duration_trunc(Duration::seconds(900)).unwrap();
+            println!("Syncing {} from {:?} to {:?}", market.market_name, start, end);
             // Migrate rest trades to ws
             let rest_trades = select_ftx_trades_by_time(
                 &self.pool,
@@ -169,6 +171,7 @@ impl Mita {
                     v.push(new_candle);
                     v
                 });
+                println!("Created {} candles to insert into db.", candles.len());
                 // Insert candles to db
                 for candle in candles.into_iter() {
                     insert_candle(
