@@ -1,6 +1,7 @@
 use crate::configuration::*;
 use crate::exchanges::{ftx::Candle as CandleFtx, ftx::RestClient, ftx::RestError, ftx::Trade};
 use crate::markets::{update_market_last_validated, MarketDetail};
+use crate::mita::Mita;
 use crate::trades::*;
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal::prelude::*;
@@ -213,6 +214,50 @@ impl Candle {
             is_validated: false,
             market_id,
         }
+    }
+}
+
+impl Mita {
+    pub async fn create_interval_candles(
+        &self,
+        market: &MarketDetail,
+        date_range: Vec<DateTime<Utc>>,
+        trades: Vec<Trade>,
+    ) -> Vec<Candle> {
+        // Takes a vec of trades and a date range and builds candles for each date in the range
+        // Get previous candle - to be used to forward fill if there are no trades
+        let mut previous_candle = select_previous_candle(
+            &self.pool,
+            &self.exchange.exchange_name,
+            &market.market_id,
+            *date_range.first().unwrap(),
+        )
+        .await
+        .expect("No previous candle.");
+        let candles = date_range.iter().fold(Vec::new(), |mut v, d| {
+            let mut filtered_trades: Vec<Trade> = trades
+                .iter()
+                .filter(|t| t.time.duration_trunc(Duration::seconds(900)).unwrap() == *d)
+                .cloned()
+                .collect();
+            let new_candle = match filtered_trades.len() {
+                0 => Candle::new_from_last(
+                    market.market_id,
+                    *d,
+                    previous_candle.close,
+                    previous_candle.last_trade_ts,
+                    &previous_candle.last_trade_id.to_string(),
+                ),
+                _ => {
+                    filtered_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
+                    Candle::new_from_trades(market.market_id, *d, &filtered_trades)
+                }
+            };
+            previous_candle = new_candle.clone();
+            v.push(new_candle);
+            v
+        });
+        candles
     }
 }
 

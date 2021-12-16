@@ -259,7 +259,7 @@ impl Mita {
         } else {
             // Get date range
             let mut date_range = self.create_date_range(start, end, Duration::seconds(900));
-            let candles = self.create_interval_candles();
+            let candles = self.create_interval_candles(market, date_range, trades);
         }
         // Make new candles
         // Make new metrics
