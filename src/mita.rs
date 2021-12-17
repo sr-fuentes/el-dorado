@@ -80,6 +80,8 @@ impl Mita {
                     println!("New heartbeats: {:?}", heartbeats);
                 }
             }
+            // Sleep for 200 ms to give control back to tokio scheduler
+            tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
         }
     }
 
