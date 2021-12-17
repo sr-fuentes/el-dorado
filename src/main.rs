@@ -40,10 +40,11 @@ async fn main() {
         Some("run") => {
             mita.reset_trade_tables(&["ws", "rest", "processed", "validated"])
                 .await;
-            let _res = tokio::select! {
+            let res = tokio::select! {
                 res1 = mita.run() => res1,
                 res2 = mita.stream() => res2,
             };
+            println!("Res: {:?}", res);
         }
         Some("historical") => {
             mita.reset_trade_tables(&["rest", "processed", "validated"])
