@@ -75,9 +75,8 @@ impl Mita {
                         market.market_name
                     );
                     let start = heartbeats[&market.market_name.as_str()];
-                    heartbeats = self
-                        .process_interval(heartbeats, start, timestamp, market)
-                        .await;
+                    let new_heartbeat = self.process_interval(start, timestamp, market).await;
+                    heartbeats.insert(market.market_name.as_str(), new_heartbeat);
                     println!("New heartbeats: {:?}", heartbeats);
                 }
             }
@@ -237,11 +236,10 @@ impl Mita {
 
     pub async fn process_interval(
         &self,
-        mut heartbeats: HashMap<&str, DateTime<Utc>>,
         start: DateTime<Utc>,
         end: DateTime<Utc>,
         market: &MarketDetail,
-    ) -> HashMap<&str, DateTime<Utc>> {
+    ) -> DateTime<Utc> {
         // Get trades
         let trades = select_ftx_trades_by_time(
             &self.pool,
@@ -255,16 +253,22 @@ impl Mita {
         .expect("Could not get ftx trades.");
         // If no trades return without updating hashmap
         if trades.is_empty() {
-            return heartbeats;
+            start
         } else {
             // Get date range
             let mut date_range = self.create_date_range(start, end, Duration::seconds(900));
-            let candles = self.create_interval_candles(market, date_range, trades);
+            // Make new candles
+            let candles = self
+                .create_interval_candles(market, date_range, trades)
+                .await;
+            // Insert candles
+            self.insert_candles(market, candles).await;
+            // Process trades
+            self.process_interval_trades(market, trades).await;
+            // Make new metrics
+            // Return new heartbeat
+            end
         }
-        // Make new candles
-        // Make new metrics
-        // Update heartbeat
-        HashMap::new()
     }
 
     fn create_date_range(

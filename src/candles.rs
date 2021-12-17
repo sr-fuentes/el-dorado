@@ -259,6 +259,20 @@ impl Mita {
         });
         candles
     }
+
+    pub async fn insert_candles(&self, market: &MarketDetail, candles: Vec<Candle>) {
+        for candle in candles.into_iter() {
+            insert_candle(
+                &self.pool,
+                &self.exchange.exchange_name,
+                &market.market_id,
+                candle,
+                false,
+            )
+            .await
+            .expect("Could not insert new candle.");
+        }
+    }
 }
 
 pub async fn create_exchange_candle_table(
