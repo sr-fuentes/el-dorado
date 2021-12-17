@@ -17,16 +17,7 @@ impl Mita {
         };
         for market in self.markets.iter() {
             // Validate hb, create and validate 01 candles
-            validate_hb_candles(
-                &self.pool,
-                &client,
-                &self.exchange.exchange_name,
-                market,
-                &self.settings,
-            )
-            .await;
-            create_01d_candles(&self.pool, &self.exchange.exchange_name, &market.market_id).await;
-            validate_01d_candles(&self.pool, &client, &self.exchange.exchange_name, market).await;
+            self.validate_candles(&client, market).await;
             // Set start and end times for backfill
             let start = match select_last_candle(
                 &self.pool,
