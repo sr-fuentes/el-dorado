@@ -8,7 +8,7 @@ use chrono::{DateTime, Duration, DurationRound, Utc};
 use sqlx::PgPool;
 
 impl Mita {
-    pub async fn historical(&self, end: &str) {
+    pub async fn historical(&self, end_source: &str) {
         // Get REST client for exchange
         let client = match self.exchange.exchange_name.as_str() {
             "ftxus" => RestClient::new_us(),
@@ -30,7 +30,7 @@ impl Mita {
                 Err(sqlx::Error::RowNotFound) => get_ftx_start(&client, market).await,
                 Err(e) => panic!("Sqlx Error getting start time: {:?}", e),
             };
-            let end = match end {
+            let end = match end_source {
                 "eod" => Utc::now().duration_trunc(Duration::days(1)).unwrap(),
                 // Loop until there is a trade in the ws table. If there is no trade, sleep
                 // and check back until there is a trade.
@@ -70,6 +70,10 @@ impl Mita {
             .expect("Could not update market status.");
             // Backfill from start to end
             backfill_ftx(&self.pool, &client, &self.exchange, market, start, end).await;
+            // If `eod` end source then run validation on new backfill
+            if end_source == "eod" {
+                self.validate_candles(&client, market).await;
+            }
         }
     }
 }
