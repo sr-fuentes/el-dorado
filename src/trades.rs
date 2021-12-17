@@ -1,4 +1,5 @@
 use crate::exchanges::ftx::Trade;
+use crate::markets::MarketDetail;
 use crate::mita::Mita;
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
@@ -80,6 +81,36 @@ impl Mita {
                 _ => panic!("Exchange not supported."),
             }
         }
+    }
+
+    pub async fn process_interval_trades(
+        &self,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+        market: &MarketDetail,
+        trades: Vec<Trade>,
+    ) {
+        // Insert trades into processed table and delete from the ws table
+        insert_ftx_trades(
+            &self.pool,
+            &market.market_id,
+            &self.exchange.exchange_name,
+            market.strip_name().as_str(),
+            "processed",
+            trades,
+        )
+        .await
+        .expect("Could not insert procesed trades.");
+        delete_ftx_trades_by_time(
+            &self.pool,
+            &self.exchange.exchange_name,
+            market.strip_name().as_str(),
+            "ws",
+            start,
+            end,
+        )
+        .await
+        .expect("Could not delete trades form db.");
     }
 }
 

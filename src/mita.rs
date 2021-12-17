@@ -60,14 +60,34 @@ impl Mita {
         self.historical("stream").await;
         // Sync from last candle to current stream last trade
         println!("Starting sync.");
-        let map_heartbeats = self.sync().await;
+        let mut heartbeats = self.sync().await;
         // Loop forever making a new candle at each new interval
-        println!("Heartbeats: {:?}", map_heartbeats);
+        println!("Heartbeats: {:?}", heartbeats);
+        println!("Starting MITA loop.");
+        loop {
+            // Set loop timestamp
+            let timestamp = Utc::now().duration_trunc(Duration::seconds(900)).unwrap();
+            // For each market, check if loop timestamp > heartbeat
+            for market in self.markets.iter() {
+                if timestamp > heartbeats[&market.market_name.as_str()] {
+                    println!(
+                        "New heartbeat interval. Create candle for {}",
+                        market.market_name
+                    );
+                    let start = heartbeats[&market.market_name.as_str()];
+                    let new_heartbeat = self.process_interval(start, timestamp, market).await;
+                    heartbeats.insert(market.market_name.as_str(), new_heartbeat);
+                    println!("New heartbeats: {:?}", heartbeats);
+                }
+            }
+            // Sleep for 200 ms to give control back to tokio scheduler
+            tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        }
     }
 
     pub async fn sync(&self) -> HashMap<&str, DateTime<Utc>> {
         // Initiate heartbeat interval map
-        let mut map_heartbeats = HashMap::new();
+        let mut heartbeats = HashMap::new();
         for market in self.markets.iter() {
             // Get start time for candle sync
             let start = match select_last_candle(
@@ -81,10 +101,11 @@ impl Mita {
                 Err(_) => panic!("Sqlx Error getting start time in sync."),
             };
             // Get current hb floor for end time of sync
-            let end = Utc::now().duration_trunc(Duration::seconds(900)).unwrap();
+            let now = Utc::now();
+            let end = now.duration_trunc(Duration::seconds(900)).unwrap();
             println!(
                 "Syncing {} from {:?} to {:?}",
-                market.market_name, start, end
+                market.market_name, start, now
             );
             // Migrate rest trades to ws
             let rest_trades = select_ftx_trades_by_time(
@@ -93,7 +114,7 @@ impl Mita {
                 market.strip_name().as_str(),
                 "rest",
                 start,
-                end,
+                now,
             )
             .await
             .expect("Could not select ftx trades.");
@@ -210,10 +231,64 @@ impl Mita {
                 .expect("Could not insert processed trades.");
             }
             // Update mita heartbeat interval
-            map_heartbeats.insert(market.market_name.as_str(), end);
+            heartbeats.insert(market.market_name.as_str(), end);
             // Clean up tables
         }
-        map_heartbeats
+        heartbeats
+    }
+
+    pub async fn process_interval(
+        &self,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+        market: &MarketDetail,
+    ) -> DateTime<Utc> {
+        // Get trades
+        let trades = select_ftx_trades_by_time(
+            &self.pool,
+            &self.exchange.exchange_name,
+            market.strip_name().as_str(),
+            "ws",
+            start,
+            end,
+        )
+        .await
+        .expect("Could not get ftx trades.");
+        // If no trades return without updating hashmap
+        if trades.is_empty() {
+            start
+        } else {
+            // Get date range
+            let date_range = self.create_date_range(start, end, Duration::seconds(900));
+            // Make new candles
+            let candles = self
+                .create_interval_candles(market, date_range, &trades)
+                .await;
+            // Insert candles
+            self.insert_candles(market, candles).await;
+            // Process trades
+            self.process_interval_trades(start, end, market, trades)
+                .await;
+            // Make new metrics
+            // Return new heartbeat
+            end
+        }
+    }
+
+    fn create_date_range(
+        &self,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+        duration: Duration,
+    ) -> Vec<DateTime<Utc>> {
+        // Takes a start and end time and creates a vec of dates
+        let mut dr_start = start;
+        let mut date_range = Vec::new();
+        while dr_start < end {
+            date_range.push(dr_start);
+            dr_start = dr_start + duration;
+        }
+        date_range
     }
 }
 
