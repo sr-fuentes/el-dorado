@@ -218,6 +218,22 @@ impl Candle {
 }
 
 impl Mita {
+    pub async fn validate_candles(&self, client: &RestClient, market: &MarketDetail) {
+        // Validate heartbeat candles
+        validate_hb_candles(
+            &self.pool,
+            client,
+            &self.exchange.exchange_name,
+            market,
+            &self.settings,
+        )
+        .await;
+        // Create 01d candles
+        create_01d_candles(&self.pool, &self.exchange.exchange_name, &market.market_id).await;
+        // Validate 01d candles
+        validate_01d_candles(&self.pool, client, &self.exchange.exchange_name, market).await;
+    }
+
     pub async fn create_interval_candles(
         &self,
         market: &MarketDetail,
