@@ -222,7 +222,7 @@ impl Mita {
         &self,
         market: &MarketDetail,
         date_range: Vec<DateTime<Utc>>,
-        trades: Vec<Trade>,
+        trades: &[Trade],
     ) -> Vec<Candle> {
         // Takes a vec of trades and a date range and builds candles for each date in the range
         // Get previous candle - to be used to forward fill if there are no trades

@@ -256,15 +256,16 @@ impl Mita {
             start
         } else {
             // Get date range
-            let mut date_range = self.create_date_range(start, end, Duration::seconds(900));
+            let date_range = self.create_date_range(start, end, Duration::seconds(900));
             // Make new candles
             let candles = self
-                .create_interval_candles(market, date_range, trades)
+                .create_interval_candles(market, date_range, &trades)
                 .await;
             // Insert candles
             self.insert_candles(market, candles).await;
             // Process trades
-            self.process_interval_trades(market, trades).await;
+            self.process_interval_trades(start, end, market, trades)
+                .await;
             // Make new metrics
             // Return new heartbeat
             end
