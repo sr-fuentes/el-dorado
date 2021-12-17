@@ -101,10 +101,11 @@ impl Mita {
                 Err(_) => panic!("Sqlx Error getting start time in sync."),
             };
             // Get current hb floor for end time of sync
-            let end = Utc::now().duration_trunc(Duration::seconds(900)).unwrap();
+            let now = Utc::now();
+            let end = now.duration_trunc(Duration::seconds(900)).unwrap();
             println!(
                 "Syncing {} from {:?} to {:?}",
-                market.market_name, start, end
+                market.market_name, start, now
             );
             // Migrate rest trades to ws
             let rest_trades = select_ftx_trades_by_time(
@@ -113,7 +114,7 @@ impl Mita {
                 market.strip_name().as_str(),
                 "rest",
                 start,
-                end,
+                now,
             )
             .await
             .expect("Could not select ftx trades.");
