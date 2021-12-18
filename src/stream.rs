@@ -131,17 +131,17 @@ impl Mita {
                         ErrorKind::ConnectionReset => {
                             println!("Error Kind: ConnectionReset.");
                             println!("to_string(): {:?}", ioerr.to_string());
-                            break
+                            break;
                         }
                         ErrorKind::UnexpectedEof => {
                             println!("Error Kind: UnexpectedEof.");
                             println!("to_string(): {:?}", ioerr.to_string());
-                            break
+                            break;
                         }
                         _ => {
                             println!("Other Error Kind: {:?}.", ioerr.kind());
                             println!("to_string(): {:?}", ioerr.to_string());
-                            break
+                            break;
                         }
                     },
                     _ => {
