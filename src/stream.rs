@@ -130,23 +130,23 @@ impl Mita {
                     tokio_tungstenite::tungstenite::Error::Io(ioerr) => match ioerr.kind() {
                         ErrorKind::ConnectionReset => {
                             println!("Error Kind: ConnectionReset.");
-                            ioerr.to_string();
-                            panic!();
+                            println!("to_string(): {:?}", ioerr.to_string());
+                            break
                         }
                         ErrorKind::UnexpectedEof => {
                             println!("Error Kind: UnexpectedEof.");
-                            ioerr.to_string();
-                            panic!();
+                            println!("to_string(): {:?}", ioerr.to_string());
+                            break
                         }
                         _ => {
                             println!("Other Error Kind: {:?}.", ioerr.kind());
-                            ioerr.to_string();
-                            panic!();
+                            println!("to_string(): {:?}", ioerr.to_string());
+                            break
                         }
                     },
                     _ => {
                         println!("Other WSError::Tungstenite error {:?}", e);
-                        e.to_string();
+                        println!("to_string(): {:?}", e.to_string());
                         panic!();
                     }
                 },
