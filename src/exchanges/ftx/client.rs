@@ -247,7 +247,7 @@ impl WsClient {
                 Some(msg) = self.stream.next() => {
                     let msg = msg?;
                     if let Message::Text(text) = msg {
-                        println!("Text: {}", text);
+                        // println!("Text: {}", text);
                         let response: Response = serde_json::from_str(&text)?;
                         // Don't return pong responses
                         if let Response {r#type: Type::Pong, .. } = response { continue;}
