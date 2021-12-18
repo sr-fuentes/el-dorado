@@ -5,13 +5,40 @@ use crate::utilities::get_input;
 use chrono::Utc;
 use sqlx::PgPool;
 use uuid::Uuid;
+use std::convert::TryFrom;
 
 pub mod ftx;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Exchange {
     pub exchange_id: Uuid,
-    pub exchange_name: String,
+    pub exchange_name: ExchangeName,
+}
+
+pub enum ExchangeName {
+    Ftx,
+    FtxUs,
+}
+
+impl ExchangeName {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ExchangeName::Ftx => "ftx",
+            ExchangeName::FtxUs => "ftxus",
+        }
+    }
+}
+
+impl TryFrom<String> for ExchangeName {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        match s.to_lowercase().as_str() {
+            "ftx" => Ok(Self::Ftx),
+            "ftxus" => Ok(Self::FtxUs),
+            other => Err(format!("{} is not a supported exchange.", other)),
+        }
+    }
 }
 
 pub async fn add(pool: &PgPool, config: &Settings) {
