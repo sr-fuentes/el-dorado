@@ -1,7 +1,7 @@
 use crate::candles::{qc_unvalidated_candle, Candle};
 use crate::configuration::Settings;
-use crate::exchanges::{select_exchanges, ftx::RestClient, ExchangeName};
-use crate::markets::{select_market_ids_by_exchange, select_market_detail};
+use crate::exchanges::{ftx::RestClient, select_exchanges, ExchangeName};
+use crate::markets::{select_market_detail, select_market_ids_by_exchange};
 use sqlx::PgPool;
 
 // Clean up FTX candles that are not validated. Initial setup used a limit of 100 trades for each

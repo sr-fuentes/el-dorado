@@ -86,8 +86,8 @@ pub async fn archive(pool: &PgPool, config: &Settings) {
 mod test {
     use crate::candles::*;
     use crate::configuration::get_configuration;
-    use crate::exchanges::{select_exchanges, ftx::RestClient, ftx::Trade, ExchangeName};
-    use crate::markets::{select_market_ids_by_exchange, select_market_detail};
+    use crate::exchanges::{ftx::RestClient, ftx::Trade, select_exchanges, ExchangeName};
+    use crate::markets::{select_market_detail, select_market_ids_by_exchange};
     use crate::trades::select_ftx_trades_by_time;
     use chrono::{Duration, DurationRound};
     use csv::Writer;

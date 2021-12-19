@@ -1,6 +1,6 @@
 use crate::configuration::Settings;
 use crate::exchanges::{
-    select_exchanges, ftx::Channel, ftx::Data, ftx::WsClient, ftx::WsError, ExchangeName,
+    ftx::Channel, ftx::Data, ftx::WsClient, ftx::WsError, select_exchanges, ExchangeName,
 };
 use crate::markets::select_market_ids_by_exchange;
 use crate::mita::Mita;
@@ -167,7 +167,7 @@ mod tests {
         ftx::{Channel, Data, WsClient},
         ExchangeName,
     };
-    use crate::markets::{select_market_ids_by_exchange, select_market_detail};
+    use crate::markets::{select_market_detail, select_market_ids_by_exchange};
     use crate::trades::{create_ftx_trade_table, drop_ftx_trade_table, insert_ftx_trade};
     use futures::StreamExt;
     use sqlx::PgPool;

@@ -1,6 +1,6 @@
 use crate::candles::Candle;
 use crate::configuration::Settings;
-use crate::exchanges::{select_exchanges, ftx::RestClient, ftx::Trade, ExchangeName};
+use crate::exchanges::{ftx::RestClient, ftx::Trade, select_exchanges, ExchangeName};
 use crate::markets::*;
 use crate::trades::select_ftx_trades_by_time;
 use chrono::{Duration, Utc};

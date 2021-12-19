@@ -1,6 +1,6 @@
 use crate::candles::*;
 use crate::configuration::*;
-use crate::exchanges::{select_exchanges, ftx::RestClient, ftx::RestError, Exchange, ExchangeName};
+use crate::exchanges::{ftx::RestClient, ftx::RestError, select_exchanges, Exchange, ExchangeName};
 use crate::markets::*;
 use crate::mita::Mita;
 use crate::trades::*;

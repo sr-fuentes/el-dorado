@@ -1184,7 +1184,7 @@ mod tests {
     use super::*;
     use crate::configuration::get_configuration;
     use crate::exchanges::select_exchanges;
-    use crate::markets::{select_market_ids_by_exchange, select_market_detail};
+    use crate::markets::{select_market_detail, select_market_ids_by_exchange};
     use chrono::{TimeZone, Utc};
 
     pub fn sample_trades() -> Vec<Trade> {

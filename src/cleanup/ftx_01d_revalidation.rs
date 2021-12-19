@@ -3,8 +3,8 @@ use crate::candles::{
     validate_01d_candles, DailyCandle,
 };
 use crate::configuration::Settings;
-use crate::exchanges::{select_exchanges, ftx::RestClient, ExchangeName};
-use crate::markets::{select_market_ids_by_exchange, select_market_detail, MarketId};
+use crate::exchanges::{ftx::RestClient, select_exchanges, ExchangeName};
+use crate::markets::{select_market_detail, select_market_ids_by_exchange, MarketId};
 use chrono::Duration;
 use sqlx::PgPool;
 
