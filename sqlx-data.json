@@ -1,17 +1,17 @@
 {
   "db": "PostgreSQL",
-  "0c27da86c0cfa541ad611849bacdb97446ccaed6bd3831e567a387d2c72e8398": {
-    "query": "\n        SELECT exchange_id, exchange_name\n        FROM exchanges\n        ",
+  "19633af280ca51aa23c9a1e7e37756de61588b470ca63a59dc10c1770eda70a6": {
+    "query": "\n        SELECT exchange_id as id, exchange_name as \"name: ExchangeName\"\n        FROM exchanges\n        ",
     "describe": {
       "columns": [
         {
           "ordinal": 0,
-          "name": "exchange_id",
+          "name": "id",
           "type_info": "Uuid"
         },
         {
           "ordinal": 1,
-          "name": "exchange_name",
+          "name": "name: ExchangeName",
           "type_info": "Text"
         }
       ],

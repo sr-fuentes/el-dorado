@@ -81,13 +81,7 @@ pub async fn add(pool: &PgPool, config: &Settings) {
 
     // Fetch markets from new exchange
     let markets = match exchange.name {
-        ExchangeName::Ftx | ExchangeName::FtxUs => {
-            pull_usd_markets_from_ftx(exchange.name.as_str()).await
-        }
-        _ => {
-            println!("{:?} exchange not yet supported.", exchange.name.as_str());
-            return;
-        }
+        ExchangeName::Ftx | ExchangeName::FtxUs => pull_usd_markets_from_ftx(&exchange.name).await,
     };
     let markets = match markets {
         Ok(markets) => markets,
@@ -176,9 +170,11 @@ mod tests {
             .await
             .expect("Failed to connect to Postgres.");
 
-        let _ = fetch_exchanges(&connection_pool)
+        let exchanges = fetch_exchanges(&connection_pool)
             .await
             .expect("Failed to load exchanges.");
+
+        println!("Exchanges: {:?}", exchanges);
     }
 
     #[test]
@@ -186,7 +182,7 @@ mod tests {
         // Arrange
         let exchange1 = Exchange {
             id: Uuid::new_v4(),
-            name: String::from("ftx").try_into().unwrap(),
+            name: String::from("ftxus").try_into().unwrap(),
         };
         let exchange2 = Exchange {
             id: Uuid::new_v4(),
