@@ -1,6 +1,9 @@
 use crate::candles::Candle;
-use crate::exchanges::ftx::*;
-use crate::exchanges::{Exchange, ExchangeName};
+use crate::exchanges::{
+    ftx::{Market, RestClient, RestError},
+    ExchangeName,
+};
+use crate::inquisidor::Inquisidor;
 
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
@@ -50,23 +53,60 @@ impl MarketDetail {
     }
 }
 
-pub async fn pull_usd_markets_from_ftx(exchange: &ExchangeName) -> Result<Vec<Market>, RestError> {
-    // Get Rest Client
-    let client = match exchange {
-        ExchangeName::FtxUs => RestClient::new_us(),
-        ExchangeName::Ftx => RestClient::new_intl(),
-    };
+impl Inquisidor {
+    pub async fn refresh_exchange_markets(&self, exchange: &ExchangeName) {
+        // Get USD markets from exchange
+        let markets = get_usd_markets(exchange).await;
+        // Get existing markets for exchange from db.
+        let market_ids = select_market_ids_by_exchange(&self.pool, exchange)
+            .await
+            .expect("Failed to get markets from db.");
+        // For each market that is not in the exchange, insert into db.
+        for market in markets.iter() {
+            if !market_ids.iter().any(|m| m.market_name == market.name) {
+                // Exchange market not in database.
+                println!("Adding {:?} market for {:?}", market.name, exchange);
+                insert_new_market(
+                    &self.pool,
+                    exchange,
+                    market,
+                    self.settings.application.ip_addr.as_str(),
+                )
+                .await
+                .expect("Failed to insert market.");
+            }
+        }
+    }
+}
 
-    // Get Markets
+pub async fn get_usd_markets(exchange: &ExchangeName) -> Vec<Market> {
+    let markets = match exchange {
+        ExchangeName::FtxUs => {
+            let client = RestClient::new_us();
+            get_ftx_usd_markets(&client).await
+        }
+        ExchangeName::Ftx => {
+            let client = RestClient::new_intl();
+            get_ftx_usd_markets(&client).await
+        }
+    };
+    match markets {
+        Ok(markets) => markets,
+        Err(err) => panic!("Failed to fetch markets. RestError {:?}", err),
+    }
+}
+
+pub async fn get_ftx_usd_markets(client: &RestClient) -> Result<Vec<Market>, RestError> {
+    // Get markets from exchange
     let mut markets = client.get_markets().await?;
-    //let filtered_markets = markets.retain(|m| m.base_currency == Some("USD"));
+    // Filter for USD based markets
     markets.retain(|m| m.quote_currency == Some("USD".to_string()) || m.market_type == *"future");
     Ok(markets)
 }
 
-pub async fn fetch_markets(
+pub async fn select_market_ids_by_exchange(
     pool: &PgPool,
-    exchange: &Exchange,
+    exchange: &ExchangeName,
 ) -> Result<Vec<MarketId>, sqlx::Error> {
     let rows = sqlx::query_as!(
         MarketId,
@@ -75,11 +115,10 @@ pub async fn fetch_markets(
         FROM markets
         WHERE exchange_name = $1
         "#,
-        exchange.name.as_str()
+        exchange.as_str()
     )
     .fetch_all(pool)
     .await?;
-    // println!("Rows: {:?}", rows);
     Ok(rows)
 }
 
@@ -106,7 +145,7 @@ pub async fn select_market_detail_by_exchange_mita(
 
 pub async fn insert_new_market(
     pool: &PgPool,
-    exchange: &Exchange,
+    exchange: &ExchangeName,
     market: &Market,
     ip_addr: &str,
 ) -> Result<(), sqlx::Error> {
@@ -122,7 +161,7 @@ pub async fn insert_new_market(
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)    
         "#,
         Uuid::new_v4(),
-        exchange.name.as_str(),
+        exchange.as_str(),
         market.name,
         market.market_type,
         market.base_currency,
@@ -226,7 +265,7 @@ pub async fn update_market_data_status(
 mod tests {
     use crate::configuration::*;
     use crate::exchanges::fetch_exchanges;
-    use crate::markets::fetch_markets;
+    use crate::markets::select_market_ids_by_exchange;
     use sqlx::PgPool;
 
     #[tokio::test]
@@ -251,7 +290,7 @@ mod tests {
             .unwrap();
 
         // Get input from config for market to archive
-        let market_ids = fetch_markets(&pool, &exchange)
+        let market_ids = select_market_ids_by_exchange(&pool, &exchange.name)
             .await
             .expect("Could not fetch exchanges.");
         let market = market_ids
