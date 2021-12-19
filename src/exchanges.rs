@@ -86,7 +86,7 @@ pub async fn select_exchanges(pool: &PgPool) -> Result<Vec<Exchange>, sqlx::Erro
     )
     .fetch_all(pool)
     .await?;
-    println!("Rows: {:?}", rows);
+    // println!("Rows: {:?}", rows);
     Ok(rows)
 }
 
