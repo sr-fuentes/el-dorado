@@ -4,14 +4,43 @@ use crate::markets::{fetch_markets, insert_new_market, pull_usd_markets_from_ftx
 use crate::utilities::get_input;
 use chrono::Utc;
 use sqlx::PgPool;
+use std::convert::{TryFrom, TryInto};
 use uuid::Uuid;
 
 pub mod ftx;
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, sqlx::Type)]
 pub struct Exchange {
-    pub exchange_id: Uuid,
-    pub exchange_name: String,
+    pub id: Uuid,
+    pub name: ExchangeName,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, sqlx::Type)]
+#[sqlx(rename_all = "lowercase")]
+pub enum ExchangeName {
+    Ftx,
+    FtxUs,
+}
+
+impl ExchangeName {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ExchangeName::Ftx => "ftx",
+            ExchangeName::FtxUs => "ftxus",
+        }
+    }
+}
+
+impl TryFrom<String> for ExchangeName {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        match s.to_lowercase().as_str() {
+            "ftx" => Ok(Self::Ftx),
+            "ftxus" => Ok(Self::FtxUs),
+            other => Err(format!("{} is not a supported exchange.", other)),
+        }
+    }
 }
 
 pub async fn add(pool: &PgPool, config: &Settings) {
@@ -20,8 +49,8 @@ pub async fn add(pool: &PgPool, config: &Settings) {
     // parse / validated input
     let exchange: String = get_input("Enter Exchange to Add:");
     let exchange = Exchange {
-        exchange_id: Uuid::new_v4(),
-        exchange_name: exchange,
+        id: Uuid::new_v4(),
+        name: exchange.try_into().expect("Failed to parse exchange."),
     };
 
     // Set list of supported exchanges
@@ -33,18 +62,15 @@ pub async fn add(pool: &PgPool, config: &Settings) {
         .expect("Could not fetch exchanges.");
 
     // Compare input to existing exchanges in db and add if new
-    if exchanges
-        .iter()
-        .any(|e| e.exchange_name == exchange.exchange_name)
-    {
+    if exchanges.iter().any(|e| e.name == exchange.name) {
         println!(
             "{:?} has already been added and is in the database.",
-            exchange.exchange_name
+            exchange.name
         );
         return;
-    } else if !supported_exchanges.contains(&exchange.exchange_name.as_str()) {
+    } else if !supported_exchanges.contains(&exchange.name.as_str()) {
         // Not in supported exchanges
-        println!("{:?} is not a supported exchange.", exchange.exchange_name);
+        println!("{:?} is not a supported exchange.", exchange.name);
         return;
     } else {
         println!("Adding {:?} to the database.", exchange);
@@ -54,16 +80,8 @@ pub async fn add(pool: &PgPool, config: &Settings) {
     }
 
     // Fetch markets from new exchange
-    let markets = match exchange.exchange_name.as_str() {
-        "ftxus" => pull_usd_markets_from_ftx("ftxus").await, // fetch ftxus markets,
-        "ftx" => pull_usd_markets_from_ftx("ftx").await,     // fetch ftx markets,
-        _ => {
-            println!(
-                "{:?} exchange not yet supported.",
-                exchange.exchange_name.as_str()
-            );
-            return;
-        }
+    let markets = match exchange.name {
+        ExchangeName::Ftx | ExchangeName::FtxUs => pull_usd_markets_from_ftx(&exchange.name).await,
     };
     let markets = match markets {
         Ok(markets) => markets,
@@ -73,7 +91,6 @@ pub async fn add(pool: &PgPool, config: &Settings) {
             return;
         }
     };
-    // println!("Markets pulled from exchange: {:?}.", markets);
 
     // Fetch existing markets for exchange
     // There should be none but this function can be used to refresh markets too
@@ -94,7 +111,7 @@ pub async fn add(pool: &PgPool, config: &Settings) {
     }
 
     // Create candle table for exchange
-    create_exchange_candle_table(pool, &exchange.exchange_name)
+    create_exchange_candle_table(pool, &exchange.name.as_str())
         .await
         .expect("Could not create candle table.");
 }
@@ -103,7 +120,7 @@ pub async fn fetch_exchanges(pool: &PgPool) -> Result<Vec<Exchange>, sqlx::Error
     let rows = sqlx::query_as!(
         Exchange,
         r#"
-        SELECT exchange_id, exchange_name
+        SELECT exchange_id as id, exchange_name as "name: ExchangeName"
         FROM exchanges
         "#
     )
@@ -121,8 +138,8 @@ pub async fn insert_new_exchange(pool: &PgPool, exchange: &Exchange) -> Result<(
             exchange_status, added_date, last_refresh_date)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         "#,
-        exchange.exchange_id,
-        exchange.exchange_name,
+        exchange.id,
+        exchange.name.as_str(),
         1,
         true,
         false,
@@ -153,35 +170,35 @@ mod tests {
             .await
             .expect("Failed to connect to Postgres.");
 
-        let _ = fetch_exchanges(&connection_pool)
+        let exchanges = fetch_exchanges(&connection_pool)
             .await
             .expect("Failed to load exchanges.");
+
+        println!("Exchanges: {:?}", exchanges);
     }
 
     #[test]
     fn check_if_exchanges_already_exists_returns_true() {
         // Arrange
         let exchange1 = Exchange {
-            exchange_id: Uuid::new_v4(),
-            exchange_name: "ftxus".to_string(),
+            id: Uuid::new_v4(),
+            name: String::from("ftxus").try_into().unwrap(),
         };
         let exchange2 = Exchange {
-            exchange_id: Uuid::new_v4(),
-            exchange_name: "ftx".to_string(),
+            id: Uuid::new_v4(),
+            name: String::from("ftx").try_into().unwrap(),
         };
         let mut exchanges = Vec::<Exchange>::new();
         exchanges.push(exchange1);
         exchanges.push(exchange2);
 
         let dup_exchange = Exchange {
-            exchange_id: Uuid::new_v4(),
-            exchange_name: "ftxus".to_string(),
+            id: Uuid::new_v4(),
+            name: String::from("ftxus").try_into().unwrap(),
         };
 
         // Assert
-        assert!(exchanges
-            .iter()
-            .any(|e| e.exchange_name == dup_exchange.exchange_name));
+        assert!(exchanges.iter().any(|e| e.name == dup_exchange.name));
     }
 
     #[tokio::test]
@@ -197,8 +214,8 @@ mod tests {
 
         // Create exchange struct
         let exchange = Exchange {
-            exchange_id: Uuid::new_v4(),
-            exchange_name: "ftxus".to_string(),
+            id: Uuid::new_v4(),
+            name: String::from("ftxus").try_into().unwrap(),
         };
 
         // Set market for test
@@ -217,7 +234,7 @@ mod tests {
         // Create db tables
         create_ftx_trade_table(
             &connection_pool,
-            &exchange.exchange_name,
+            &exchange.name.as_str(),
             &market_table_name,
             &test_trade_table,
         )
@@ -236,7 +253,7 @@ mod tests {
         insert_ftx_trades(
             &connection_pool,
             &market.market_id,
-            &exchange.exchange_name,
+            &exchange.name.as_str(),
             &market_table_name,
             &test_trade_table,
             trades,

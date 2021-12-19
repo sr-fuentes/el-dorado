@@ -1,5 +1,7 @@
 use crate::configuration::Settings;
-use crate::exchanges::{fetch_exchanges, ftx::Channel, ftx::Data, ftx::WsClient, ftx::WsError};
+use crate::exchanges::{
+    fetch_exchanges, ftx::Channel, ftx::Data, ftx::WsClient, ftx::WsError, ExchangeName,
+};
 use crate::markets::fetch_markets;
 use crate::mita::Mita;
 use crate::trades::{create_ftx_trade_table, drop_ftx_trade_table, insert_ftx_trade};
@@ -16,7 +18,7 @@ pub async fn stream(pool: &PgPool, config: &Settings) {
     // Match exchange to exchanges in databse
     let exchange = exchanges
         .iter()
-        .find(|e| e.exchange_name == config.application.exchange)
+        .find(|e| e.name.as_str() == config.application.exchange)
         .unwrap();
     // Get market id from configuration
     let market_ids = fetch_markets(pool, exchange)
@@ -29,7 +31,7 @@ pub async fn stream(pool: &PgPool, config: &Settings) {
     // Drop and re-create _ws table for market
     drop_ftx_trade_table(
         pool,
-        &exchange.exchange_name,
+        &exchange.name.as_str(),
         market.strip_name().as_str(),
         "ws",
     )
@@ -37,19 +39,18 @@ pub async fn stream(pool: &PgPool, config: &Settings) {
     .expect("Could not drop ws table.");
     create_ftx_trade_table(
         pool,
-        &exchange.exchange_name,
+        &exchange.name.as_str(),
         market.strip_name().as_str(),
         "ws",
     )
     .await
     .expect("Could not create ws table.");
     // Get WS client for exchange
-    let mut ws = match exchange.exchange_name.as_str() {
-        "ftxus" => WsClient::connect_us().await.expect("Could not connect ws."),
-        "ftx" => WsClient::connect_intl()
+    let mut ws = match exchange.name {
+        ExchangeName::FtxUs => WsClient::connect_us().await.expect("Could not connect ws."),
+        ExchangeName::Ftx => WsClient::connect_intl()
             .await
             .expect("could not conenct ws."),
-        _ => panic!("No ws client exists for this exchange."),
     };
     // Subscribe to markets
     ws.subscribe(vec![Channel::Trades(market.market_name.to_owned())])
@@ -63,7 +64,7 @@ pub async fn stream(pool: &PgPool, config: &Settings) {
                 insert_ftx_trade(
                     pool,
                     &market.market_id,
-                    &exchange.exchange_name,
+                    &exchange.name.as_str(),
                     market.strip_name().as_str(),
                     "ws",
                     trade,
@@ -94,14 +95,13 @@ impl Mita {
             map_strip_names.insert(market.market_name.as_str(), market.strip_name());
         }
         // Create ws client
-        let mut ws = match self.exchange.exchange_name.as_str() {
-            "ftxus" => WsClient::connect_us()
+        let mut ws = match self.exchange.name {
+            ExchangeName::FtxUs => WsClient::connect_us()
                 .await
                 .expect("Could not connect to ws."),
-            "ftx" => WsClient::connect_intl()
+            ExchangeName::Ftx => WsClient::connect_intl()
                 .await
                 .expect("Could not connect ws."),
-            _ => panic!("No ws client exists for this exchange."),
         };
         // Subscribe to trades channels for each market
         ws.subscribe(channels)
@@ -115,7 +115,7 @@ impl Mita {
                     insert_ftx_trade(
                         &self.pool,
                         &map_ids[market.as_str()],
-                        &self.exchange.exchange_name,
+                        &self.exchange.name.as_str(),
                         map_strip_names[market.as_str()].as_str(),
                         "ws",
                         trade,
@@ -163,7 +163,10 @@ impl Mita {
 mod tests {
     use crate::configuration::get_configuration;
     use crate::exchanges::fetch_exchanges;
-    use crate::exchanges::ftx::{Channel, Data, WsClient};
+    use crate::exchanges::{
+        ftx::{Channel, Data, WsClient},
+        ExchangeName,
+    };
     use crate::markets::{fetch_markets, select_market_detail};
     use crate::trades::{create_ftx_trade_table, drop_ftx_trade_table, insert_ftx_trade};
     use futures::StreamExt;
@@ -181,7 +184,7 @@ mod tests {
             .expect("Could not fetch exchanges from db.");
         let exchange = exchanges
             .iter()
-            .find(|e| e.exchange_name == configuration.application.exchange)
+            .find(|e| e.name.as_str() == configuration.application.exchange)
             .unwrap();
         let market_ids = fetch_markets(&pool, exchange)
             .await
@@ -195,7 +198,7 @@ mod tests {
             .expect("Could not fetch market detail.");
         drop_ftx_trade_table(
             &pool,
-            &exchange.exchange_name,
+            &exchange.name.as_str(),
             market_id.strip_name().as_str(),
             "ws_test",
         )
@@ -203,18 +206,17 @@ mod tests {
         .expect("Could not drop test ws table.");
         create_ftx_trade_table(
             &pool,
-            &exchange.exchange_name,
+            &exchange.name.as_str(),
             market_id.strip_name().as_str(),
             "ws_test",
         )
         .await
         .expect("Could not create test ws table.");
-        let mut ws = match exchange.exchange_name.as_str() {
-            "ftxus" => WsClient::connect_us().await.expect("Could not connect ws."),
-            "ftx" => WsClient::connect_intl()
+        let mut ws = match exchange.name {
+            ExchangeName::FtxUs => WsClient::connect_us().await.expect("Could not connect ws."),
+            ExchangeName::Ftx => WsClient::connect_intl()
                 .await
                 .expect("Could not connect ws."),
-            _ => panic!("No ws client exists for this exchange."),
         };
         ws.subscribe(vec![Channel::Trades(market_id.market_name.to_owned())])
             .await
@@ -226,7 +228,7 @@ mod tests {
                     insert_ftx_trade(
                         &pool,
                         &market_id.market_id,
-                        &exchange.exchange_name,
+                        &exchange.name.as_str(),
                         market_id.strip_name().as_str(),
                         "ws_test",
                         trade,

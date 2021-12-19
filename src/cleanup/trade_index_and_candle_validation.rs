@@ -1,6 +1,6 @@
 use crate::candles::Candle;
 use crate::configuration::Settings;
-use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::Trade};
+use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::Trade, ExchangeName};
 use crate::markets::*;
 use crate::trades::select_ftx_trades_by_time;
 use chrono::{Duration, Utc};
@@ -24,14 +24,13 @@ pub async fn cleanup_01(pool: &PgPool, config: Settings) {
     // Match exchange to exchanges in database
     let exchange = exchanges
         .iter()
-        .find(|e| e.exchange_name == config.application.exchange)
+        .find(|e| e.name.as_str() == config.application.exchange)
         .unwrap();
 
     // Get REST client for exchange
-    let _client = match exchange.exchange_name.as_str() {
-        "ftxus" => RestClient::new_us(),
-        "ftx" => RestClient::new_intl(),
-        _ => panic!("No client exists for {}.", exchange.exchange_name),
+    let _client = match exchange.name {
+        ExchangeName::FtxUs => RestClient::new_us(),
+        ExchangeName::Ftx => RestClient::new_intl(),
     };
 
     // Get markets that have candles
@@ -43,7 +42,7 @@ pub async fn cleanup_01(pool: &PgPool, config: Settings) {
             INNER JOIN markets m
             ON c.market_id = m.market_id
         "#,
-        exchange.exchange_name
+        exchange.name.as_str()
     );
     let markets_with_candles = sqlx::query_as::<_, MarketId>(&sql)
         .fetch_all(pool)
@@ -70,7 +69,7 @@ pub async fn cleanup_01(pool: &PgPool, config: Settings) {
             WHERE market_id = $1
             ORDER BY datetime
             "#,
-            exchange.exchange_name
+            exchange.name.as_str()
         );
         let market_candles = sqlx::query_as::<_, Candle>(&sql)
             .bind(market.market_id)
@@ -83,7 +82,7 @@ pub async fn cleanup_01(pool: &PgPool, config: Settings) {
             let mut trades = match candle.is_validated {
                 false => select_ftx_trades_by_time(
                     pool,
-                    &exchange.exchange_name,
+                    &exchange.name.as_str(),
                     market.strip_name().as_str(),
                     "processed",
                     candle.datetime,
@@ -98,7 +97,7 @@ pub async fn cleanup_01(pool: &PgPool, config: Settings) {
                         FROM trades_{}_validated
                         WHERE market_id = $1 AND time >=$2 and time < $3
                         "#,
-                        exchange.exchange_name
+                        exchange.name.as_str()
                     );
                     sqlx::query_as::<_, Trade>(&sql)
                         .bind(market.market_id)
@@ -123,7 +122,7 @@ pub async fn cleanup_01(pool: &PgPool, config: Settings) {
                     WHERE market_id = $3
                     AND datetime = $4
                     "#,
-                    exchange.exchange_name
+                    exchange.name.as_str()
                 );
                 sqlx::query(&sql)
                     .bind(first_trade.time)
@@ -144,7 +143,7 @@ pub async fn cleanup_01(pool: &PgPool, config: Settings) {
                     WHERE market_id = $3
                     AND datetime = $4
                     "#,
-                    exchange.exchange_name
+                    exchange.name.as_str()
                 );
                 sqlx::query(&sql)
                     .bind(candle.last_trade_ts)

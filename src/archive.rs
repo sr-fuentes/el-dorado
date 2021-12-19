@@ -86,7 +86,7 @@ pub async fn archive(pool: &PgPool, config: &Settings) {
 mod test {
     use crate::candles::*;
     use crate::configuration::get_configuration;
-    use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::Trade};
+    use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::Trade, ExchangeName};
     use crate::markets::{fetch_markets, select_market_detail};
     use crate::trades::select_ftx_trades_by_time;
     use chrono::{Duration, DurationRound};
@@ -115,14 +115,13 @@ mod test {
         // Match exchange to exchanges in database
         let exchange = exchanges
             .iter()
-            .find(|e| e.exchange_name == configuration.application.exchange)
+            .find(|e| e.name.as_str() == configuration.application.exchange)
             .unwrap();
 
         // Get REST client for exchange
-        let client = match exchange.exchange_name.as_str() {
-            "ftxus" => RestClient::new_us(),
-            "ftx" => RestClient::new_intl(),
-            _ => panic!("No client exists for {}.", exchange.exchange_name),
+        let client = match exchange.name {
+            ExchangeName::FtxUs => RestClient::new_us(),
+            ExchangeName::Ftx => RestClient::new_intl(),
         };
 
         // Get input from config for market to archive
@@ -141,14 +140,14 @@ mod test {
         let candles = match select_last_01d_candle(&pool, &market.market_id).await {
             Ok(c) => select_candles_gte_datetime(
                 &pool,
-                &exchange.exchange_name,
+                &exchange.name.as_str(),
                 &market.market_id,
                 c.datetime + Duration::days(1),
             )
             .await
             .expect("Could not fetch candles."),
             Err(sqlx::Error::RowNotFound) => {
-                select_candles(&pool, &exchange.exchange_name, &market.market_id, 900)
+                select_candles(&pool, &exchange.name.as_str(), &market.market_id, 900)
                     .await
                     .expect("Could not fetch candles.")
             }
@@ -208,7 +207,7 @@ mod test {
             if hb_is_validated && vol_is_validated {
                 update_candle_validation(
                     &pool,
-                    &exchange.exchange_name,
+                    &exchange.name.as_str(),
                     &market.market_id,
                     &candle,
                     86400,
@@ -228,7 +227,7 @@ mod test {
             // Select trades associated w/ candle
             let _trades_to_archive = select_ftx_trades_by_time(
                 &pool,
-                &exchange.exchange_name,
+                &exchange.name.as_str(),
                 market.strip_name().as_str(),
                 "validated",
                 candle.datetime,
