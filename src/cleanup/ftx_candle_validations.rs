@@ -57,7 +57,7 @@ pub async fn cleanup_02(pool: &PgPool, config: &Settings) {
         let is_success = qc_unvalidated_candle(
             &client,
             pool,
-            &exchange.name.as_str(),
+            exchange.name.as_str(),
             &market_detail,
             candle,
         )

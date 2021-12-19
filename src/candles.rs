@@ -223,15 +223,15 @@ impl Mita {
         validate_hb_candles(
             &self.pool,
             client,
-            &self.exchange.name.as_str(),
+            self.exchange.name.as_str(),
             market,
             &self.settings,
         )
         .await;
         // Create 01d candles
-        create_01d_candles(&self.pool, &self.exchange.name.as_str(), &market.market_id).await;
+        create_01d_candles(&self.pool, self.exchange.name.as_str(), &market.market_id).await;
         // Validate 01d candles
-        validate_01d_candles(&self.pool, client, &self.exchange.name.as_str(), market).await;
+        validate_01d_candles(&self.pool, client, self.exchange.name.as_str(), market).await;
     }
 
     pub async fn create_interval_candles(
@@ -244,7 +244,7 @@ impl Mita {
         // Get previous candle - to be used to forward fill if there are no trades
         let mut previous_candle = select_previous_candle(
             &self.pool,
-            &self.exchange.name.as_str(),
+            self.exchange.name.as_str(),
             &market.market_id,
             *date_range.first().unwrap(),
         )
@@ -280,7 +280,7 @@ impl Mita {
         for candle in candles.into_iter() {
             insert_candle(
                 &self.pool,
-                &self.exchange.name.as_str(),
+                self.exchange.name.as_str(),
                 &market.market_id,
                 candle,
                 false,

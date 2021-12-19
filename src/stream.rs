@@ -31,7 +31,7 @@ pub async fn stream(pool: &PgPool, config: &Settings) {
     // Drop and re-create _ws table for market
     drop_ftx_trade_table(
         pool,
-        &exchange.name.as_str(),
+        exchange.name.as_str(),
         market.strip_name().as_str(),
         "ws",
     )
@@ -39,7 +39,7 @@ pub async fn stream(pool: &PgPool, config: &Settings) {
     .expect("Could not drop ws table.");
     create_ftx_trade_table(
         pool,
-        &exchange.name.as_str(),
+        exchange.name.as_str(),
         market.strip_name().as_str(),
         "ws",
     )
@@ -64,7 +64,7 @@ pub async fn stream(pool: &PgPool, config: &Settings) {
                 insert_ftx_trade(
                     pool,
                     &market.market_id,
-                    &exchange.name.as_str(),
+                    exchange.name.as_str(),
                     market.strip_name().as_str(),
                     "ws",
                     trade,
@@ -115,7 +115,7 @@ impl Mita {
                     insert_ftx_trade(
                         &self.pool,
                         &map_ids[market.as_str()],
-                        &self.exchange.name.as_str(),
+                        self.exchange.name.as_str(),
                         map_strip_names[market.as_str()].as_str(),
                         "ws",
                         trade,

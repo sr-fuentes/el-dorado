@@ -47,8 +47,8 @@ async fn main() {
         Some("cleanup") => println!("No cleanup job available."), // Remove options when no cleanup job
         Some("archive") => {
             // Create new admin instance and add new exchange
-            let ig = Inquisidor::new().await;
-            ig.archive_validated_trades().await;
+            let _ig = Inquisidor::new().await;
+            // ig.archive_validated_trades().await;
         }
         Some("stream") => {
             // Create new mita instance and run stream until no restart

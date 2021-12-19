@@ -51,7 +51,7 @@ pub async fn cleanup_03(pool: &PgPool, config: &Settings) {
         // Get hb candles
         let hb_candles = select_candles_by_daterange(
             pool,
-            &exchange.name.as_str(),
+            exchange.name.as_str(),
             &market.market_id,
             candle.datetime,
             candle.datetime + Duration::days(1),
@@ -118,6 +118,6 @@ pub async fn cleanup_03(pool: &PgPool, config: &Settings) {
         let market_detail = select_market_detail(pool, market)
             .await
             .expect("Could not fetch market detail.");
-        validate_01d_candles(pool, &client, &exchange.name.as_str(), &market_detail).await;
+        validate_01d_candles(pool, &client, exchange.name.as_str(), &market_detail).await;
     }
 }

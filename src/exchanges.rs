@@ -70,7 +70,7 @@ impl Inquisidor {
         // Refresh markets for new exchange (should insert all)
         self.refresh_exchange_markets(&new_exchange.name).await;
         // Create candle table for exchange
-        create_exchange_candle_table(&self.pool, &new_exchange.name.as_str())
+        create_exchange_candle_table(&self.pool, new_exchange.name.as_str())
             .await
             .expect("Failed to create exchange table.");
     }
