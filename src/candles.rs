@@ -223,15 +223,15 @@ impl Mita {
         validate_hb_candles(
             &self.pool,
             client,
-            &self.exchange.exchange_name,
+            &self.exchange.name.as_str(),
             market,
             &self.settings,
         )
         .await;
         // Create 01d candles
-        create_01d_candles(&self.pool, &self.exchange.exchange_name, &market.market_id).await;
+        create_01d_candles(&self.pool, &self.exchange.name.as_str(), &market.market_id).await;
         // Validate 01d candles
-        validate_01d_candles(&self.pool, client, &self.exchange.exchange_name, market).await;
+        validate_01d_candles(&self.pool, client, &self.exchange.name.as_str(), market).await;
     }
 
     pub async fn create_interval_candles(
@@ -244,7 +244,7 @@ impl Mita {
         // Get previous candle - to be used to forward fill if there are no trades
         let mut previous_candle = select_previous_candle(
             &self.pool,
-            &self.exchange.exchange_name,
+            &self.exchange.name.as_str(),
             &market.market_id,
             *date_range.first().unwrap(),
         )
@@ -280,7 +280,7 @@ impl Mita {
         for candle in candles.into_iter() {
             insert_candle(
                 &self.pool,
-                &self.exchange.exchange_name,
+                &self.exchange.name.as_str(),
                 &market.market_id,
                 candle,
                 false,
@@ -1343,7 +1343,7 @@ mod tests {
             .await
             .expect("Could not fetch exchanges.");
         // Match exchange to exchanges in database
-        let exchange = exchanges.iter().find(|e| e.exchange_name == "ftx").unwrap();
+        let exchange = exchanges.iter().find(|e| e.name.as_str() == "ftx").unwrap();
 
         // Set client = FTX for hardcoded candle tests
         let client = RestClient::new_intl();
@@ -1446,7 +1446,7 @@ mod tests {
             let is_success = qc_unvalidated_candle(
                 &client,
                 &pool,
-                &exchange.exchange_name,
+                &exchange.name.as_str(),
                 &market_detail,
                 &candle,
             )

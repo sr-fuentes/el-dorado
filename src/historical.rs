@@ -1,6 +1,6 @@
 use crate::candles::*;
 use crate::configuration::*;
-use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::RestError, Exchange};
+use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::RestError, Exchange, ExchangeName};
 use crate::markets::*;
 use crate::mita::Mita;
 use crate::trades::*;
@@ -10,9 +10,9 @@ use sqlx::PgPool;
 impl Mita {
     pub async fn historical(&self, end_source: &str) {
         // Get REST client for exchange
-        let client = match self.exchange.exchange_name.as_str() {
-            "ftxus" => RestClient::new_us(),
-            "ftx" => RestClient::new_intl(),
+        let client = match self.exchange.name {
+            ExchangeName::FtxUs => RestClient::new_us(),
+            ExchangeName::Ftx => RestClient::new_intl(),
             _ => panic!("No client exists for that exchange."),
         };
         for market in self.markets.iter() {
@@ -21,7 +21,7 @@ impl Mita {
             // Set start and end times for backfill
             let start = match select_last_candle(
                 &self.pool,
-                &self.exchange.exchange_name,
+                &self.exchange.name.as_str(),
                 &market.market_id,
             )
             .await
@@ -42,7 +42,7 @@ impl Mita {
                     loop {
                         match select_ftx_trade_first_stream(
                             &self.pool,
-                            &self.exchange.exchange_name,
+                            &self.exchange.name.as_str(),
                             market.strip_name().as_str(),
                         )
                         .await
@@ -86,14 +86,14 @@ pub async fn run(pool: &PgPool, config: &Settings) {
     // Match exchange to exchanges in database
     let exchange = exchanges
         .iter()
-        .find(|e| e.exchange_name == config.application.exchange)
+        .find(|e| e.name.as_str() == config.application.exchange)
         .unwrap();
 
     // Get REST client for exchange
-    let client = match exchange.exchange_name.as_str() {
-        "ftxus" => RestClient::new_us(),
-        "ftx" => RestClient::new_intl(),
-        _ => panic!("No client exists for {}.", exchange.exchange_name),
+    let client = match exchange.name {
+        ExchangeName::FtxUs => RestClient::new_us(),
+        ExchangeName::Ftx => RestClient::new_intl(),
+        _ => panic!("No client exists for {}.", exchange.name.as_str()),
     };
 
     // Get market id from configuration
@@ -109,7 +109,7 @@ pub async fn run(pool: &PgPool, config: &Settings) {
     // TODO - move to alt table, drop, recreate and move back to reset tables on each load
     create_ftx_trade_table(
         pool,
-        &exchange.exchange_name,
+        &exchange.name.as_str(),
         market.strip_name().as_str(),
         "processed",
     )
@@ -117,7 +117,7 @@ pub async fn run(pool: &PgPool, config: &Settings) {
     .expect("Could not create processed table.");
     create_ftx_trade_table(
         pool,
-        &exchange.exchange_name,
+        &exchange.name.as_str(),
         market.strip_name().as_str(),
         "validated",
     )
@@ -133,22 +133,22 @@ pub async fn run(pool: &PgPool, config: &Settings) {
     validate_hb_candles(
         pool,
         &client,
-        &exchange.exchange_name,
+        &exchange.name.as_str(),
         &market_detail,
         config,
     )
     .await;
 
     // Create 01d candles
-    create_01d_candles(pool, &exchange.exchange_name, &market.market_id).await;
+    create_01d_candles(pool, &exchange.name.as_str(), &market.market_id).await;
 
     // Validate 01d candles
-    validate_01d_candles(pool, &client, &exchange.exchange_name, &market_detail).await;
+    validate_01d_candles(pool, &client, &exchange.name.as_str(), &market_detail).await;
 
     // Drop and re-create  _rest table for market
     drop_ftx_trade_table(
         pool,
-        &exchange.exchange_name,
+        &exchange.name.as_str(),
         market.strip_name().as_str(),
         "rest",
     )
@@ -156,7 +156,7 @@ pub async fn run(pool: &PgPool, config: &Settings) {
     .expect("Could not drop rest table.");
     create_ftx_trade_table(
         pool,
-        &exchange.exchange_name,
+        &exchange.name.as_str(),
         market.strip_name().as_str(),
         "rest",
     )
@@ -164,7 +164,7 @@ pub async fn run(pool: &PgPool, config: &Settings) {
     .expect("Could not create rest table.");
 
     // Get last state of market, return status, start and finish
-    let start = match select_last_candle(pool, &exchange.exchange_name, &market.market_id).await {
+    let start = match select_last_candle(pool, &exchange.name.as_str(), &market.market_id).await {
         Ok(c) => c.datetime + Duration::seconds(900),
         Err(sqlx::Error::RowNotFound) => get_ftx_start(&client, &market_detail).await,
         Err(e) => panic!("Sqlx Error: {:?}", e),
@@ -283,7 +283,7 @@ pub async fn backfill_ftx(
                 insert_ftx_trades(
                     pool,
                     &market.market_id,
-                    &exchange.exchange_name,
+                    &exchange.name.as_str(),
                     market.strip_name().as_str(),
                     "rest",
                     new_trades,
@@ -302,7 +302,7 @@ pub async fn backfill_ftx(
                     // Select trades for market between start and end interval
                     let mut interval_trades = select_ftx_trades_by_time(
                         pool,
-                        &exchange.exchange_name,
+                        &exchange.name.as_str(),
                         market.strip_name().as_str(),
                         "rest",
                         interval_start,
@@ -318,7 +318,7 @@ pub async fn backfill_ftx(
                             // Get previous candle
                             let previous_candle = select_previous_candle(
                                 pool,
-                                &exchange.exchange_name,
+                                &exchange.name.as_str(),
                                 &market.market_id,
                                 interval_start,
                             )
@@ -348,7 +348,7 @@ pub async fn backfill_ftx(
                     // Insert into candles
                     insert_candle(
                         pool,
-                        &exchange.exchange_name,
+                        &exchange.name.as_str(),
                         &market.market_id,
                         new_candle,
                         false,
@@ -359,7 +359,7 @@ pub async fn backfill_ftx(
                     // Delete trades for market between start and end interval
                     delete_ftx_trades_by_time(
                         pool,
-                        &exchange.exchange_name,
+                        &exchange.name.as_str(),
                         market.strip_name().as_str(),
                         "rest",
                         interval_start,
@@ -371,7 +371,7 @@ pub async fn backfill_ftx(
                     insert_ftx_trades(
                         pool,
                         &market.market_id,
-                        &exchange.exchange_name,
+                        &exchange.name.as_str(),
                         market.strip_name().as_str(),
                         "processed",
                         interval_trades,

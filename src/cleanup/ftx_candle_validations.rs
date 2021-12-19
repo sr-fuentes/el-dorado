@@ -1,6 +1,6 @@
 use crate::candles::{qc_unvalidated_candle, Candle};
 use crate::configuration::Settings;
-use crate::exchanges::{fetch_exchanges, ftx::RestClient};
+use crate::exchanges::{fetch_exchanges, ftx::RestClient, ExchangeName};
 use crate::markets::{fetch_markets, select_market_detail};
 use sqlx::PgPool;
 
@@ -17,13 +17,13 @@ pub async fn cleanup_02(pool: &PgPool, config: &Settings) {
     // Match exchange to config
     let exchange = exchanges
         .iter()
-        .find(|e| e.exchange_name == config.application.exchange)
+        .find(|e| e.name.as_str() == config.application.exchange)
         .unwrap();
     // Get REST client for exchange
-    let client = match exchange.exchange_name.as_str() {
-        "ftxus" => RestClient::new_us(),
-        "ftx" => RestClient::new_intl(),
-        _ => panic!("No client exists for {}", exchange.exchange_name),
+    let client = match exchange.name {
+        ExchangeName::FtxUs => RestClient::new_us(),
+        ExchangeName::Ftx => RestClient::new_intl(),
+        _ => panic!("No client exists for {}", exchange.name.as_str()),
     };
     // Get all markets and ids for markets
     let market_ids = fetch_markets(pool, exchange)
@@ -36,7 +36,7 @@ pub async fn cleanup_02(pool: &PgPool, config: &Settings) {
         WHERE not is_validated
         ORDER BY market_id, datetime
         "#,
-        exchange.exchange_name
+        exchange.name.as_str()
     );
     let candles = sqlx::query_as::<_, Candle>(&sql)
         .fetch_all(pool)
@@ -58,7 +58,7 @@ pub async fn cleanup_02(pool: &PgPool, config: &Settings) {
         let is_success = qc_unvalidated_candle(
             &client,
             pool,
-            &exchange.exchange_name,
+            &exchange.name.as_str(),
             &market_detail,
             candle,
         )

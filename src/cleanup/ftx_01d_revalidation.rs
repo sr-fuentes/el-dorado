@@ -3,7 +3,7 @@ use crate::candles::{
     validate_01d_candles, DailyCandle,
 };
 use crate::configuration::Settings;
-use crate::exchanges::{fetch_exchanges, ftx::RestClient};
+use crate::exchanges::{fetch_exchanges, ftx::RestClient, ExchangeName};
 use crate::markets::{fetch_markets, select_market_detail, MarketId};
 use chrono::Duration;
 use sqlx::PgPool;
@@ -21,13 +21,13 @@ pub async fn cleanup_03(pool: &PgPool, config: &Settings) {
     // Match exchange to config
     let exchange = exchanges
         .iter()
-        .find(|e| e.exchange_name == config.application.exchange)
+        .find(|e| e.name.as_str() == config.application.exchange)
         .unwrap();
     // Get REST client for exchange
-    let client = match exchange.exchange_name.as_str() {
-        "ftxus" => RestClient::new_us(),
-        "ftx" => RestClient::new_intl(),
-        _ => panic!("No client exists for {}", exchange.exchange_name),
+    let client = match exchange.name {
+        ExchangeName::FtxUs => RestClient::new_us(),
+        ExchangeName::Ftx => RestClient::new_intl(),
+        _ => panic!("No client exists for {}", exchange.name.as_str()),
     };
     // Get all markets and ids for markets
     let market_ids = fetch_markets(pool, exchange)
@@ -52,7 +52,7 @@ pub async fn cleanup_03(pool: &PgPool, config: &Settings) {
         // Get hb candles
         let hb_candles = select_candles_by_daterange(
             pool,
-            &exchange.exchange_name,
+            &exchange.name.as_str(),
             &market.market_id,
             candle.datetime,
             candle.datetime + Duration::days(1),
@@ -119,6 +119,6 @@ pub async fn cleanup_03(pool: &PgPool, config: &Settings) {
         let market_detail = select_market_detail(pool, market)
             .await
             .expect("Could not fetch market detail.");
-        validate_01d_candles(pool, &client, &exchange.exchange_name, &market_detail).await;
+        validate_01d_candles(pool, &client, &exchange.name.as_str(), &market_detail).await;
     }
 }

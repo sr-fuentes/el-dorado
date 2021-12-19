@@ -22,7 +22,7 @@ pub async fn cleanup_04(pool: &PgPool, config: &Settings) {
     // Match exchange to config
     let exchange = exchanges
         .iter()
-        .find(|e| e.exchange_name == config.application.exchange)
+        .find(|e| e.name.as_str() == config.application.exchange)
         .unwrap();
     // Get all markets and ids for markets
     let market_ids = fetch_markets(pool, exchange)
@@ -52,7 +52,7 @@ pub async fn cleanup_04(pool: &PgPool, config: &Settings) {
         // Get hb candles
         let hb_candles = select_candles_by_daterange(
             pool,
-            &exchange.exchange_name,
+            &exchange.name.as_str(),
             &market.market_id,
             candle.datetime,
             candle.datetime + Duration::days(1),
@@ -65,7 +65,7 @@ pub async fn cleanup_04(pool: &PgPool, config: &Settings) {
         for hb_candle in hb_candles.iter() {
             delete_ftx_trades_by_time(
                 pool,
-                &exchange.exchange_name,
+                &exchange.name.as_str(),
                 market.strip_name().as_str(),
                 "rest",
                 hb_candle.datetime,
@@ -75,7 +75,7 @@ pub async fn cleanup_04(pool: &PgPool, config: &Settings) {
             .expect("could not delete rest and ws trades.");
             delete_ftx_trades_by_time(
                 pool,
-                &exchange.exchange_name,
+                &exchange.name.as_str(),
                 market.strip_name().as_str(),
                 "processed",
                 hb_candle.datetime,
@@ -85,7 +85,7 @@ pub async fn cleanup_04(pool: &PgPool, config: &Settings) {
             .expect("could not delete processed trades.");
             delete_ftx_trades_by_time(
                 pool,
-                &exchange.exchange_name,
+                &exchange.name.as_str(),
                 market.strip_name().as_str(),
                 "validated",
                 hb_candle.datetime,
@@ -100,7 +100,7 @@ pub async fn cleanup_04(pool: &PgPool, config: &Settings) {
                 WHERE market_id = $3
                 AND datetime = $4
                 "#,
-                exchange.exchange_name
+                exchange.name.as_str()
             );
             sqlx::query(&sql_update)
                 .bind(false)

@@ -1,4 +1,4 @@
-use crate::exchanges::ftx::Trade;
+use crate::exchanges::{ftx::Trade, ExchangeName};
 use crate::markets::MarketDetail;
 use crate::mita::Mita;
 use chrono::{DateTime, Utc};
@@ -8,14 +8,14 @@ use uuid::Uuid;
 impl Mita {
     pub async fn reset_trade_tables(&self, tables: &[&str]) {
         for market in self.markets.iter() {
-            match self.exchange.exchange_name.as_str() {
-                "ftx" | "ftxus" => {
+            match self.exchange.name {
+                ExchangeName::Ftx | ExchangeName::FtxUs => {
                     for table in tables.iter() {
                         if *table == "processed" || *table == "validated" {
                             // Alter table, create, migrate, drop
                             alter_trade_table_to_temp(
                                 &self.pool,
-                                &self.exchange.exchange_name,
+                                &self.exchange.name.as_str(),
                                 market.strip_name().as_str(),
                                 *table,
                             )
@@ -27,7 +27,7 @@ impl Mita {
                             // function when it tries to select from a table that does not exists.
                             create_ftx_trade_table(
                                 &self.pool,
-                                &self.exchange.exchange_name,
+                                &self.exchange.name.as_str(),
                                 market.strip_name().as_str(),
                                 *table,
                             )
@@ -35,7 +35,7 @@ impl Mita {
                             .expect("Could not create ftx trade table.");
                             create_ftx_trade_table(
                                 &self.pool,
-                                &self.exchange.exchange_name,
+                                &self.exchange.name.as_str(),
                                 market.strip_name().as_str(),
                                 format!("{}_temp", table).as_str(),
                             )
@@ -43,7 +43,7 @@ impl Mita {
                             .expect("Could not create temp trade table.");
                             migrate_trades_from_temp(
                                 &self.pool,
-                                &self.exchange.exchange_name,
+                                &self.exchange.name.as_str(),
                                 market.strip_name().as_str(),
                                 *table,
                             )
@@ -51,7 +51,7 @@ impl Mita {
                             .expect("Could not migrate trades from temp table.");
                             drop_ftx_trade_table(
                                 &self.pool,
-                                &self.exchange.exchange_name,
+                                &self.exchange.name.as_str(),
                                 market.strip_name().as_str(),
                                 format!("{}_temp", table).as_str(),
                             )
@@ -61,7 +61,7 @@ impl Mita {
                             // "ws" or "rest", just drop and re-create each time
                             drop_ftx_trade_table(
                                 &self.pool,
-                                &self.exchange.exchange_name,
+                                &self.exchange.name.as_str(),
                                 market.strip_name().as_str(),
                                 *table,
                             )
@@ -69,7 +69,7 @@ impl Mita {
                             .expect("Could not drop ftx trade table.");
                             create_ftx_trade_table(
                                 &self.pool,
-                                &self.exchange.exchange_name,
+                                &self.exchange.name.as_str(),
                                 market.strip_name().as_str(),
                                 *table,
                             )
@@ -94,7 +94,7 @@ impl Mita {
         insert_ftx_trades(
             &self.pool,
             &market.market_id,
-            &self.exchange.exchange_name,
+            &self.exchange.name.as_str(),
             market.strip_name().as_str(),
             "processed",
             trades,
@@ -103,7 +103,7 @@ impl Mita {
         .expect("Could not insert procesed trades.");
         delete_ftx_trades_by_time(
             &self.pool,
-            &self.exchange.exchange_name,
+            &self.exchange.name.as_str(),
             market.strip_name().as_str(),
             "ws",
             start,

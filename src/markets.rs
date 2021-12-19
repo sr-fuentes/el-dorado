@@ -1,6 +1,6 @@
 use crate::candles::Candle;
 use crate::exchanges::ftx::*;
-use crate::exchanges::Exchange;
+use crate::exchanges::{Exchange, ExchangeName};
 
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
@@ -50,12 +50,12 @@ impl MarketDetail {
     }
 }
 
-pub async fn pull_usd_markets_from_ftx(exchange: &str) -> Result<Vec<Market>, RestError> {
+pub async fn pull_usd_markets_from_ftx(exchange: &ExchangeName) -> Result<Vec<Market>, RestError> {
     // Get Rest Client
     let client = match exchange {
-        "ftxus" => RestClient::new_us(),
-        "ftx" => RestClient::new_intl(),
-        _ => panic!("No client exists for {}.", exchange),
+        ExchangeName::FtxUs => RestClient::new_us(),
+        ExchangeName::Ftx => RestClient::new_intl(),
+        _ => panic!("No client exists for {}.", exchange.as_str()),
     };
 
     // Get Markets
@@ -76,7 +76,7 @@ pub async fn fetch_markets(
         FROM markets
         WHERE exchange_name = $1
         "#,
-        exchange.exchange_name
+        exchange.name.as_str()
     )
     .fetch_all(pool)
     .await?;
@@ -123,7 +123,7 @@ pub async fn insert_new_market(
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)    
         "#,
         Uuid::new_v4(),
-        exchange.exchange_name,
+        exchange.name.as_str(),
         market.name,
         market.market_type,
         market.base_currency,
@@ -248,7 +248,7 @@ mod tests {
         // Match exchange to exchanges in database
         let exchange = exchanges
             .iter()
-            .find(|e| e.exchange_name == configuration.application.exchange)
+            .find(|e| e.name.as_str() == configuration.application.exchange)
             .unwrap();
 
         // Get input from config for market to archive

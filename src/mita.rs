@@ -35,12 +35,12 @@ impl Mita {
         // Match exchange to exchanges in database
         let exchange = exchanges
             .into_iter()
-            .find(|e| e.exchange_name == settings.application.exchange)
+            .find(|e| e.name.as_str() == settings.application.exchange)
             .unwrap();
         // Get market details assigned to mita
         let markets = select_market_detail_by_exchange_mita(
             &pool,
-            &exchange.exchange_name,
+            &exchange.name.as_str(),
             &settings.application.droplet,
         )
         .await
@@ -92,7 +92,7 @@ impl Mita {
             // Get start time for candle sync
             let start = match select_last_candle(
                 &self.pool,
-                &self.exchange.exchange_name,
+                &self.exchange.name.as_str(),
                 &market.market_id,
             )
             .await
@@ -110,7 +110,7 @@ impl Mita {
             // Migrate rest trades to ws
             let rest_trades = select_ftx_trades_by_time(
                 &self.pool,
-                &self.exchange.exchange_name,
+                &self.exchange.name.as_str(),
                 market.strip_name().as_str(),
                 "rest",
                 start,
@@ -121,7 +121,7 @@ impl Mita {
             insert_ftx_trades(
                 &self.pool,
                 &market.market_id,
-                &self.exchange.exchange_name,
+                &self.exchange.name.as_str(),
                 market.strip_name().as_str(),
                 "ws",
                 rest_trades,
@@ -131,7 +131,7 @@ impl Mita {
             // Drop rest table
             drop_ftx_trade_table(
                 &self.pool,
-                &self.exchange.exchange_name,
+                &self.exchange.name.as_str(),
                 market.strip_name().as_str(),
                 "rest",
             )
@@ -144,7 +144,7 @@ impl Mita {
                 // fill needs a ws trade to start the backfill function.
                 let sync_trades = select_ftx_trades_by_time(
                     &self.pool,
-                    &self.exchange.exchange_name,
+                    &self.exchange.name.as_str(),
                     market.strip_name().as_str(),
                     "ws",
                     start,
@@ -162,7 +162,7 @@ impl Mita {
                 // Create vec of candles for date range
                 let mut previous_candle = select_previous_candle(
                     &self.pool,
-                    &self.exchange.exchange_name,
+                    &self.exchange.name.as_str(),
                     &market.market_id,
                     start,
                 )
@@ -200,7 +200,7 @@ impl Mita {
                 for candle in candles.into_iter() {
                     insert_candle(
                         &self.pool,
-                        &self.exchange.exchange_name,
+                        &self.exchange.name.as_str(),
                         &market.market_id,
                         candle,
                         false,
@@ -211,7 +211,7 @@ impl Mita {
                 // Move trades from ws to processed and delete from ws
                 delete_ftx_trades_by_time(
                     &self.pool,
-                    &self.exchange.exchange_name,
+                    &self.exchange.name.as_str(),
                     market.strip_name().as_str(),
                     "ws",
                     start,
@@ -222,7 +222,7 @@ impl Mita {
                 insert_ftx_trades(
                     &self.pool,
                     &market.market_id,
-                    &self.exchange.exchange_name,
+                    &self.exchange.name.as_str(),
                     market.strip_name().as_str(),
                     "processed",
                     sync_trades,
@@ -246,7 +246,7 @@ impl Mita {
         // Get trades
         let trades = select_ftx_trades_by_time(
             &self.pool,
-            &self.exchange.exchange_name,
+            &self.exchange.name.as_str(),
             market.strip_name().as_str(),
             "ws",
             start,
