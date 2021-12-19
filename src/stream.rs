@@ -1,5 +1,7 @@
 use crate::configuration::Settings;
-use crate::exchanges::{fetch_exchanges, ExchangeName, ftx::Channel, ftx::Data, ftx::WsClient, ftx::WsError};
+use crate::exchanges::{
+    fetch_exchanges, ftx::Channel, ftx::Data, ftx::WsClient, ftx::WsError, ExchangeName,
+};
 use crate::markets::fetch_markets;
 use crate::mita::Mita;
 use crate::trades::{create_ftx_trade_table, drop_ftx_trade_table, insert_ftx_trade};
@@ -45,7 +47,7 @@ pub async fn stream(pool: &PgPool, config: &Settings) {
     .expect("Could not create ws table.");
     // Get WS client for exchange
     let mut ws = match exchange.name {
-        ExchangeName::FtxUs=> WsClient::connect_us().await.expect("Could not connect ws."),
+        ExchangeName::FtxUs => WsClient::connect_us().await.expect("Could not connect ws."),
         ExchangeName::Ftx => WsClient::connect_intl()
             .await
             .expect("could not conenct ws."),
@@ -161,7 +163,10 @@ impl Mita {
 mod tests {
     use crate::configuration::get_configuration;
     use crate::exchanges::fetch_exchanges;
-    use crate::exchanges::{ftx::{Channel, Data, WsClient}, ExchangeName};
+    use crate::exchanges::{
+        ftx::{Channel, Data, WsClient},
+        ExchangeName,
+    };
     use crate::markets::{fetch_markets, select_market_detail};
     use crate::trades::{create_ftx_trade_table, drop_ftx_trade_table, insert_ftx_trade};
     use futures::StreamExt;
