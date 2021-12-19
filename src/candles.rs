@@ -1183,8 +1183,8 @@ pub async fn update_candle_archived(
 mod tests {
     use super::*;
     use crate::configuration::get_configuration;
-    use crate::exchanges::fetch_exchanges;
-    use crate::markets::{fetch_markets, select_market_detail};
+    use crate::exchanges::select_exchanges;
+    use crate::markets::{select_market_ids_by_exchange, select_market_detail};
     use chrono::{TimeZone, Utc};
 
     pub fn sample_trades() -> Vec<Trade> {
@@ -1339,7 +1339,7 @@ mod tests {
             .expect("Failed to connect to Postgres.");
 
         // Get exchanges from database
-        let exchanges = fetch_exchanges(&pool)
+        let exchanges = select_exchanges(&pool)
             .await
             .expect("Could not fetch exchanges.");
         // Match exchange to exchanges in database
@@ -1349,7 +1349,7 @@ mod tests {
         let client = RestClient::new_intl();
 
         // Get market ids
-        let market_ids = fetch_markets(&pool, &exchange)
+        let market_ids = select_market_ids_by_exchange(&pool, &exchange.name)
             .await
             .expect("Could not fetch exchanges.");
         let market = market_ids

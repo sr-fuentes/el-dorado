@@ -86,8 +86,8 @@ pub async fn archive(pool: &PgPool, config: &Settings) {
 mod test {
     use crate::candles::*;
     use crate::configuration::get_configuration;
-    use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::Trade, ExchangeName};
-    use crate::markets::{fetch_markets, select_market_detail};
+    use crate::exchanges::{select_exchanges, ftx::RestClient, ftx::Trade, ExchangeName};
+    use crate::markets::{select_market_ids_by_exchange, select_market_detail};
     use crate::trades::select_ftx_trades_by_time;
     use chrono::{Duration, DurationRound};
     use csv::Writer;
@@ -108,7 +108,7 @@ mod test {
             .expect("Failed to connect to Postgres.");
 
         // Get exchanges from database
-        let exchanges = fetch_exchanges(&pool)
+        let exchanges = select_exchanges(&pool)
             .await
             .expect("Could not fetch exchanges.");
 
@@ -125,7 +125,7 @@ mod test {
         };
 
         // Get input from config for market to archive
-        let market_ids = fetch_markets(&pool, &exchange)
+        let market_ids = select_market_ids_by_exchange(&pool, &exchange.name)
             .await
             .expect("Could not fetch exchanges.");
         let market = market_ids

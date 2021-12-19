@@ -1,7 +1,7 @@
 use crate::candles::Candle;
 use crate::candles::{insert_candle, select_last_candle, select_previous_candle};
 use crate::configuration::{get_configuration, Settings};
-use crate::exchanges::{fetch_exchanges, ftx::Trade, Exchange};
+use crate::exchanges::{select_exchanges, ftx::Trade, Exchange};
 use crate::markets::{select_market_detail_by_exchange_mita, MarketDetail};
 use crate::trades::{
     delete_ftx_trades_by_time, drop_ftx_trade_table, insert_ftx_trades, select_ftx_trades_by_time,
@@ -29,7 +29,7 @@ impl Mita {
             .await
             .expect("Failed to connect to postgres db.");
         // Get exchange details
-        let exchanges = fetch_exchanges(&pool)
+        let exchanges = select_exchanges(&pool)
             .await
             .expect("Could not select exchanges from db.");
         // Match exchange to exchanges in database

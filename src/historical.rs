@@ -1,6 +1,6 @@
 use crate::candles::*;
 use crate::configuration::*;
-use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::RestError, Exchange, ExchangeName};
+use crate::exchanges::{select_exchanges, ftx::RestClient, ftx::RestError, Exchange, ExchangeName};
 use crate::markets::*;
 use crate::mita::Mita;
 use crate::trades::*;
@@ -79,7 +79,7 @@ impl Mita {
 
 pub async fn run(pool: &PgPool, config: &Settings) {
     // Get exchanges from database
-    let exchanges = fetch_exchanges(pool)
+    let exchanges = select_exchanges(pool)
         .await
         .expect("Could not fetch exchanges.");
     // Match exchange to exchanges in database
@@ -95,7 +95,7 @@ pub async fn run(pool: &PgPool, config: &Settings) {
     };
 
     // Get market id from configuration
-    let market_ids = fetch_markets(pool, exchange)
+    let market_ids = select_market_ids_by_exchange(pool, &exchange.name)
         .await
         .expect("Could not fetch exchanges.");
     let market = market_ids
