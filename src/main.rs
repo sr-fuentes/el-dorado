@@ -1,5 +1,4 @@
 use clap::App;
-use el_dorado::cleanup::cleanup_03;
 use el_dorado::configuration::get_configuration;
 use el_dorado::mita::Mita;
 use el_dorado::{archive::archive, exchanges::add};
@@ -51,7 +50,7 @@ async fn main() {
                 .await;
             mita.historical("eod").await;
         }
-        Some("cleanup") => cleanup_03(&connection_pool, &configuration).await, // Remove options when no cleanup job
+        Some("cleanup") => println!("No cleanup job available."), // Remove options when no cleanup job
         Some("archive") => archive(&connection_pool, &configuration).await,
         Some("stream") => {
             mita.reset_trade_tables(&["ws"]).await;
