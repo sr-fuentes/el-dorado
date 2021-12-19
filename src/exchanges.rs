@@ -1,5 +1,6 @@
 use crate::candles::create_exchange_candle_table;
 use crate::configuration::*;
+use crate::inquisidor::Inquisidor;
 use crate::markets::{fetch_markets, insert_new_market, pull_usd_markets_from_ftx};
 use crate::utilities::get_input;
 use chrono::Utc;
@@ -40,6 +41,40 @@ impl TryFrom<String> for ExchangeName {
             "ftxus" => Ok(Self::FtxUs),
             other => Err(format!("{} is not a supported exchange.", other)),
         }
+    }
+}
+
+impl Inquisidor {
+    pub async fn add_new_exchange(&self) {
+        // Get user input for exchange to add
+        let exchange: String = get_input("Enter Exchange to Add:");
+        // Parse input to see if there is a valid exchange
+        let exchange: ExchangeName = exchange.try_into().unwrap();
+        // Get current exchanges from db
+        let exchanges = select_exchanges(&self.pool)
+            .await
+            .expect("Could not fetch exchanges.");
+        // Compare input to existing exchanges
+        if exchanges.iter().any(|e| e.name == exchange) {
+            // Exchange already exists in db. Return command.
+            println!("{:?} has all ready been added to El-Dorado.", exchange);
+            return;
+        }
+        // Add new exchange to db.
+        println!("Adding {:?} to El-Dorado.", exchange);
+        let new_exchange = Exchange {
+            id: Uuid::new_v4(),
+            name: exchange,
+        };
+        insert_new_exchange(&self.pool, &new_exchange)
+            .await
+            .expect("Failed to insert new exchange.");
+        // Refresh markets for new exchange (should insert all)
+        self.refresh_exchange_markets(&exchange).await;
+        // Create candle table for exchange
+        create_exchange_candle_table(&self.pool, &exchange.as_str())
+            .await
+            .expect("Failed to create exchange table.");
     }
 }
 
@@ -117,6 +152,20 @@ pub async fn add(pool: &PgPool, config: &Settings) {
 }
 
 pub async fn fetch_exchanges(pool: &PgPool) -> Result<Vec<Exchange>, sqlx::Error> {
+    let rows = sqlx::query_as!(
+        Exchange,
+        r#"
+        SELECT exchange_id as id, exchange_name as "name: ExchangeName"
+        FROM exchanges
+        "#
+    )
+    .fetch_all(pool)
+    .await?;
+    println!("Rows: {:?}", rows);
+    Ok(rows)
+}
+
+pub async fn select_exchanges(pool: &PgPool) -> Result<Vec<Exchange>, sqlx::Error> {
     let rows = sqlx::query_as!(
         Exchange,
         r#"
