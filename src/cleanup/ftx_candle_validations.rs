@@ -23,7 +23,6 @@ pub async fn cleanup_02(pool: &PgPool, config: &Settings) {
     let client = match exchange.name {
         ExchangeName::FtxUs => RestClient::new_us(),
         ExchangeName::Ftx => RestClient::new_intl(),
-        _ => panic!("No client exists for {}", exchange.name.as_str()),
     };
     // Get all markets and ids for markets
     let market_ids = fetch_markets(pool, exchange)

@@ -49,7 +49,6 @@ pub async fn stream(pool: &PgPool, config: &Settings) {
         ExchangeName::Ftx => WsClient::connect_intl()
             .await
             .expect("could not conenct ws."),
-        _ => panic!("No ws client exists for this exchange."),
     };
     // Subscribe to markets
     ws.subscribe(vec![Channel::Trades(market.market_name.to_owned())])
@@ -101,7 +100,6 @@ impl Mita {
             ExchangeName::Ftx => WsClient::connect_intl()
                 .await
                 .expect("Could not connect ws."),
-            _ => panic!("No ws client exists for this exchange."),
         };
         // Subscribe to trades channels for each market
         ws.subscribe(channels)
@@ -214,7 +212,6 @@ mod tests {
             ExchangeName::Ftx => WsClient::connect_intl()
                 .await
                 .expect("Could not connect ws."),
-            _ => panic!("No ws client exists for this exchange."),
         };
         ws.subscribe(vec![Channel::Trades(market_id.market_name.to_owned())])
             .await

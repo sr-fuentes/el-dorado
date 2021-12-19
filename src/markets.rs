@@ -55,7 +55,6 @@ pub async fn pull_usd_markets_from_ftx(exchange: &ExchangeName) -> Result<Vec<Ma
     let client = match exchange {
         ExchangeName::FtxUs => RestClient::new_us(),
         ExchangeName::Ftx => RestClient::new_intl(),
-        _ => panic!("No client exists for {}.", exchange.as_str()),
     };
 
     // Get Markets

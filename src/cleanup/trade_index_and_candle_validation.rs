@@ -31,7 +31,6 @@ pub async fn cleanup_01(pool: &PgPool, config: Settings) {
     let _client = match exchange.name {
         ExchangeName::FtxUs => RestClient::new_us(),
         ExchangeName::Ftx => RestClient::new_intl(),
-        _ => panic!("No client exists for {}.", exchange.name.as_str()),
     };
 
     // Get markets that have candles

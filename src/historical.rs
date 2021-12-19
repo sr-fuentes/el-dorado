@@ -13,7 +13,6 @@ impl Mita {
         let client = match self.exchange.name {
             ExchangeName::FtxUs => RestClient::new_us(),
             ExchangeName::Ftx => RestClient::new_intl(),
-            _ => panic!("No client exists for that exchange."),
         };
         for market in self.markets.iter() {
             // Validate hb, create and validate 01 candles
@@ -93,7 +92,6 @@ pub async fn run(pool: &PgPool, config: &Settings) {
     let client = match exchange.name {
         ExchangeName::FtxUs => RestClient::new_us(),
         ExchangeName::Ftx => RestClient::new_intl(),
-        _ => panic!("No client exists for {}.", exchange.name.as_str()),
     };
 
     // Get market id from configuration

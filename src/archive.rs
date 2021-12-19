@@ -122,7 +122,6 @@ mod test {
         let client = match exchange.name {
             ExchangeName::FtxUs => RestClient::new_us(),
             ExchangeName::Ftx => RestClient::new_intl(),
-            _ => panic!("No client exists for {}.", exchange.name.as_str()),
         };
 
         // Get input from config for market to archive

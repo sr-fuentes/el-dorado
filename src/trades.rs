@@ -78,7 +78,6 @@ impl Mita {
                         }
                     }
                 }
-                _ => panic!("Exchange not supported."),
             }
         }
     }
