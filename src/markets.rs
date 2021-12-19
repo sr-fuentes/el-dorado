@@ -4,7 +4,6 @@ use crate::exchanges::{
     ExchangeName,
 };
 use crate::inquisidor::Inquisidor;
-
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
