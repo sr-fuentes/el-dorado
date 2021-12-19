@@ -1,8 +1,8 @@
 use crate::candles::{select_candles_by_daterange, DailyCandle};
 use crate::cleanup::{cleanup_02, cleanup_03};
 use crate::configuration::Settings;
-use crate::exchanges::fetch_exchanges;
-use crate::markets::fetch_markets;
+use crate::exchanges::select_exchanges;
+use crate::markets::select_market_ids_by_exchange;
 use crate::trades::delete_ftx_trades_by_time;
 use chrono::Duration;
 use sqlx::PgPool;
@@ -16,7 +16,7 @@ use sqlx::PgPool;
 
 pub async fn cleanup_04(pool: &PgPool, config: &Settings) {
     // Get exchanges from database
-    let exchanges = fetch_exchanges(pool)
+    let exchanges = select_exchanges(pool)
         .await
         .expect("Could not fetch exchanges.");
     // Match exchange to config
@@ -25,7 +25,7 @@ pub async fn cleanup_04(pool: &PgPool, config: &Settings) {
         .find(|e| e.name.as_str() == config.application.exchange)
         .unwrap();
     // Get all markets and ids for markets
-    let market_ids = fetch_markets(pool, exchange)
+    let market_ids = select_market_ids_by_exchange(pool, &exchange.name)
         .await
         .expect("Could not fetch markets.");
     // Get all 01d candles that are not validated
