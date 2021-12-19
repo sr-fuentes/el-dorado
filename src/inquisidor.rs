@@ -15,9 +15,6 @@ impl Inquisidor {
         let pool = PgPool::connect_with(settings.database.with_db())
             .await
             .expect("Failed to connect to postgres db.");
-        Self {
-            settings,
-            pool,
-        }
+        Self { settings, pool }
     }
 }
