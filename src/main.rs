@@ -15,9 +15,6 @@ async fn main() {
         .await
         .expect("Failed to connect to Postgres.");
 
-    // Create new mita instance
-    let mita = Mita::new().await;
-
     // Load clap commands and arguments
     let matches = App::new("El Dorado")
         .version("0.1.4")
@@ -37,6 +34,8 @@ async fn main() {
         Some("refresh") => println!("Refresh is not yet implemented."),
         Some("edit") => println!("Edit is not yet implemented."),
         Some("run") => {
+            // Create new mita instance and run stream and backfill until no restart
+            let mita = Mita::new().await;
             mita.reset_trade_tables(&["ws", "rest", "processed", "validated"])
                 .await;
             let res = tokio::select! {
@@ -46,6 +45,8 @@ async fn main() {
             println!("Res: {:?}", res);
         }
         Some("historical") => {
+            // Create new mita instance and backfill until start of current day
+            let mita = Mita::new().await;
             mita.reset_trade_tables(&["rest", "processed", "validated"])
                 .await;
             mita.historical("eod").await;
@@ -53,6 +54,8 @@ async fn main() {
         Some("cleanup") => println!("No cleanup job available."), // Remove options when no cleanup job
         Some("archive") => archive(&connection_pool, &configuration).await,
         Some("stream") => {
+            // Create new mita instance and run stream until no restart
+            let mita = Mita::new().await;
             mita.reset_trade_tables(&["ws"]).await;
             mita.stream().await;
         }
