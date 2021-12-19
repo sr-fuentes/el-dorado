@@ -263,7 +263,7 @@ pub async fn update_market_data_status(
 #[cfg(test)]
 mod tests {
     use crate::configuration::*;
-    use crate::exchanges::fetch_exchanges;
+    use crate::exchanges::select_exchanges;
     use crate::markets::select_market_ids_by_exchange;
     use sqlx::PgPool;
 
@@ -279,7 +279,7 @@ mod tests {
             .expect("Failed to connect to Postgres.");
 
         // Get exchanges from database
-        let exchanges = fetch_exchanges(&pool)
+        let exchanges = select_exchanges(&pool)
             .await
             .expect("Could not fetch exchanges.");
         // Match exchange to exchanges in database
