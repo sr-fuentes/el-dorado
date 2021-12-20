@@ -1,6 +1,5 @@
 use crate::candles::*;
-use crate::configuration::*;
-use crate::exchanges::{ftx::RestClient, ftx::RestError, select_exchanges, Exchange, ExchangeName};
+use crate::exchanges::{ftx::RestClient, ftx::RestError, Exchange, ExchangeName};
 use crate::markets::*;
 use crate::mita::Mita;
 use crate::trades::*;
@@ -75,116 +74,6 @@ impl Mita {
             }
         }
     }
-}
-
-pub async fn run(pool: &PgPool, config: &Settings) {
-    // Get exchanges from database
-    let exchanges = select_exchanges(pool)
-        .await
-        .expect("Could not fetch exchanges.");
-    // Match exchange to exchanges in database
-    let exchange = exchanges
-        .iter()
-        .find(|e| e.name.as_str() == config.application.exchange)
-        .unwrap();
-
-    // Get REST client for exchange
-    let client = match exchange.name {
-        ExchangeName::FtxUs => RestClient::new_us(),
-        ExchangeName::Ftx => RestClient::new_intl(),
-    };
-
-    // Get market id from configuration
-    let market_ids = select_market_ids_by_exchange(pool, &exchange.name)
-        .await
-        .expect("Could not fetch exchanges.");
-    let market = market_ids
-        .iter()
-        .find(|m| m.market_name == config.application.market)
-        .unwrap();
-
-    // Create the processed and validated trade tables if they do not already exists
-    // TODO - move to alt table, drop, recreate and move back to reset tables on each load
-    create_ftx_trade_table(
-        pool,
-        exchange.name.as_str(),
-        market.strip_name().as_str(),
-        "processed",
-    )
-    .await
-    .expect("Could not create processed table.");
-    create_ftx_trade_table(
-        pool,
-        exchange.name.as_str(),
-        market.strip_name().as_str(),
-        "validated",
-    )
-    .await
-    .expect("Could not create validated table.");
-
-    // Get market details from configuration
-    let market_detail = select_market_detail(pool, market)
-        .await
-        .expect("Could not fetch market detail.");
-
-    // Validate / clean up current candles / trades for market
-    validate_hb_candles(
-        pool,
-        &client,
-        exchange.name.as_str(),
-        &market_detail,
-        config,
-    )
-    .await;
-
-    // Create 01d candles
-    create_01d_candles(pool, exchange.name.as_str(), &market.market_id).await;
-
-    // Validate 01d candles
-    validate_01d_candles(pool, &client, exchange.name.as_str(), &market_detail).await;
-
-    // Drop and re-create  _rest table for market
-    drop_ftx_trade_table(
-        pool,
-        exchange.name.as_str(),
-        market.strip_name().as_str(),
-        "rest",
-    )
-    .await
-    .expect("Could not drop rest table.");
-    create_ftx_trade_table(
-        pool,
-        exchange.name.as_str(),
-        market.strip_name().as_str(),
-        "rest",
-    )
-    .await
-    .expect("Could not create rest table.");
-
-    // Get last state of market, return status, start and finish
-    let start = match select_last_candle(pool, exchange.name.as_str(), &market.market_id).await {
-        Ok(c) => c.datetime + Duration::seconds(900),
-        Err(sqlx::Error::RowNotFound) => get_ftx_start(&client, &market_detail).await,
-        Err(e) => panic!("Sqlx Error: {:?}", e),
-    };
-    // let end = Utc::now().duration_trunc(Duration::days(1)).unwrap(); // 9/15/2021 02:00
-    // Temp end to set clean end to archive / processing to convert trade tables
-    let end = Utc::now().duration_trunc(Duration::days(1)).unwrap();
-
-    // Update market status to `Syncing`
-    update_market_data_status(
-        pool,
-        &market.market_id,
-        "Syncing",
-        config.application.ip_addr.as_str(),
-    )
-    .await
-    .expect("Could not update market status.");
-
-    // Backfill historical
-    // Match exchange for backfill routine
-    println!("Backfilling from {} to {}.", start, end);
-    backfill_ftx(pool, &client, exchange, &market_detail, start, end).await;
 }
 
 pub async fn backfill_ftx(
