@@ -4,6 +4,7 @@ pub mod cleanup;
 pub mod configuration;
 pub mod exchanges;
 pub mod historical;
+pub mod inquisidor;
 pub mod markets;
 pub mod mita;
 pub mod stream;

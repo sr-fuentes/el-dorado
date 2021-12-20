@@ -223,15 +223,15 @@ impl Mita {
         validate_hb_candles(
             &self.pool,
             client,
-            &self.exchange.name.as_str(),
+            self.exchange.name.as_str(),
             market,
             &self.settings,
         )
         .await;
         // Create 01d candles
-        create_01d_candles(&self.pool, &self.exchange.name.as_str(), &market.market_id).await;
+        create_01d_candles(&self.pool, self.exchange.name.as_str(), &market.market_id).await;
         // Validate 01d candles
-        validate_01d_candles(&self.pool, client, &self.exchange.name.as_str(), market).await;
+        validate_01d_candles(&self.pool, client, self.exchange.name.as_str(), market).await;
     }
 
     pub async fn create_interval_candles(
@@ -244,7 +244,7 @@ impl Mita {
         // Get previous candle - to be used to forward fill if there are no trades
         let mut previous_candle = select_previous_candle(
             &self.pool,
-            &self.exchange.name.as_str(),
+            self.exchange.name.as_str(),
             &market.market_id,
             *date_range.first().unwrap(),
         )
@@ -280,7 +280,7 @@ impl Mita {
         for candle in candles.into_iter() {
             insert_candle(
                 &self.pool,
-                &self.exchange.name.as_str(),
+                self.exchange.name.as_str(),
                 &market.market_id,
                 candle,
                 false,
@@ -1183,8 +1183,8 @@ pub async fn update_candle_archived(
 mod tests {
     use super::*;
     use crate::configuration::get_configuration;
-    use crate::exchanges::fetch_exchanges;
-    use crate::markets::{fetch_markets, select_market_detail};
+    use crate::exchanges::select_exchanges;
+    use crate::markets::{select_market_detail, select_market_ids_by_exchange};
     use chrono::{TimeZone, Utc};
 
     pub fn sample_trades() -> Vec<Trade> {
@@ -1339,7 +1339,7 @@ mod tests {
             .expect("Failed to connect to Postgres.");
 
         // Get exchanges from database
-        let exchanges = fetch_exchanges(&pool)
+        let exchanges = select_exchanges(&pool)
             .await
             .expect("Could not fetch exchanges.");
         // Match exchange to exchanges in database
@@ -1349,7 +1349,7 @@ mod tests {
         let client = RestClient::new_intl();
 
         // Get market ids
-        let market_ids = fetch_markets(&pool, &exchange)
+        let market_ids = select_market_ids_by_exchange(&pool, &exchange.name)
             .await
             .expect("Could not fetch exchanges.");
         let market = market_ids

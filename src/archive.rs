@@ -1,10 +1,87 @@
 use crate::candles::*;
 use crate::configuration::*;
+use crate::inquisidor::Inquisidor;
 use crate::markets::select_markets_active;
 use crate::trades::*;
 use chrono::Duration;
 use csv::Writer;
 use sqlx::PgPool;
+
+impl Inquisidor {
+    pub async fn archive_validated_trades(&self) {
+        // Get Active markets
+        let markets = select_markets_active(&self.pool)
+            .await
+            .expect("Failed to fetch active markets.");
+        // Check for trades to archive in each active market
+        for market in markets.iter() {
+            // Get market table for table and file
+            let market_table_name = market.strip_name();
+            // Check directory for exchange csv is created
+            let p = format!(
+                "{}/csv/{}",
+                &self.settings.application.archive_path, &market.exchange_name
+            );
+            std::fs::create_dir_all(&p).expect("Failed to create directories.");
+            // Get validated but not archived 01d candles
+            let candles_to_archive =
+                select_candles_valid_not_archived(&self.pool, &market.market_id)
+                    .await
+                    .expect("Failed to fetch candles to archive.");
+            // Archive trades
+            for candle in candles_to_archive.iter() {
+                println!(
+                    "Archiving {} - {} {:?} daily trades.",
+                    &market.exchange_name, &market.market_name, &candle.datetime
+                );
+                // Select trades associated with candle
+                let trades_to_archive = select_ftx_trades_by_time(
+                    &self.pool,
+                    &market.exchange_name,
+                    market_table_name.as_str(),
+                    "validated",
+                    candle.datetime,
+                    candle.datetime + Duration::days(1),
+                )
+                .await
+                .expect("Failed to fetch validated trades.");
+                // Check the number of trades selected == trade count from candle
+                if trades_to_archive.len() as i64 != candle.trade_count {
+                    println!(
+                        "Trade count does not match on candle. Candle: {}, Trade Count {}",
+                        candle.trade_count,
+                        trades_to_archive.len()
+                    );
+                    continue;
+                }
+                // Define filename = TICKER_YYYYMMDD.csv
+                let f = format!("{}_{}.csv", market_table_name, candle.datetime.format("%F"));
+                // Set filepath and file name
+                let fp = std::path::Path::new(&p).join(f);
+                // Write trades to file
+                let mut wtr = Writer::from_path(fp).expect("Failed to open file.");
+                for trade in trades_to_archive.iter() {
+                    wtr.serialize(trade).expect("Failed to serialize trade.");
+                }
+                wtr.flush().expect("Failed to flush wtr.");
+                // Delete trades from validate table
+                delete_ftx_trades_by_time(
+                    &self.pool,
+                    &market.exchange_name,
+                    market_table_name.as_str(),
+                    "validated",
+                    candle.datetime,
+                    candle.datetime + Duration::days(1),
+                )
+                .await
+                .expect("Failed to delete archived trades.");
+                update_candle_archived(&self.pool, &market.market_id, candle)
+                    .await
+                    .expect("Failed to update candle archive status.");
+            }
+        }
+    }
+}
 
 pub async fn archive(pool: &PgPool, config: &Settings) {
     // Get Active markets
@@ -86,8 +163,8 @@ pub async fn archive(pool: &PgPool, config: &Settings) {
 mod test {
     use crate::candles::*;
     use crate::configuration::get_configuration;
-    use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::Trade, ExchangeName};
-    use crate::markets::{fetch_markets, select_market_detail};
+    use crate::exchanges::{ftx::RestClient, ftx::Trade, select_exchanges, ExchangeName};
+    use crate::markets::{select_market_detail, select_market_ids_by_exchange};
     use crate::trades::select_ftx_trades_by_time;
     use chrono::{Duration, DurationRound};
     use csv::Writer;
@@ -108,7 +185,7 @@ mod test {
             .expect("Failed to connect to Postgres.");
 
         // Get exchanges from database
-        let exchanges = fetch_exchanges(&pool)
+        let exchanges = select_exchanges(&pool)
             .await
             .expect("Could not fetch exchanges.");
 
@@ -125,7 +202,7 @@ mod test {
         };
 
         // Get input from config for market to archive
-        let market_ids = fetch_markets(&pool, &exchange)
+        let market_ids = select_market_ids_by_exchange(&pool, &exchange.name)
             .await
             .expect("Could not fetch exchanges.");
         let market = market_ids

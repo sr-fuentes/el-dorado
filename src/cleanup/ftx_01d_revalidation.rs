@@ -3,8 +3,8 @@ use crate::candles::{
     validate_01d_candles, DailyCandle,
 };
 use crate::configuration::Settings;
-use crate::exchanges::{fetch_exchanges, ftx::RestClient, ExchangeName};
-use crate::markets::{fetch_markets, select_market_detail, MarketId};
+use crate::exchanges::{ftx::RestClient, select_exchanges, ExchangeName};
+use crate::markets::{select_market_detail, select_market_ids_by_exchange, MarketId};
 use chrono::Duration;
 use sqlx::PgPool;
 
@@ -15,7 +15,7 @@ use sqlx::PgPool;
 
 pub async fn cleanup_03(pool: &PgPool, config: &Settings) {
     // Get exchanges from database
-    let exchanges = fetch_exchanges(pool)
+    let exchanges = select_exchanges(pool)
         .await
         .expect("Could not fetch exchanges.");
     // Match exchange to config
@@ -29,7 +29,7 @@ pub async fn cleanup_03(pool: &PgPool, config: &Settings) {
         ExchangeName::Ftx => RestClient::new_intl(),
     };
     // Get all markets and ids for markets
-    let market_ids = fetch_markets(pool, exchange)
+    let market_ids = select_market_ids_by_exchange(pool, &exchange.name)
         .await
         .expect("Could not fetch markets.");
     // Get all 01d candles that are not validated
@@ -51,7 +51,7 @@ pub async fn cleanup_03(pool: &PgPool, config: &Settings) {
         // Get hb candles
         let hb_candles = select_candles_by_daterange(
             pool,
-            &exchange.name.as_str(),
+            exchange.name.as_str(),
             &market.market_id,
             candle.datetime,
             candle.datetime + Duration::days(1),
@@ -118,6 +118,6 @@ pub async fn cleanup_03(pool: &PgPool, config: &Settings) {
         let market_detail = select_market_detail(pool, market)
             .await
             .expect("Could not fetch market detail.");
-        validate_01d_candles(pool, &client, &exchange.name.as_str(), &market_detail).await;
+        validate_01d_candles(pool, &client, exchange.name.as_str(), &market_detail).await;
     }
 }

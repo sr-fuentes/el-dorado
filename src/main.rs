@@ -1,20 +1,9 @@
 use clap::App;
-use el_dorado::configuration::get_configuration;
+use el_dorado::inquisidor::Inquisidor;
 use el_dorado::mita::Mita;
-use el_dorado::{archive::archive, exchanges::add};
-use sqlx::PgPool;
 
 #[tokio::main]
 async fn main() {
-    // Load configuration
-    let configuration = get_configuration().expect("Failed to read configuration.");
-    println!("Configuration: {:?}", configuration);
-
-    // Create db connection
-    let connection_pool = PgPool::connect_with(configuration.database.with_db())
-        .await
-        .expect("Failed to connect to Postgres.");
-
     // Load clap commands and arguments
     let matches = App::new("El Dorado")
         .version("0.1.4")
@@ -30,8 +19,16 @@ async fn main() {
 
     // Match subcommand and route
     match matches.subcommand_name() {
-        Some("add") => add(&connection_pool, &configuration).await,
-        Some("refresh") => println!("Refresh is not yet implemented."),
+        Some("add") => {
+            // Create new admin instance and add new exchange
+            let ig = Inquisidor::new().await;
+            ig.add_new_exchange().await;
+        }
+        Some("refresh") => {
+            // Create new admin instance and refresh exchange
+            let ig = Inquisidor::new().await;
+            ig.refresh_exchange().await;
+        }
         Some("edit") => println!("Edit is not yet implemented."),
         Some("run") => {
             // Create new mita instance and run stream and backfill until no restart
@@ -52,7 +49,11 @@ async fn main() {
             mita.historical("eod").await;
         }
         Some("cleanup") => println!("No cleanup job available."), // Remove options when no cleanup job
-        Some("archive") => archive(&connection_pool, &configuration).await,
+        Some("archive") => {
+            // Create new admin instance and add new exchange
+            let ig = Inquisidor::new().await;
+            ig.archive_validated_trades().await;
+        }
         Some("stream") => {
             // Create new mita instance and run stream until no restart
             let mita = Mita::new().await;
@@ -62,8 +63,4 @@ async fn main() {
         None => println!("Please run with subcommands: `add` `refresh` `edit` or `run`."),
         _ => unreachable!(), // CLAP will error out before running this arm
     }
-
-    // Create tasks
-
-    // Await tasks
 }

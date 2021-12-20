@@ -1,7 +1,7 @@
 use crate::candles::{qc_unvalidated_candle, Candle};
 use crate::configuration::Settings;
-use crate::exchanges::{fetch_exchanges, ftx::RestClient, ExchangeName};
-use crate::markets::{fetch_markets, select_market_detail};
+use crate::exchanges::{ftx::RestClient, select_exchanges, ExchangeName};
+use crate::markets::{select_market_detail, select_market_ids_by_exchange};
 use sqlx::PgPool;
 
 // Clean up FTX candles that are not validated. Initial setup used a limit of 100 trades for each
@@ -11,7 +11,7 @@ use sqlx::PgPool;
 
 pub async fn cleanup_02(pool: &PgPool, config: &Settings) {
     // Get exchanges from database
-    let exchanges = fetch_exchanges(pool)
+    let exchanges = select_exchanges(pool)
         .await
         .expect("Could not fetch exchanges.");
     // Match exchange to config
@@ -25,7 +25,7 @@ pub async fn cleanup_02(pool: &PgPool, config: &Settings) {
         ExchangeName::Ftx => RestClient::new_intl(),
     };
     // Get all markets and ids for markets
-    let market_ids = fetch_markets(pool, exchange)
+    let market_ids = select_market_ids_by_exchange(pool, &exchange.name)
         .await
         .expect("Could not fetch markets.");
     // Get all hb candles that are not validated
@@ -57,7 +57,7 @@ pub async fn cleanup_02(pool: &PgPool, config: &Settings) {
         let is_success = qc_unvalidated_candle(
             &client,
             pool,
-            &exchange.name.as_str(),
+            exchange.name.as_str(),
             &market_detail,
             candle,
         )

@@ -1,8 +1,8 @@
 use crate::configuration::Settings;
 use crate::exchanges::{
-    fetch_exchanges, ftx::Channel, ftx::Data, ftx::WsClient, ftx::WsError, ExchangeName,
+    ftx::Channel, ftx::Data, ftx::WsClient, ftx::WsError, select_exchanges, ExchangeName,
 };
-use crate::markets::fetch_markets;
+use crate::markets::select_market_ids_by_exchange;
 use crate::mita::Mita;
 use crate::trades::{create_ftx_trade_table, drop_ftx_trade_table, insert_ftx_trade};
 use futures::StreamExt;
@@ -12,7 +12,7 @@ use std::io::ErrorKind;
 
 pub async fn stream(pool: &PgPool, config: &Settings) {
     // Get exchanges from database
-    let exchanges = fetch_exchanges(pool)
+    let exchanges = select_exchanges(pool)
         .await
         .expect("Could not fetch exchanges.");
     // Match exchange to exchanges in databse
@@ -21,7 +21,7 @@ pub async fn stream(pool: &PgPool, config: &Settings) {
         .find(|e| e.name.as_str() == config.application.exchange)
         .unwrap();
     // Get market id from configuration
-    let market_ids = fetch_markets(pool, exchange)
+    let market_ids = select_market_ids_by_exchange(pool, &exchange.name)
         .await
         .expect("Could not fetch exchanges.");
     let market = market_ids
@@ -31,7 +31,7 @@ pub async fn stream(pool: &PgPool, config: &Settings) {
     // Drop and re-create _ws table for market
     drop_ftx_trade_table(
         pool,
-        &exchange.name.as_str(),
+        exchange.name.as_str(),
         market.strip_name().as_str(),
         "ws",
     )
@@ -39,7 +39,7 @@ pub async fn stream(pool: &PgPool, config: &Settings) {
     .expect("Could not drop ws table.");
     create_ftx_trade_table(
         pool,
-        &exchange.name.as_str(),
+        exchange.name.as_str(),
         market.strip_name().as_str(),
         "ws",
     )
@@ -64,7 +64,7 @@ pub async fn stream(pool: &PgPool, config: &Settings) {
                 insert_ftx_trade(
                     pool,
                     &market.market_id,
-                    &exchange.name.as_str(),
+                    exchange.name.as_str(),
                     market.strip_name().as_str(),
                     "ws",
                     trade,
@@ -115,7 +115,7 @@ impl Mita {
                     insert_ftx_trade(
                         &self.pool,
                         &map_ids[market.as_str()],
-                        &self.exchange.name.as_str(),
+                        self.exchange.name.as_str(),
                         map_strip_names[market.as_str()].as_str(),
                         "ws",
                         trade,
@@ -162,12 +162,12 @@ impl Mita {
 #[cfg(test)]
 mod tests {
     use crate::configuration::get_configuration;
-    use crate::exchanges::fetch_exchanges;
+    use crate::exchanges::select_exchanges;
     use crate::exchanges::{
         ftx::{Channel, Data, WsClient},
         ExchangeName,
     };
-    use crate::markets::{fetch_markets, select_market_detail};
+    use crate::markets::{select_market_detail, select_market_ids_by_exchange};
     use crate::trades::{create_ftx_trade_table, drop_ftx_trade_table, insert_ftx_trade};
     use futures::StreamExt;
     use sqlx::PgPool;
@@ -179,14 +179,14 @@ mod tests {
         let pool = PgPool::connect_with(configuration.database.with_db())
             .await
             .expect("Failed to connect to Postgres.");
-        let exchanges = fetch_exchanges(&pool)
+        let exchanges = select_exchanges(&pool)
             .await
             .expect("Could not fetch exchanges from db.");
         let exchange = exchanges
             .iter()
             .find(|e| e.name.as_str() == configuration.application.exchange)
             .unwrap();
-        let market_ids = fetch_markets(&pool, exchange)
+        let market_ids = select_market_ids_by_exchange(&pool, &exchange.name)
             .await
             .expect("Could not fetch markets.");
         let market_id = market_ids

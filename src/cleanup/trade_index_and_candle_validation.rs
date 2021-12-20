@@ -1,6 +1,6 @@
 use crate::candles::Candle;
 use crate::configuration::Settings;
-use crate::exchanges::{fetch_exchanges, ftx::RestClient, ftx::Trade, ExchangeName};
+use crate::exchanges::{ftx::RestClient, ftx::Trade, select_exchanges, ExchangeName};
 use crate::markets::*;
 use crate::trades::select_ftx_trades_by_time;
 use chrono::{Duration, Utc};
@@ -18,7 +18,7 @@ use sqlx::PgPool;
 
 pub async fn cleanup_01(pool: &PgPool, config: Settings) {
     // Get exchanges from database
-    let exchanges = fetch_exchanges(pool)
+    let exchanges = select_exchanges(pool)
         .await
         .expect("Could not fetch exchanges.");
     // Match exchange to exchanges in database
@@ -82,7 +82,7 @@ pub async fn cleanup_01(pool: &PgPool, config: Settings) {
             let mut trades = match candle.is_validated {
                 false => select_ftx_trades_by_time(
                     pool,
-                    &exchange.name.as_str(),
+                    exchange.name.as_str(),
                     market.strip_name().as_str(),
                     "processed",
                     candle.datetime,
