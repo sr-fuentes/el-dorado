@@ -57,7 +57,7 @@ impl Mita {
         }
     }
 
-    pub async fn process_restart(&self) {
+    pub async fn process_restart(&self) -> Duration {
         // Get sleep time from current restart count
         let mut sleep_duration = match self.restart_count {
             0 => tokio::time::Duration::from_secs(5),
@@ -76,6 +76,8 @@ impl Mita {
         // Sleep for duration
         println!("Sleeping for {:?} before restarting.", sleep_duration);
         tokio::time::sleep(sleep_duration).await;
+        // Return time since last restart
+        time_since_last_restart
     }
 
     pub async fn run(&self) -> bool {

@@ -46,9 +46,15 @@ async fn main() {
                 };
                 println!("Res: {:?}", restart);
                 if restart {
-                    mita.process_restart().await;
+                    let dur = mita.process_restart().await;
                     mita.last_restart = Utc::now();
-                    mita.restart_count += 1;
+                    if dur > chrono::Duration::days(1) {
+                        // If there has been > 24 hours since last restart
+                        // reset the counter
+                        mita.restart_count = 1
+                    } else {
+                        mita.restart_count += 1;
+                    };
                     mita.restart = true;
                 }
             }
