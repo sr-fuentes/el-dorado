@@ -1,84 +1,11 @@
-use crate::configuration::Settings;
 use crate::exchanges::{
-    ftx::Channel, ftx::Data, ftx::WsClient, ftx::WsError, select_exchanges, ExchangeName,
+    ftx::Channel, ftx::Data, ftx::WsClient, ftx::WsError, ExchangeName,
 };
-use crate::markets::select_market_ids_by_exchange;
 use crate::mita::Mita;
-use crate::trades::{create_ftx_trade_table, drop_ftx_trade_table, insert_ftx_trade};
+use crate::trades::insert_ftx_trade;
 use futures::StreamExt;
-use sqlx::PgPool;
 use std::collections::HashMap;
 use std::io::ErrorKind;
-
-pub async fn stream(pool: &PgPool, config: &Settings) {
-    // Get exchanges from database
-    let exchanges = select_exchanges(pool)
-        .await
-        .expect("Could not fetch exchanges.");
-    // Match exchange to exchanges in databse
-    let exchange = exchanges
-        .iter()
-        .find(|e| e.name.as_str() == config.application.exchange)
-        .unwrap();
-    // Get market id from configuration
-    let market_ids = select_market_ids_by_exchange(pool, &exchange.name)
-        .await
-        .expect("Could not fetch exchanges.");
-    let market = market_ids
-        .iter()
-        .find(|m| m.market_name == config.application.market)
-        .unwrap();
-    // Drop and re-create _ws table for market
-    drop_ftx_trade_table(
-        pool,
-        exchange.name.as_str(),
-        market.strip_name().as_str(),
-        "ws",
-    )
-    .await
-    .expect("Could not drop ws table.");
-    create_ftx_trade_table(
-        pool,
-        exchange.name.as_str(),
-        market.strip_name().as_str(),
-        "ws",
-    )
-    .await
-    .expect("Could not create ws table.");
-    // Get WS client for exchange
-    let mut ws = match exchange.name {
-        ExchangeName::FtxUs => WsClient::connect_us().await.expect("Could not connect ws."),
-        ExchangeName::Ftx => WsClient::connect_intl()
-            .await
-            .expect("could not conenct ws."),
-    };
-    // Subscribe to markets
-    ws.subscribe(vec![Channel::Trades(market.market_name.to_owned())])
-        .await
-        .expect("Could not subscribe to market.");
-    // Loop forever saving each trade that comes in on the socket to the db
-    loop {
-        let data = ws.next().await.expect("No data received.");
-        match data {
-            Ok((_, Data::Trade(trade))) => {
-                insert_ftx_trade(
-                    pool,
-                    &market.market_id,
-                    exchange.name.as_str(),
-                    market.strip_name().as_str(),
-                    "ws",
-                    trade,
-                )
-                .await
-                .expect("Could not insert trade into db.");
-            }
-            Err(e) => {
-                println!("WsError: {:?}", e);
-                panic!("Unexpected error.");
-            }
-        }
-    }
-}
 
 impl Mita {
     pub async fn stream(&self) {
