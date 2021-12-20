@@ -33,13 +33,18 @@ async fn main() {
         Some("run") => {
             // Create new mita instance and run stream and backfill until no restart
             let mita = Mita::new().await;
-            mita.reset_trade_tables(&["ws", "rest", "processed", "validated"])
-                .await;
-            let res = tokio::select! {
-                res1 = mita.run() => res1,
-                res2 = mita.stream() => res2,
-            };
-            println!("Res: {:?}", res);
+            // Restart loop if the mita restart value is true, else exit program
+            while mita.restart {
+                // Set restart value to false, error handling must explicity set back to true
+                mita.set_restart(false);
+                mita.reset_trade_tables(&["ws", "rest", "processed", "validated"])
+                    .await;
+                let res = tokio::select! {
+                    res1 = mita.run() => res1,
+                    res2 = mita.stream() => res2,
+                };
+                println!("Res: {:?}", res);
+            }
         }
         Some("historical") => {
             // Create new mita instance and backfill until start of current day
