@@ -429,11 +429,11 @@ pub async fn validate_hb_candles(
         println!("Pulled {} candles from exchange.", exchange_candles.len());
         println!(
             "First returned candle is: {:?}",
-            exchange_candles.first().unwrap()
+            exchange_candles.first().unwrap().time
         );
         println!(
             "Last returned candle is: {:?}",
-            exchange_candles.last().unwrap()
+            exchange_candles.last().unwrap().time
         );
         for unvalidated_candle in unvalidated_candles {
             // validate candle - get candle from exchange, comp volume. if volume matches
@@ -584,8 +584,8 @@ pub fn validate_candle(candle: &Candle, exchange_candles: &mut Vec<CandleFtx>) -
                 true
             } else {
                 println!(
-                    "Failed to validate: {:?} in \n {:?}",
-                    candle, exchange_candle
+                    "Failed to validate: El-D Val: {:?} Ftx Vol: {:?}",
+                    candle.value, c.volume
                 );
                 false
             }
@@ -596,7 +596,7 @@ pub fn validate_candle(candle: &Candle, exchange_candles: &mut Vec<CandleFtx>) -
             } else {
                 println!(
                     "Failed to validate: {:?}. Volume not 0 and no exchange candle.",
-                    candle
+                    candle.datetime
                 );
                 false
             }
