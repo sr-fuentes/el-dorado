@@ -24,7 +24,11 @@ async fn main() {
             let ig = Inquisidor::new().await;
             ig.add_new_exchange().await;
         }
-        Some("refresh") => println!("Refresh is not yet implemented."),
+        Some("refresh") => {
+            // Create new admin instance and refresh exchange
+            let ig = Inquisidor::new().await;
+            ig.refresh_exchange().await;
+        }
         Some("edit") => println!("Edit is not yet implemented."),
         Some("run") => {
             // Create new mita instance and run stream and backfill until no restart
