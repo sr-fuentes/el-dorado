@@ -1,6 +1,4 @@
-use crate::exchanges::{
-    ftx::Channel, ftx::Data, ftx::WsClient, ftx::WsError, ExchangeName,
-};
+use crate::exchanges::{ftx::Channel, ftx::Data, ftx::WsClient, ftx::WsError, ExchangeName};
 use crate::mita::Mita;
 use crate::trades::insert_ftx_trade;
 use futures::StreamExt;
@@ -8,7 +6,7 @@ use std::collections::HashMap;
 use std::io::ErrorKind;
 
 impl Mita {
-    pub async fn stream(&self) {
+    pub async fn stream(&self) -> bool {
         // Run ::reset_trade_tables for ws before calling this function or the table
         // may not exist that the streamed trades write to.
         // Initiate channel and map data structures
@@ -58,17 +56,17 @@ impl Mita {
                         ErrorKind::ConnectionReset => {
                             println!("Error Kind: ConnectionReset.");
                             println!("to_string(): {:?}", ioerr.to_string());
-                            break;
+                            break true;
                         }
                         ErrorKind::UnexpectedEof => {
                             println!("Error Kind: UnexpectedEof.");
                             println!("to_string(): {:?}", ioerr.to_string());
-                            break;
+                            break true;
                         }
                         _ => {
                             println!("Other Error Kind: {:?}.", ioerr.kind());
                             println!("to_string(): {:?}", ioerr.to_string());
-                            break;
+                            break false;
                         }
                     },
                     _ => {

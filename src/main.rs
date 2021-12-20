@@ -1,3 +1,4 @@
+use chrono::Utc;
 use clap::App;
 use el_dorado::inquisidor::Inquisidor;
 use el_dorado::mita::Mita;
@@ -32,14 +33,31 @@ async fn main() {
         Some("edit") => println!("Edit is not yet implemented."),
         Some("run") => {
             // Create new mita instance and run stream and backfill until no restart
-            let mita = Mita::new().await;
-            mita.reset_trade_tables(&["ws", "rest", "processed", "validated"])
-                .await;
-            let res = tokio::select! {
-                res1 = mita.run() => res1,
-                res2 = mita.stream() => res2,
-            };
-            println!("Res: {:?}", res);
+            let mut mita = Mita::new().await;
+            // Restart loop if the mita restart value is true, else exit program
+            while mita.restart {
+                // Set restart value to false, error handling must explicity set back to true
+                mita.restart = false;
+                mita.reset_trade_tables(&["ws", "rest", "processed", "validated"])
+                    .await;
+                let restart = tokio::select! {
+                    res1 = mita.run() => res1,
+                    res2 = mita.stream() => res2,
+                };
+                println!("Res: {:?}", restart);
+                if restart {
+                    let dur = mita.process_restart().await;
+                    mita.last_restart = Utc::now();
+                    if dur > chrono::Duration::days(1) {
+                        // If there has been > 24 hours since last restart
+                        // reset the counter
+                        mita.restart_count = 1
+                    } else {
+                        mita.restart_count += 1;
+                    };
+                    mita.restart = true;
+                }
+            }
         }
         Some("historical") => {
             // Create new mita instance and backfill until start of current day

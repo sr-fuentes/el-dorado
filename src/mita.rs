@@ -18,6 +18,7 @@ pub struct Mita {
     pub pool: PgPool,
     pub restart: bool,
     pub last_restart: DateTime<Utc>,
+    pub restart_count: i8,
 }
 
 impl Mita {
@@ -50,12 +51,36 @@ impl Mita {
             markets,
             exchange,
             pool,
-            restart: false,
+            restart: true,
             last_restart: Utc::now(),
+            restart_count: 0,
         }
     }
 
-    pub async fn run(&self) {
+    pub async fn process_restart(&self) -> Duration {
+        // Get sleep time from current restart count
+        let mut sleep_duration = match self.restart_count {
+            0 => tokio::time::Duration::from_secs(5),
+            1 => tokio::time::Duration::from_secs(30),
+            2 => tokio::time::Duration::from_secs(60),
+            3 => tokio::time::Duration::from_secs(300),
+            4 => tokio::time::Duration::from_secs(900),
+            _ => tokio::time::Duration::from_secs(1800),
+        };
+        // Get time from last restart
+        let time_since_last_restart = Utc::now() - self.last_restart;
+        // If time from last restart is more than 24 hours then overwrite sleep
+        if time_since_last_restart > Duration::days(1) {
+            sleep_duration = tokio::time::Duration::from_secs(5);
+        };
+        // Sleep for duration
+        println!("Sleeping for {:?} before restarting.", sleep_duration);
+        tokio::time::sleep(sleep_duration).await;
+        // Return time since last restart
+        time_since_last_restart
+    }
+
+    pub async fn run(&self) -> bool {
         // Backfill trades from last candle to first trade of live stream
         self.historical("stream").await;
         // Sync from last candle to current stream last trade
