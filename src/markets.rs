@@ -1,14 +1,14 @@
 use crate::candles::Candle;
 use crate::exchanges::{
     ftx::{Market, RestClient, RestError},
-    ExchangeName, select_exchanges
+    select_exchanges, ExchangeName,
 };
 use crate::inquisidor::Inquisidor;
 use crate::utilities::get_input;
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
-use uuid::Uuid;
 use std::convert::TryInto;
+use uuid::Uuid;
 
 #[derive(Debug, PartialEq, Eq, sqlx::FromRow)]
 pub struct MarketId {
@@ -61,7 +61,9 @@ impl Inquisidor {
         // Parse input to see if it is a valid exchange
         let exchange: ExchangeName = exchange.try_into().unwrap();
         // Get current exchanges from db
-        let exchanges = select_exchanges(&self.pool).await.expect("Failed to fetch exchanges.");
+        let exchanges = select_exchanges(&self.pool)
+            .await
+            .expect("Failed to fetch exchanges.");
         // Compare input to existing exchanges
         if !exchanges.iter().any(|e| e.name == exchange) {
             // Exchange not added
