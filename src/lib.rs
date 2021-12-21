@@ -10,3 +10,4 @@ pub mod mita;
 pub mod stream;
 pub mod trades;
 pub mod utilities;
+pub mod validation;
