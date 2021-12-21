@@ -1,4 +1,7 @@
-use crate::exchanges::ExchangeName;
+use crate::candles::{create_01d_candles, validate_01d_candles, validate_hb_candles};
+use crate::exchanges::{ftx::RestClient, select_exchanges_by_status, ExchangeName, ExchangeStatus};
+use crate::inquisidor::Inquisidor;
+use crate::markets::{select_market_details_by_status_exchange, MarketStatus};
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use std::convert::TryFrom;
@@ -69,6 +72,45 @@ impl TryFrom<String> for ValidationStatus {
             "open" => Ok(Self::Open),
             "done" => Ok(Self::Done),
             other => Err(format!("{} is not a supported validation status.", other)),
+        }
+    }
+}
+
+impl Inquisidor {
+    pub async fn validate_candles(&self) {
+        // Validate heartbeat candles for each exchange and market that is active
+        let exchanges = select_exchanges_by_status(&self.pool, ExchangeStatus::Active)
+            .await
+            .expect("Failed to select exchanges.");
+        for exchange in exchanges.iter() {
+            // Get REST client
+            let client = match exchange.name {
+                ExchangeName::FtxUs => RestClient::new_us(),
+                ExchangeName::Ftx => RestClient::new_intl(),
+            };
+            // Get active markets for exchange
+            let markets = select_market_details_by_status_exchange(
+                &self.pool,
+                &exchange.name,
+                &MarketStatus::Active,
+            )
+            .await
+            .expect("Failed to select active markets for exchange.");
+            for market in markets.iter() {
+                // For each active market, validated heartbeat candles
+                validate_hb_candles(
+                    &self.pool,
+                    &client,
+                    exchange.name.as_str(),
+                    market,
+                    &self.settings,
+                )
+                .await;
+                // Create any 01d candles
+                create_01d_candles(&self.pool, exchange.name.as_str(), &market.market_id).await;
+                // Validated 01d candles
+                validate_01d_candles(&self.pool, &client, exchange.name.as_str(), market).await;
+            }
         }
     }
 }
