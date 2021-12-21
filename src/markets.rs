@@ -7,7 +7,7 @@ use crate::inquisidor::Inquisidor;
 use crate::utilities::get_input;
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
-use std::convert::TryInto;
+use std::convert::{TryInto, TryFrom};
 use uuid::Uuid;
 
 #[derive(Debug, PartialEq, Eq, sqlx::FromRow)]
@@ -65,14 +65,43 @@ pub enum MarketStatus {
     Sync,
     // Market is active in loop to stream trades and create candles
     Active,
-    // Market is streaming trades only, no candles are being created
-    Stream,
     // Market has crashed the the program is restarting.
     Restart,
     // Market is backfilling from start to current start of day
     Historical,
     // Market is not available for streaming or backfilling. Ignore completely.
     Terminated,
+}
+
+impl MarketStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            MarketStatus::New => "new",
+            MarketStatus::Backfill => "backfill",
+            MarketStatus::Sync => "sync",
+            MarketStatus::Active => "active",
+            MarketStatus::Restart => "restart",
+            MarketStatus::Historical => "historical",
+            MarketStatus::Terminated => "terminated",
+        }
+    }
+}
+
+impl TryFrom<String> for MarketStatus {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        match s.to_lowercase().as_str() {
+            "new" => Ok(Self::New),
+            "backfill" => Ok(Self::Backfill),
+            "sync" => Ok(Self::Sync),
+            "active" => Ok(Self::Active),
+            "restart" => Ok(Self::Restart),
+            "historical" => Ok(Self::Historical),
+            "terminated" => Ok(Self::Terminated),
+            other => Err(format!("{} is not a supported market status.", other)),
+        }
+    }
 }
 
 impl Inquisidor {
