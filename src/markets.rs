@@ -7,7 +7,7 @@ use crate::inquisidor::Inquisidor;
 use crate::utilities::get_input;
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
-use std::convert::{TryInto, TryFrom};
+use std::convert::{TryFrom, TryInto};
 use uuid::Uuid;
 
 #[derive(Debug, PartialEq, Eq, sqlx::FromRow)]
@@ -215,7 +215,7 @@ pub async fn select_market_detail_by_exchange_mita(
 pub async fn select_market_details_by_status_exchange(
     pool: &PgPool,
     exchange_name: &ExchangeName,
-    status: &MarketStatus
+    status: &MarketStatus,
 ) -> Result<Vec<MarketDetail>, sqlx::Error> {
     let rows = sqlx::query_as!(
         MarketDetail,

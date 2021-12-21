@@ -282,8 +282,10 @@ mod tests {
         let pool = PgPool::connect_with(configuration.database.with_db())
             .await
             .expect("Failed to connect to Postgres.");
-        
-        let exchanges = select_exchanges_by_status(&pool, ExchangeStatus::New).await.expect("Failed to select exchanges.");
+
+        let exchanges = select_exchanges_by_status(&pool, ExchangeStatus::New)
+            .await
+            .expect("Failed to select exchanges.");
         println!("Exchanges: {:?}", exchanges);
     }
 }
