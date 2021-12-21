@@ -113,6 +113,8 @@ impl Inquisidor {
             }
         }
     }
+
+    pub async fn process_candle_validations(&self) {}
 }
 
 pub async fn insert_candle_validation(
