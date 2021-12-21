@@ -42,6 +42,35 @@ impl TryFrom<String> for ExchangeName {
     }
 }
 
+pub enum ExchangeStatus {
+    New,
+    Active,
+    Terminated,
+}
+
+impl ExchangeStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ExchangeStatus::New => "new",
+            ExchangeStatus::Active => "active",
+            ExchangeStatus::Terminated => "terminated",
+        }
+    }
+}
+
+impl TryFrom<String> for ExchangeStatus {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        match s.to_lowercase().as_str() {
+            "new" => Ok(Self::New),
+            "active" => Ok(Self::Active),
+            "terminated" => Ok(Self::Terminated),
+            other => Err(format!("{} is not a supported exchange status.", other)),
+        }
+    }
+}
+
 impl Inquisidor {
     pub async fn add_new_exchange(&self) {
         // Get user input for exchange to add
