@@ -194,6 +194,32 @@
       ]
     }
   },
+  "62877fe9a19159ae96d2a4a169ff4f7ccca4fd306e80dca97559c6638f73e432": {
+    "query": "\n        SELECT exchange_id as id, exchange_name as \"name: ExchangeName\"\n        FROM exchanges\n        WHERE exchange_status = $1\n        ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id",
+          "type_info": "Uuid"
+        },
+        {
+          "ordinal": 1,
+          "name": "name: ExchangeName",
+          "type_info": "Text"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      },
+      "nullable": [
+        false,
+        false
+      ]
+    }
+  },
   "bf00b77bf3170f291dae8dbd86137bb01f0f3c56254012a023d00bb2263eed65": {
     "query": "\n        SELECT *\n        FROM markets\n        WHERE exchange_name = $1\n        AND mita = $2\n        ",
     "describe": {
