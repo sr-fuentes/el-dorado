@@ -54,6 +54,27 @@ impl MarketDetail {
     }
 }
 
+#[derive(Debug, sqlx::Type)]
+#[sqlx(rename_all = "lowercase")]
+pub enum MarketStatus {
+    // Market is new and has never been run
+    New,
+    // Market is backfilling from start to current last trade
+    Backfill,
+    // Market is syncing between the backfill and the streamed trades collected while backfilling
+    Sync,
+    // Market is active in loop to stream trades and create candles
+    Active,
+    // Market is streaming trades only, no candles are being created
+    Stream,
+    // Market has crashed the the program is restarting.
+    Restart,
+    // Market is backfilling from start to current start of day
+    Historical,
+    // Market is not available for streaming or backfilling. Ignore completely.
+    Terminated,
+}
+
 impl Inquisidor {
     pub async fn refresh_exchange(&self) {
         // Get user input for exchange to refresh
