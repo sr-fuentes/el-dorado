@@ -212,6 +212,27 @@ pub async fn select_market_detail_by_exchange_mita(
     Ok(rows)
 }
 
+pub async fn select_market_details_by_status_exchange(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+    status: &MarketStatus
+) -> Result<Vec<MarketDetail>, sqlx::Error> {
+    let rows = sqlx::query_as!(
+        MarketDetail,
+        r#"
+        SELECT *
+        FROM markets
+        WHERE market_data_status = $1
+        AND exchange_name = $2
+        "#,
+        status.as_str(),
+        exchange_name.as_str(),
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
 pub async fn insert_new_market(
     pool: &PgPool,
     exchange: &ExchangeName,
