@@ -1,7 +1,7 @@
+use crate::exchanges::ExchangeName;
+use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use std::convert::TryFrom;
-use chrono::{DateTime, Utc};
-use crate::exchanges::ExchangeName;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct CandleValidation {
@@ -71,4 +71,31 @@ impl TryFrom<String> for ValidationStatus {
             other => Err(format!("{} is not a supported validation status.", other)),
         }
     }
+}
+
+pub async fn insert_candle_validation(
+    pool: &PgPool,
+    exchange: &str,
+    market: &str,
+    datetime: &DateTime<Utc>,
+    duration: i32,
+) -> Result<(), sqlx::Error> {
+    let sql = r#"
+        INSERT INTO candle_validations (
+            exchange_name, market_name, datetime, duration, validation_type, created_ts,
+            validation_status, notes)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        "#;
+    sqlx::query(sql)
+        .bind(exchange)
+        .bind(market)
+        .bind(datetime)
+        .bind(duration)
+        .bind(ValidationType::Auto)
+        .bind(Utc::now())
+        .bind(ValidationStatus::New)
+        .bind("Basic QC failed, re-download trades and re-validate.")
+        .execute(pool)
+        .await?;
+    Ok(())
 }
