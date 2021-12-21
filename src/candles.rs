@@ -543,11 +543,12 @@ pub async fn validate_hb_candles(
                     .expect("Could not delete processed trades.");
                 }
             } else {
-                // Add to re-validation queue
+                // Add to candle validation table
                 println!(
-                    "Candle not validated: {} \t {}",
+                    "Candle not validated adding to validation table: {} \t {}",
                     &market.market_name, unvalidated_candle.datetime
                 );
+                insert_candle_validation()
             };
         }
     }
@@ -945,6 +946,34 @@ pub async fn insert_candles_01d(
             .await?;
     }
     Ok(())
+}
+
+pub async fn insert_candle_validation(
+    pool: &PgPool,
+    exchange: &ExchangeName,
+    market: &str,
+    datetime: &DateTime<Utc>,
+    duration: i8,
+) -> Result<(), sqlx::Error> {
+    let sql = r#"
+        INSERT INTO candle_validations (
+            exchange_name, market_name, datetime, duration, validation_type, created_ts,
+            validation_status, notes)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        "#;
+    sqlx::query(sql)
+        .bind(exchange)
+        .bind(market)
+        .bind(datetime)
+        .bind(duration)
+        .bind(ValidationType::Auto)
+        .bind(Utc::now())
+        .bind(ValidationStatus::New)
+        .bind("Basic QC failed, re-download trades and re-validate.")
+        .execute(pool)
+        .await?;
+    Ok(())
+
 }
 
 pub async fn delete_candle(
