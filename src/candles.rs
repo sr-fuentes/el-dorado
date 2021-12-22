@@ -506,7 +506,7 @@ pub async fn validate_hb_candles(
                 insert_candle_validation(
                     pool,
                     exchange_name,
-                    &market.market_name,
+                    &market.market_id,
                     &unvalidated_candle.datetime,
                     900,
                 )
