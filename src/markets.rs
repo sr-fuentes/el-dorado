@@ -233,6 +233,19 @@ pub async fn select_market_details_by_status_exchange(
     Ok(rows)
 }
 
+pub async fn select_market_details(pool: &PgPool) -> Result<Vec<MarketDetail>, sqlx::Error> {
+    let rows = sqlx::query_as!(
+        MarketDetail,
+        r#"
+        SELECT *
+        FROM markets
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
 pub async fn insert_new_market(
     pool: &PgPool,
     exchange: &ExchangeName,
