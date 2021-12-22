@@ -11,7 +11,7 @@ pub struct CandleValidation {
     pub exchange_name: ExchangeName,
     pub market_name: String,
     pub datetime: DateTime<Utc>,
-    pub duration: i32,
+    pub duration: i64,
     pub validation_type: ValidationType,
     pub created_ts: DateTime<Utc>,
     pub processed_ts: Option<DateTime<Utc>>,
@@ -114,7 +114,11 @@ impl Inquisidor {
         }
     }
 
-    pub async fn process_candle_validations(&self) {}
+    pub async fn process_candle_validations(&self) {
+        // Get all candle validations from the table
+        let validations = select_candle_validations_by_status(&self.pool, ValidationStatus::New).await.expect("Failed to select candle validations.");
+
+    }
 }
 
 pub async fn insert_candle_validation(
@@ -122,7 +126,7 @@ pub async fn insert_candle_validation(
     exchange: &str,
     market: &str,
     datetime: &DateTime<Utc>,
-    duration: i32,
+    duration: i64,
 ) -> Result<(), sqlx::Error> {
     let sql = r#"
         INSERT INTO candle_validations (
@@ -142,4 +146,28 @@ pub async fn insert_candle_validation(
         .execute(pool)
         .await?;
     Ok(())
+}
+
+pub async fn select_candle_validations_by_status(
+    pool: &PgPool,
+    status: ValidationStatus,
+) -> Result<Vec<CandleValidation>, sqlx::Error> {
+    let rows = sqlx::query_as!(
+        CandleValidation,
+        r#"
+        SELECT exchange_name as "exchange_name: ExchangeName",
+            market_name, datetime, duration,
+            validation_type as "validation_type: ValidationType",
+            created_ts, processed_ts,
+            validation_status as "validation_status: ValidationStatus",
+            notes
+        FROM candle_validations
+        WHERE validation_status = $1
+        ORDER by exchange_name, market_name
+        "#,
+        status.as_str()
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
 }
