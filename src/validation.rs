@@ -117,6 +117,23 @@ impl Inquisidor {
     pub async fn process_candle_validations(&self) {
         // Get all candle validations from the table
         let validations = select_candle_validations_by_status(&self.pool, ValidationStatus::New).await.expect("Failed to select candle validations.");
+        // Validate all entries
+        for validation in validations.iter() {
+            match validation.validation_type {
+                ValidationType::Auto => self.auto_process_candle_validation(validation).await,
+                ValidationType::Manual => println!("Manual validation not implemented."),
+            }
+        }
+    }
+
+    pub async fn auto_process_candle_validation(&self, validation: &CandleValidation) {
+        // For 01d candles - re-sample from heartbeat candles
+        // For hb candles - re-download trades from REST API
+        let validated = match validation.duration {
+            900 => todo!(),
+            86400 => todo!(),
+            d => panic!("{} is not a supported candle validation duration.", d),
+        };
 
     }
 }
