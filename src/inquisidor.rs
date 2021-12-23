@@ -1,6 +1,6 @@
 use crate::{
     configuration::{get_configuration, Settings},
-    exchanges::{ftx::RestClient, ExchangeClient},
+    exchanges::{ftx::RestClient, ExchangeName},
 };
 use chrono::{Duration, DurationRound, Utc};
 use sqlx::PgPool;
@@ -10,7 +10,7 @@ use std::collections::HashMap;
 pub struct Inquisidor {
     pub settings: Settings,
     pub pool: PgPool,
-    pub clients: HashMap<String, ExchangeClient>,
+    pub clients: HashMap<ExchangeName, RestClient>,
 }
 
 impl Inquisidor {
@@ -22,14 +22,8 @@ impl Inquisidor {
             .await
             .expect("Failed to connect to postgres db.");
         let mut clients = HashMap::new();
-        clients.insert(
-            String::from("ftx"),
-            ExchangeClient::Ftx(RestClient::new_intl()),
-        );
-        clients.insert(
-            String::from("ftxus"),
-            ExchangeClient::FtxUs(RestClient::new_us()),
-        );
+        clients.insert(ExchangeName::Ftx, RestClient::new_intl());
+        clients.insert(ExchangeName::FtxUs, RestClient::new_us());
         Self {
             settings,
             pool,
@@ -79,13 +73,15 @@ mod tests {
     async fn access_inqui_clients() {
         let ig = Inquisidor::new().await;
         println!("Inquisidor: {:?}", ig);
-        let trades = if let ExchangeClient::Ftx(c) = &ig.clients[&String::from("ftx")] {
-            c.get_trades("BTC/USD", Some(5), None, None)
-                .await
-                .expect("Failed to get trades.")
-        } else {
-            panic!()
-        };
-        println!("Trades: {:?}", trades);
+        let ftx_trades = &ig.clients[&ExchangeName::Ftx]
+            .get_trades("BTC/USD", Some(5), None, None)
+            .await
+            .expect("Failed to get trades.");
+        let ftxus_trades = &ig.clients[&ExchangeName::FtxUs]
+            .get_trades("BTC/USD", Some(5), None, None)
+            .await
+            .expect("Failed to get trades.");
+        println!("FTX Trades: {:?}", ftx_trades);
+        println!("FTX Trades: {:?}", ftxus_trades);
     }
 }
