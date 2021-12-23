@@ -1,5 +1,7 @@
 use crate::candles::{create_01d_candles, validate_01d_candles, validate_hb_candles};
-use crate::exchanges::{ftx::RestClient, ftx::RestError, select_exchanges_by_status, ExchangeName, ExchangeStatus};
+use crate::exchanges::{
+    ftx::RestClient, ftx::RestError, select_exchanges_by_status, ExchangeName, ExchangeStatus,
+};
 use crate::inquisidor::Inquisidor;
 use crate::markets::{
     select_market_details, select_market_details_by_status_exchange, MarketDetail, MarketStatus,
@@ -197,7 +199,7 @@ impl Inquisidor {
         while candle_start < candle_end_or_last_trade {
             // Prevent 429 errors by only requesting 4 per second
             tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
-            let mut new_trades = match client
+            let mut new_trades = match &self.clients[&validation.exchange_name]
                 .get_trades(
                     market.market_name.as_str(),
                     Some(5000),
