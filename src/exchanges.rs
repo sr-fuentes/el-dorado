@@ -1,5 +1,4 @@
 use crate::candles::create_exchange_candle_table;
-use crate::exchanges::ftx::RestClient;
 use crate::inquisidor::Inquisidor;
 use crate::utilities::get_input;
 use chrono::Utc;
@@ -15,7 +14,7 @@ pub struct Exchange {
     pub name: ExchangeName,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, sqlx::Type)]
+#[derive(Debug, PartialEq, Eq, Clone, sqlx::Type, Hash)]
 #[sqlx(rename_all = "lowercase")]
 pub enum ExchangeName {
     Ftx,
@@ -29,12 +28,6 @@ impl ExchangeName {
             ExchangeName::FtxUs => "ftxus",
         }
     }
-}
-
-#[derive(Debug)]
-pub enum ExchangeClient {
-    Ftx(RestClient),
-    FtxUs(RestClient),
 }
 
 impl TryFrom<String> for ExchangeName {
