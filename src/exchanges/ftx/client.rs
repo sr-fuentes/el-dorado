@@ -14,6 +14,7 @@ use tokio::time;
 use tokio::time::{Duration, Interval};
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
+#[derive(Debug)]
 pub struct RestClient {
     pub header: &'static str,
     pub endpoint: &'static str,
