@@ -1,6 +1,6 @@
 use crate::candles::{
-    create_01d_candles, get_ftx_candles, select_candles_by_daterange, validate_01d_candles,
-    validate_candle, validate_hb_candles, Candle,
+    create_01d_candles, delete_candle, get_ftx_candles, insert_candle, select_candles_by_daterange,
+    validate_01d_candles, validate_candle, validate_hb_candles, Candle,
 };
 use crate::exchanges::{
     ftx::RestClient, ftx::RestError, select_exchanges_by_status, ExchangeName, ExchangeStatus,
@@ -167,7 +167,7 @@ impl Inquisidor {
         };
         if validated {
             // New candle was validated, save trades if heartbeat and replace unvalidated candle
-            self.process_revalidated_candle(validation, market, candle);
+            self.process_revalidated_candle(validation, market, candle).await;
         } else {
             // Candle was not auto validated, update type to manual and status to open
             todo!();
@@ -321,7 +321,7 @@ impl Inquisidor {
         (false, original_candle)
     }
 
-    pub async fn process_revalidated_candle(
+    async fn process_revalidated_candle(
         &self,
         validation: &CandleValidation,
         market: &MarketDetail,
@@ -344,31 +344,61 @@ impl Inquisidor {
         }
         // Delete existing candle
         println!("Deleting old candle.");
-        delete_candle(pool, exchange_name, &market.market_id, &new_candle.datetime)
+        delete_candle(
+            &self.pool,
+            validation.exchange_name.as_str(),
+            &market.market_id,
+            &validation.datetime,
+        )
+        .await
+        .expect("Could not delete old candle.");
+        // Insert candle with validated status
+        println!("Inserting validated candle.");
+        insert_candle(
+            &self.pool,
+            validation.exchange_name.as_str(),
+            &market.market_id,
+            candle,
+            true,
+        )
+        .await
+        .expect("Could not insert validated candle.");
+        // Get validated trades from temp table, the temp table is only used by the inqui run loop
+        // and while async, it does not have mulitple instances writing to the table. An alternative
+        // is to pass the trades from the revalidation function. Any duplicate trades added to the
+        // _validated table will not be inserted do to the ON CONFLICT clause on INSERT. Any missing
+        // trades will be identified on archive of the daily candle as there is a qc to check the
+        // total number of trades for the day against the number of trades in the _validated table.
+        let qc_table = format!(
+            "trades_{}_{}_qc",
+            validation.exchange_name.as_str(),
+            market.strip_name(),
+        );
+        let validated_trades = select_ftx_trades_by_table(&self.pool, qc_table.as_str())
             .await
-            .expect("Could not delete old candle.");
+            .expect("Failed to select trades from temp table.");
         // Insert trades into _validated
         println!("Inserting validated trades.");
         insert_ftx_trades(
-            pool,
+            &self.pool,
             &market.market_id,
-            exchange_name,
+            validation.exchange_name.as_str(),
             market.strip_name().as_str(),
             "validated",
-            interval_trades,
+            validated_trades,
         )
         .await
         .expect("Could not insert validated trades.");
-        // Insert candle with validated status
-        println!("Inserting validated candle.");
-        insert_candle(pool, exchange_name, &market.market_id, new_candle, true)
-            .await
-            .expect("Could not insert validated candle.");
         // Drop temp table
         println!("Dropping temp table.");
-        drop_ftx_trade_table(pool, exchange_name, market.strip_name().as_str(), "qc")
-            .await
-            .expect("Could not drop qc table.");
+        drop_ftx_trade_table(
+            &self.pool,
+            validation.exchange_name.as_str(),
+            market.strip_name().as_str(),
+            "qc",
+        )
+        .await
+        .expect("Could not drop qc table.");
     }
 }
 
