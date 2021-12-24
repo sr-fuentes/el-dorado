@@ -170,9 +170,19 @@ impl Inquisidor {
             self.process_revalidated_candle(validation, market, candle)
                 .await;
             // Update validation to complete
+            update_candle_validation_status_processed(&self.pool, validation)
+                .await
+                .expect("Failed to update valdiations status to done.");
         } else {
             // Candle was not auto validated, update type to manual and status to open
-            todo!();
+            update_candle_validations_type_status(
+                &self.pool,
+                validation,
+                ValidationType::Manual,
+                ValidationStatus::Open,
+            )
+            .await
+            .expect("Failed to update validation status.");
         }
     }
 
@@ -459,8 +469,7 @@ pub async fn update_candle_validation_status_processed(
     pool: &PgPool,
     validation: &CandleValidation,
 ) -> Result<(), sqlx::Error> {
-    let sql = 
-        r#"
+    let sql = r#"
         UPDATE candle_validations
         SET (processed_ts, validation_status) = ($1, $2)
         WHERE exchange_name = $3
@@ -470,6 +479,30 @@ pub async fn update_candle_validation_status_processed(
     sqlx::query(sql)
         .bind(Utc::now())
         .bind(ValidationStatus::Done.as_str())
+        .bind(validation.exchange_name.as_str())
+        .bind(validation.market_id)
+        .bind(validation.datetime)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn update_candle_validations_type_status(
+    pool: &PgPool,
+    validation: &CandleValidation,
+    validation_type: ValidationType,
+    status: ValidationStatus,
+) -> Result<(), sqlx::Error> {
+    let sql = r#"
+        UPDATE candle_validations
+        SET (validation_type, validation_status) = ($1, $2)
+        WHERE exchange_name = $3
+        AND market_id = $4
+        AND datetime = $5
+        "#;
+    sqlx::query(sql)
+        .bind(validation_type.as_str())
+        .bind(status.as_str())
         .bind(validation.exchange_name.as_str())
         .bind(validation.market_id)
         .bind(validation.datetime)
