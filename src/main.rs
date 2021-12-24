@@ -13,7 +13,7 @@ async fn main() {
         .subcommand(App::new("edit").about("edit exchange information"))
         .subcommand(App::new("run").about("run el-dorado for a market"))
         .subcommand(App::new("historical").about("backfill to current start of day"))
-        .subcommand(App::new("cleanup").about("run current cleanup script"))
+        .subcommand(App::new("manage").about("run current cleanup script"))
         .subcommand(App::new("archive").about("archive trade for valid candles"))
         .subcommand(App::new("stream").about("stream trades to db"))
         .get_matches();
@@ -66,7 +66,11 @@ async fn main() {
                 .await;
             mita.historical("eod").await;
         }
-        Some("cleanup") => println!("No cleanup job available."), // Remove options when no cleanup job
+        Some("manage") => {
+            // Create new admin instance and refresh exchange
+            let ig = Inquisidor::new().await;
+            ig.run().await;
+        }
         Some("archive") => {
             // Create new admin instance and add new exchange
             let ig = Inquisidor::new().await;
