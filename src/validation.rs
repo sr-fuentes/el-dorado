@@ -167,7 +167,8 @@ impl Inquisidor {
         };
         if validated {
             // New candle was validated, save trades if heartbeat and replace unvalidated candle
-            self.process_revalidated_candle(validation, market, candle).await;
+            self.process_revalidated_candle(validation, market, candle)
+                .await;
         } else {
             // Candle was not auto validated, update type to manual and status to open
             todo!();
@@ -340,7 +341,7 @@ impl Inquisidor {
                 validation.datetime + Duration::seconds(900),
             )
             .await
-            .expect(format!("Could not delete {} trades.", table).as_str());
+            .unwrap_or_else(|_| panic!("Could not delete {} trades.", table));
         }
         // Delete existing candle
         println!("Deleting old candle.");
