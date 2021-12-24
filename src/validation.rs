@@ -169,6 +169,7 @@ impl Inquisidor {
             // New candle was validated, save trades if heartbeat and replace unvalidated candle
             self.process_revalidated_candle(validation, market, candle)
                 .await;
+            // Update validation to complete
         } else {
             // Candle was not auto validated, update type to manual and status to open
             todo!();
@@ -452,4 +453,27 @@ pub async fn select_candle_validations_by_status(
     .fetch_all(pool)
     .await?;
     Ok(rows)
+}
+
+pub async fn update_candle_validation_status_processed(
+    pool: &PgPool,
+    validation: &CandleValidation,
+) -> Result<(), sqlx::Error> {
+    let sql = 
+        r#"
+        UPDATE candle_validations
+        SET (processed_ts, validation_status) = ($1, $2)
+        WHERE exchange_name = $3
+        AND market_id = $4
+        AND datetime = $5
+        "#;
+    sqlx::query(sql)
+        .bind(Utc::now())
+        .bind(ValidationStatus::Done.as_str())
+        .bind(validation.exchange_name.as_str())
+        .bind(validation.market_id)
+        .bind(validation.datetime)
+        .execute(pool)
+        .await?;
+    Ok(())
 }
