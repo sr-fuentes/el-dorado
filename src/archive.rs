@@ -1,11 +1,9 @@
 use crate::candles::*;
-use crate::configuration::*;
 use crate::inquisidor::Inquisidor;
 use crate::markets::select_markets_active;
 use crate::trades::*;
 use chrono::Duration;
 use csv::Writer;
-use sqlx::PgPool;
 
 impl Inquisidor {
     pub async fn archive_validated_trades(&self) {
@@ -20,7 +18,7 @@ impl Inquisidor {
             // Check directory for exchange csv is created
             let p = format!(
                 "{}/csv/{}",
-                &self.settings.application.archive_path, &market.exchange_name
+                &self.settings.application.archive_path, &market.exchange_name.as_str()
             );
             std::fs::create_dir_all(&p).expect("Failed to create directories.");
             // Get validated but not archived 01d candles
@@ -31,13 +29,13 @@ impl Inquisidor {
             // Archive trades
             for candle in candles_to_archive.iter() {
                 println!(
-                    "Archiving {} - {} {:?} daily trades.",
+                    "Archiving {:?} - {} {:?} daily trades.",
                     &market.exchange_name, &market.market_name, &candle.datetime
                 );
                 // Select trades associated with candle
                 let trades_to_archive = select_ftx_trades_by_time(
                     &self.pool,
-                    &market.exchange_name,
+                    &market.exchange_name.as_str(),
                     market_table_name.as_str(),
                     "validated",
                     candle.datetime,
@@ -67,7 +65,7 @@ impl Inquisidor {
                 // Delete trades from validate table
                 delete_ftx_trades_by_time(
                     &self.pool,
-                    &market.exchange_name,
+                    &market.exchange_name.as_str(),
                     market_table_name.as_str(),
                     "validated",
                     candle.datetime,
@@ -79,82 +77,6 @@ impl Inquisidor {
                     .await
                     .expect("Failed to update candle archive status.");
             }
-        }
-    }
-}
-
-pub async fn archive(pool: &PgPool, config: &Settings) {
-    // Get Active markets
-    let markets = select_markets_active(pool)
-        .await
-        .expect("Could not fetch active markets.");
-
-    // Check for trades to archive for each active market
-    for market in markets.iter() {
-        // Get market table name for table and file
-        let market_table_name = market.strip_name();
-        // Check directory for exchange csv is created
-        let p = format!(
-            "{}/csv/{}",
-            config.application.archive_path, &market.exchange_name
-        );
-        std::fs::create_dir_all(&p).expect("Could not create directories.");
-        // Get validated but not archived 01d candles
-        let candles_to_archive = select_candles_valid_not_archived(pool, &market.market_id)
-            .await
-            .expect("Could not fetch valid not archived candles.");
-
-        // Archive trades
-        for candle in candles_to_archive.iter() {
-            println!(
-                "Archiving {} - {} {:?} daily trades.",
-                &market.exchange_name, &market.market_name, &candle.datetime
-            );
-            // Select trades associated w/ candle
-            let trades_to_archive = select_ftx_trades_by_time(
-                pool,
-                &market.exchange_name,
-                market_table_name.as_str(),
-                "validated",
-                candle.datetime,
-                candle.datetime + Duration::days(1),
-            )
-            .await
-            .expect("Could not fetch validated trades.");
-            // Validate the number of trades selected = trade count from candle
-            if trades_to_archive.len() as i64 != candle.trade_count {
-                println!(
-                    "Trade count does not match candle. Candle {:?}, Trade Count {}",
-                    candle,
-                    trades_to_archive.len()
-                );
-                continue;
-            }
-            // Define filename = TICKER_YYYYMMDD.csv
-            let f = format!("{}_{}.csv", market_table_name, candle.datetime.format("%F"));
-            // Set filepath and file name
-            let fp = std::path::Path::new(&p).join(f);
-            // Write trades to file
-            let mut wtr = Writer::from_path(fp).expect("Could not open file.");
-            for trade in trades_to_archive.iter() {
-                wtr.serialize(trade).expect("could not serialize trade.");
-            }
-            wtr.flush().expect("could not flush wtr.");
-            // Delete trades from validated table
-            delete_ftx_trades_by_time(
-                pool,
-                &market.exchange_name,
-                market_table_name.as_str(),
-                "validated",
-                candle.datetime,
-                candle.datetime + Duration::days(1),
-            )
-            .await
-            .expect("Could not delete archived trades.");
-            // Update candle status to archived
-            update_candle_archived(pool, &market.market_id, candle)
-                .await
-                .expect("Could not update candle archive status.");
         }
     }
 }
