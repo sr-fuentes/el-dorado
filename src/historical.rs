@@ -61,7 +61,7 @@ impl Mita {
             update_market_data_status(
                 &self.pool,
                 &market.market_id,
-                "Syncing",
+                &MarketStatus::Backfill,
                 self.settings.application.ip_addr.as_str(),
             )
             .await
