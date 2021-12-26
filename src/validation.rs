@@ -432,9 +432,9 @@ pub async fn insert_candle_validation(
         .bind(market_id)
         .bind(datetime)
         .bind(duration)
-        .bind(ValidationType::Auto)
+        .bind(ValidationType::Auto.as_str())
         .bind(Utc::now())
-        .bind(ValidationStatus::New)
+        .bind(ValidationStatus::New.as_str())
         .bind("Basic QC failed, re-download trades and re-validate.")
         .execute(pool)
         .await?;
