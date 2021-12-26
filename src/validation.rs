@@ -32,6 +32,7 @@ pub struct CandleValidation {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, sqlx::Type)]
+#[sqlx(rename_all = "lowercase")]
 pub enum ValidationType {
     Auto,
     Manual,
@@ -59,6 +60,7 @@ impl TryFrom<String> for ValidationType {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, sqlx::Type)]
+#[sqlx(rename_all = "lowercase")]
 pub enum ValidationStatus {
     New,
     Open,
@@ -281,7 +283,7 @@ impl Inquisidor {
                         candle_end_or_last_trade
                     );
                 };
-                println!("Inserting trades in temp table.");
+                //println!("Inserting trades in temp table.");
                 // Temp table name can be used instead of exhcange name as logic for table name is
                 // located in the insert function
                 insert_ftx_trades(
@@ -355,7 +357,7 @@ impl Inquisidor {
             .unwrap_or_else(|_| panic!("Could not delete {} trades.", table));
         }
         // Delete existing candle
-        println!("Deleting old candle.");
+        //println!("Deleting old candle.");
         delete_candle(
             &self.pool,
             validation.exchange_name.as_str(),
@@ -365,7 +367,7 @@ impl Inquisidor {
         .await
         .expect("Could not delete old candle.");
         // Insert candle with validated status
-        println!("Inserting validated candle.");
+        //println!("Inserting validated candle.");
         insert_candle(
             &self.pool,
             validation.exchange_name.as_str(),
@@ -390,7 +392,7 @@ impl Inquisidor {
             .await
             .expect("Failed to select trades from temp table.");
         // Insert trades into _validated
-        println!("Inserting validated trades.");
+        //println!("Inserting validated trades.");
         insert_ftx_trades(
             &self.pool,
             &market.market_id,
@@ -402,7 +404,7 @@ impl Inquisidor {
         .await
         .expect("Could not insert validated trades.");
         // Drop temp table
-        println!("Dropping temp table.");
+        //println!("Dropping temp table.");
         drop_ftx_trade_table(
             &self.pool,
             validation.exchange_name.as_str(),
@@ -426,6 +428,7 @@ pub async fn insert_candle_validation(
             exchange_name, market_id, datetime, duration, validation_type, created_ts,
             validation_status, notes)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (exchange_name, market_id, datetime) DO NOTHING
         "#;
     sqlx::query(sql)
         .bind(exchange)
