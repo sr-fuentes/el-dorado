@@ -18,7 +18,8 @@ impl Inquisidor {
             // Check directory for exchange csv is created
             let p = format!(
                 "{}/csv/{}",
-                &self.settings.application.archive_path, &market.exchange_name.as_str()
+                &self.settings.application.archive_path,
+                &market.exchange_name.as_str()
             );
             std::fs::create_dir_all(&p).expect("Failed to create directories.");
             // Get validated but not archived 01d candles
@@ -35,7 +36,7 @@ impl Inquisidor {
                 // Select trades associated with candle
                 let trades_to_archive = select_ftx_trades_by_time(
                     &self.pool,
-                    &market.exchange_name.as_str(),
+                    market.exchange_name.as_str(),
                     market_table_name.as_str(),
                     "validated",
                     candle.datetime,
@@ -65,7 +66,7 @@ impl Inquisidor {
                 // Delete trades from validate table
                 delete_ftx_trades_by_time(
                     &self.pool,
-                    &market.exchange_name.as_str(),
+                    market.exchange_name.as_str(),
                     market_table_name.as_str(),
                     "validated",
                     candle.datetime,

@@ -2,7 +2,9 @@ use crate::candles::Candle;
 use crate::candles::{insert_candle, select_last_candle, select_previous_candle};
 use crate::configuration::{get_configuration, Settings};
 use crate::exchanges::{ftx::Trade, select_exchanges, Exchange};
-use crate::markets::{select_market_detail_by_exchange_mita, update_market_data_status, MarketStatus, MarketDetail};
+use crate::markets::{
+    select_market_detail_by_exchange_mita, update_market_data_status, MarketDetail, MarketStatus,
+};
 use crate::trades::{
     delete_ftx_trades_by_time, drop_ftx_trade_table, insert_ftx_trades, select_ftx_trades_by_time,
 };
