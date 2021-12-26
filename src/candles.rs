@@ -556,7 +556,7 @@ pub async fn validate_01d_candles(
     // Validate 01d candles - if all 15T candles are validated and volume = ftx value
     for candle in unvalidated_candles.iter() {
         println!(
-            "Validating {} candle {}.",
+            "Validating {} 01d candle {}.",
             &market.market_name, candle.datetime
         );
         // Get 15T candles that make up 01d candle
@@ -576,8 +576,8 @@ pub async fn validate_01d_candles(
                 .expect("Could not update candle validation status.");
         } else {
             println!(
-                "{:?} not validated. HB={}, VOL={}",
-                candle, hb_is_validated, vol_is_validated
+                "{:?} 01d not validated. HB={}, VOL={}",
+                candle.datetime, hb_is_validated, vol_is_validated
             );
         }
     }
