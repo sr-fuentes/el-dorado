@@ -10,5 +10,5 @@ SET market_data_status = 'new'
 WHERE market_data_status = 'New';
 
 UPDATE markets
-SET market_date_status = 'sync'
+SET market_data_status = 'sync'
 WHERE market_data_status = 'Syncing';
