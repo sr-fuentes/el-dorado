@@ -3,6 +3,7 @@ use crate::exchanges::{ftx::Candle as CandleFtx, ftx::RestClient, ftx::RestError
 use crate::markets::{update_market_last_validated, MarketDetail};
 use crate::mita::Mita;
 use crate::trades::*;
+use crate::validation::insert_candle_validation;
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
@@ -429,11 +430,11 @@ pub async fn validate_hb_candles(
         println!("Pulled {} candles from exchange.", exchange_candles.len());
         println!(
             "First returned candle is: {:?}",
-            exchange_candles.first().unwrap()
+            exchange_candles.first().unwrap().time
         );
         println!(
             "Last returned candle is: {:?}",
-            exchange_candles.last().unwrap()
+            exchange_candles.last().unwrap().time
         );
         for unvalidated_candle in unvalidated_candles {
             // validate candle - get candle from exchange, comp volume. if volume matches
@@ -497,11 +498,20 @@ pub async fn validate_hb_candles(
                     .expect("Could not delete processed trades.");
                 }
             } else {
-                // Add to re-validation queue
+                // Add to candle validation table
                 println!(
-                    "Candle not validated: {} \t {}",
+                    "Candle not validated adding to validation table: {} \t {}",
                     &market.market_name, unvalidated_candle.datetime
                 );
+                insert_candle_validation(
+                    pool,
+                    exchange_name,
+                    &market.market_id,
+                    &unvalidated_candle.datetime,
+                    900,
+                )
+                .await
+                .expect("Failed to insert candle validation.");
             };
         }
     }
@@ -546,7 +556,7 @@ pub async fn validate_01d_candles(
     // Validate 01d candles - if all 15T candles are validated and volume = ftx value
     for candle in unvalidated_candles.iter() {
         println!(
-            "Validating {} candle {}.",
+            "Validating {} 01d candle {}.",
             &market.market_name, candle.datetime
         );
         // Get 15T candles that make up 01d candle
@@ -566,8 +576,8 @@ pub async fn validate_01d_candles(
                 .expect("Could not update candle validation status.");
         } else {
             println!(
-                "{:?} not validated. HB={}, VOL={}",
-                candle, hb_is_validated, vol_is_validated
+                "{:?} 01d not validated. HB={}, VOL={}",
+                candle.datetime, hb_is_validated, vol_is_validated
             );
         }
     }
@@ -584,8 +594,8 @@ pub fn validate_candle(candle: &Candle, exchange_candles: &mut Vec<CandleFtx>) -
                 true
             } else {
                 println!(
-                    "Failed to validate: {:?} in \n {:?}",
-                    candle, exchange_candle
+                    "Failed to validate: El-D Val: {:?} Ftx Vol: {:?}",
+                    candle.value, c.volume
                 );
                 false
             }
@@ -596,7 +606,7 @@ pub fn validate_candle(candle: &Candle, exchange_candles: &mut Vec<CandleFtx>) -
             } else {
                 println!(
                     "Failed to validate: {:?}. Volume not 0 and no exchange candle.",
-                    candle
+                    candle.datetime
                 );
                 false
             }

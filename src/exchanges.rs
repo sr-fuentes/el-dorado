@@ -14,7 +14,7 @@ pub struct Exchange {
     pub name: ExchangeName,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, sqlx::Type)]
+#[derive(Debug, PartialEq, Eq, Clone, sqlx::Type, Hash)]
 #[sqlx(rename_all = "lowercase")]
 pub enum ExchangeName {
     Ftx,
@@ -38,6 +38,37 @@ impl TryFrom<String> for ExchangeName {
             "ftx" => Ok(Self::Ftx),
             "ftxus" => Ok(Self::FtxUs),
             other => Err(format!("{} is not a supported exchange.", other)),
+        }
+    }
+}
+
+#[derive(Debug, sqlx::Type)]
+#[sqlx(rename_all = "lowercase")]
+pub enum ExchangeStatus {
+    New,
+    Active,
+    Terminated,
+}
+
+impl ExchangeStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ExchangeStatus::New => "new",
+            ExchangeStatus::Active => "active",
+            ExchangeStatus::Terminated => "terminated",
+        }
+    }
+}
+
+impl TryFrom<String> for ExchangeStatus {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        match s.to_lowercase().as_str() {
+            "new" => Ok(Self::New),
+            "active" => Ok(Self::Active),
+            "terminated" => Ok(Self::Terminated),
+            other => Err(format!("{} is not a supported exchange status.", other)),
         }
     }
 }
@@ -90,6 +121,24 @@ pub async fn select_exchanges(pool: &PgPool) -> Result<Vec<Exchange>, sqlx::Erro
     Ok(rows)
 }
 
+pub async fn select_exchanges_by_status(
+    pool: &PgPool,
+    status: ExchangeStatus,
+) -> Result<Vec<Exchange>, sqlx::Error> {
+    let rows = sqlx::query_as!(
+        Exchange,
+        r#"
+        SELECT exchange_id as id, exchange_name as "name: ExchangeName"
+        FROM exchanges
+        WHERE exchange_status = $1
+        "#,
+        status.as_str(),
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
 pub async fn insert_new_exchange(pool: &PgPool, exchange: &Exchange) -> Result<(), sqlx::Error> {
     sqlx::query!(
         r#"
@@ -103,7 +152,7 @@ pub async fn insert_new_exchange(pool: &PgPool, exchange: &Exchange) -> Result<(
         1,
         true,
         false,
-        "New",
+        ExchangeStatus::New.as_str(),
         Utc::now(),
         Utc::now()
     )
@@ -221,5 +270,22 @@ mod tests {
         )
         .await
         .expect("Failed to insert trades.");
+    }
+
+    #[tokio::test]
+    async fn select_exchanges_by_status_works() {
+        // Load configuration
+        let configuration = get_configuration().expect("Failed to read configuration.");
+        println!("Configuration: {:?}", configuration);
+
+        // Create db connection
+        let pool = PgPool::connect_with(configuration.database.with_db())
+            .await
+            .expect("Failed to connect to Postgres.");
+
+        let exchanges = select_exchanges_by_status(&pool, ExchangeStatus::New)
+            .await
+            .expect("Failed to select exchanges.");
+        println!("Exchanges: {:?}", exchanges);
     }
 }

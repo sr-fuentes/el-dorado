@@ -2,7 +2,9 @@ use crate::candles::Candle;
 use crate::candles::{insert_candle, select_last_candle, select_previous_candle};
 use crate::configuration::{get_configuration, Settings};
 use crate::exchanges::{ftx::Trade, select_exchanges, Exchange};
-use crate::markets::{select_market_detail_by_exchange_mita, MarketDetail};
+use crate::markets::{
+    select_market_detail_by_exchange_mita, update_market_data_status, MarketDetail, MarketStatus,
+};
 use crate::trades::{
     delete_ftx_trades_by_time, drop_ftx_trade_table, insert_ftx_trades, select_ftx_trades_by_time,
 };
@@ -41,7 +43,7 @@ impl Mita {
         // Get market details assigned to mita
         let markets = select_market_detail_by_exchange_mita(
             &pool,
-            exchange.name.as_str(),
+            &exchange.name,
             &settings.application.droplet,
         )
         .await
@@ -114,6 +116,15 @@ impl Mita {
         // Initiate heartbeat interval map
         let mut heartbeats = HashMap::new();
         for market in self.markets.iter() {
+            // Update status to sync
+            update_market_data_status(
+                &self.pool,
+                &market.market_id,
+                &MarketStatus::Sync,
+                self.settings.application.ip_addr.as_str(),
+            )
+            .await
+            .expect("Could not update market status.");
             // Get start time for candle sync
             let start = match select_last_candle(
                 &self.pool,
@@ -257,7 +268,15 @@ impl Mita {
             }
             // Update mita heartbeat interval
             heartbeats.insert(market.market_name.as_str(), end);
-            // Clean up tables
+            // Update status to sync
+            update_market_data_status(
+                &self.pool,
+                &market.market_id,
+                &MarketStatus::Active,
+                self.settings.application.ip_addr.as_str(),
+            )
+            .await
+            .expect("Could not update market status.");
         }
         heartbeats
     }

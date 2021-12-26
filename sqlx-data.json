@@ -50,8 +50,8 @@
       ]
     }
   },
-  "364718b0fb09536dfa5a1ab55029e36f0e220012a1a402ede83e95f722206fe0": {
-    "query": "\n            SELECT * FROM markets\n            WHERE market_data_status in ('Active','Syncing')\n        ",
+  "4ec9c4865ba19faf3481e206dc47371aa34fda6e38b09447985d6f5762a6f1ec": {
+    "query": "\n        SELECT market_id,\n            exchange_name as \"exchange_name: ExchangeName\",\n            market_name, market_type, base_currency, quote_currency, underlying,\n            market_status as \"market_status: MarketStatus\",\n            market_data_status as \"market_data_status: MarketStatus\",\n            first_validated_trade_id, first_validated_trade_ts,\n            last_validated_trade_id, last_validated_trade_ts,\n            candle_base_interval, candle_base_in_seconds,\n            first_validated_candle, last_validated_candle,\n            last_update_ts, last_update_ip_address,\n            first_candle, last_candle, mita\n        FROM markets\n        WHERE market_data_status = $1\n        AND exchange_name = $2\n        ",
     "describe": {
       "columns": [
         {
@@ -61,7 +61,7 @@
         },
         {
           "ordinal": 1,
-          "name": "exchange_name",
+          "name": "exchange_name: ExchangeName",
           "type_info": "Text"
         },
         {
@@ -91,156 +91,12 @@
         },
         {
           "ordinal": 7,
-          "name": "market_status",
+          "name": "market_status: MarketStatus",
           "type_info": "Text"
         },
         {
           "ordinal": 8,
-          "name": "market_data_status",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 9,
-          "name": "first_validated_trade_id",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 10,
-          "name": "first_validated_trade_ts",
-          "type_info": "Timestamptz"
-        },
-        {
-          "ordinal": 11,
-          "name": "last_validated_trade_id",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 12,
-          "name": "last_validated_trade_ts",
-          "type_info": "Timestamptz"
-        },
-        {
-          "ordinal": 13,
-          "name": "candle_base_interval",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 14,
-          "name": "candle_base_in_seconds",
-          "type_info": "Int4"
-        },
-        {
-          "ordinal": 15,
-          "name": "first_validated_candle",
-          "type_info": "Timestamptz"
-        },
-        {
-          "ordinal": 16,
-          "name": "last_validated_candle",
-          "type_info": "Timestamptz"
-        },
-        {
-          "ordinal": 17,
-          "name": "last_update_ts",
-          "type_info": "Timestamptz"
-        },
-        {
-          "ordinal": 18,
-          "name": "last_update_ip_address",
-          "type_info": "Inet"
-        },
-        {
-          "ordinal": 19,
-          "name": "first_candle",
-          "type_info": "Timestamptz"
-        },
-        {
-          "ordinal": 20,
-          "name": "last_candle",
-          "type_info": "Timestamptz"
-        },
-        {
-          "ordinal": 21,
-          "name": "mita",
-          "type_info": "Text"
-        }
-      ],
-      "parameters": {
-        "Left": []
-      },
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        true,
-        true,
-        true,
-        false,
-        false,
-        true,
-        true,
-        true,
-        true,
-        false,
-        false,
-        true,
-        true,
-        false,
-        false,
-        true,
-        true,
-        true
-      ]
-    }
-  },
-  "bf00b77bf3170f291dae8dbd86137bb01f0f3c56254012a023d00bb2263eed65": {
-    "query": "\n        SELECT *\n        FROM markets\n        WHERE exchange_name = $1\n        AND mita = $2\n        ",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "market_id",
-          "type_info": "Uuid"
-        },
-        {
-          "ordinal": 1,
-          "name": "exchange_name",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 2,
-          "name": "market_name",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 3,
-          "name": "market_type",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 4,
-          "name": "base_currency",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 5,
-          "name": "quote_currency",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 6,
-          "name": "underlying",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 7,
-          "name": "market_status",
-          "type_info": "Text"
-        },
-        {
-          "ordinal": 8,
-          "name": "market_data_status",
+          "name": "market_data_status: MarketStatus",
           "type_info": "Text"
         },
         {
@@ -341,8 +197,102 @@
       ]
     }
   },
-  "c23a72d6cc65ab4c14dc5d6863d32453c3d9a62f4e3e1d813fc07c83189859a9": {
-    "query": "\n            SELECT * FROM markets\n            WHERE market_id = $1\n        ",
+  "62877fe9a19159ae96d2a4a169ff4f7ccca4fd306e80dca97559c6638f73e432": {
+    "query": "\n        SELECT exchange_id as id, exchange_name as \"name: ExchangeName\"\n        FROM exchanges\n        WHERE exchange_status = $1\n        ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id",
+          "type_info": "Uuid"
+        },
+        {
+          "ordinal": 1,
+          "name": "name: ExchangeName",
+          "type_info": "Text"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      },
+      "nullable": [
+        false,
+        false
+      ]
+    }
+  },
+  "69baf9c709d93664157df28337124095b970c2e5461a9f9db316de42224043d4": {
+    "query": "\n        SELECT exchange_name as \"exchange_name: ExchangeName\",\n            market_id, datetime, duration,\n            validation_type as \"validation_type: ValidationType\",\n            created_ts, processed_ts,\n            validation_status as \"validation_status: ValidationStatus\",\n            notes\n        FROM candle_validations\n        WHERE validation_status = $1\n        ORDER by exchange_name, market_id\n        ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "exchange_name: ExchangeName",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 1,
+          "name": "market_id",
+          "type_info": "Uuid"
+        },
+        {
+          "ordinal": 2,
+          "name": "datetime",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 3,
+          "name": "duration",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 4,
+          "name": "validation_type: ValidationType",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 5,
+          "name": "created_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 6,
+          "name": "processed_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 7,
+          "name": "validation_status: ValidationStatus",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 8,
+          "name": "notes",
+          "type_info": "Text"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        false,
+        true
+      ]
+    }
+  },
+  "7a9382499b95b031c53f560ec101e517927921fadcce1e97ad9c851684dc6248": {
+    "query": "\n        SELECT market_id,\n            exchange_name as \"exchange_name: ExchangeName\",\n            market_name, market_type, base_currency, quote_currency, underlying,\n            market_status as \"market_status: MarketStatus\",\n            market_data_status as \"market_data_status: MarketStatus\",\n            first_validated_trade_id, first_validated_trade_ts,\n            last_validated_trade_id, last_validated_trade_ts,\n            candle_base_interval, candle_base_in_seconds,\n            first_validated_candle, last_validated_candle,\n            last_update_ts, last_update_ip_address,\n            first_candle, last_candle, mita\n        FROM markets\n        ",
     "describe": {
       "columns": [
         {
@@ -352,7 +302,7 @@
         },
         {
           "ordinal": 1,
-          "name": "exchange_name",
+          "name": "exchange_name: ExchangeName",
           "type_info": "Text"
         },
         {
@@ -382,12 +332,449 @@
         },
         {
           "ordinal": 7,
-          "name": "market_status",
+          "name": "market_status: MarketStatus",
           "type_info": "Text"
         },
         {
           "ordinal": 8,
-          "name": "market_data_status",
+          "name": "market_data_status: MarketStatus",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 9,
+          "name": "first_validated_trade_id",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 10,
+          "name": "first_validated_trade_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 11,
+          "name": "last_validated_trade_id",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 12,
+          "name": "last_validated_trade_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 13,
+          "name": "candle_base_interval",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 14,
+          "name": "candle_base_in_seconds",
+          "type_info": "Int4"
+        },
+        {
+          "ordinal": 15,
+          "name": "first_validated_candle",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 16,
+          "name": "last_validated_candle",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 17,
+          "name": "last_update_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 18,
+          "name": "last_update_ip_address",
+          "type_info": "Inet"
+        },
+        {
+          "ordinal": 19,
+          "name": "first_candle",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 20,
+          "name": "last_candle",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 21,
+          "name": "mita",
+          "type_info": "Text"
+        }
+      ],
+      "parameters": {
+        "Left": []
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true
+      ]
+    }
+  },
+  "9a5a3201e5d38568ae2d093914f322fb39b503d53fcd0a84633ee07498cc3b0c": {
+    "query": "\n        SELECT market_id,\n            exchange_name as \"exchange_name: ExchangeName\",\n            market_name, market_type, base_currency, quote_currency, underlying,\n            market_status as \"market_status: MarketStatus\",\n            market_data_status as \"market_data_status: MarketStatus\",\n            first_validated_trade_id, first_validated_trade_ts,\n            last_validated_trade_id, last_validated_trade_ts,\n            candle_base_interval, candle_base_in_seconds,\n            first_validated_candle, last_validated_candle,\n            last_update_ts, last_update_ip_address,\n            first_candle, last_candle, mita\n        FROM markets\n        WHERE exchange_name = $1\n        AND mita = $2\n        ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "market_id",
+          "type_info": "Uuid"
+        },
+        {
+          "ordinal": 1,
+          "name": "exchange_name: ExchangeName",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 2,
+          "name": "market_name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 3,
+          "name": "market_type",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "base_currency",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 5,
+          "name": "quote_currency",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 6,
+          "name": "underlying",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 7,
+          "name": "market_status: MarketStatus",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 8,
+          "name": "market_data_status: MarketStatus",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 9,
+          "name": "first_validated_trade_id",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 10,
+          "name": "first_validated_trade_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 11,
+          "name": "last_validated_trade_id",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 12,
+          "name": "last_validated_trade_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 13,
+          "name": "candle_base_interval",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 14,
+          "name": "candle_base_in_seconds",
+          "type_info": "Int4"
+        },
+        {
+          "ordinal": 15,
+          "name": "first_validated_candle",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 16,
+          "name": "last_validated_candle",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 17,
+          "name": "last_update_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 18,
+          "name": "last_update_ip_address",
+          "type_info": "Inet"
+        },
+        {
+          "ordinal": 19,
+          "name": "first_candle",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 20,
+          "name": "last_candle",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 21,
+          "name": "mita",
+          "type_info": "Text"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true
+      ]
+    }
+  },
+  "c6846f968d583c1f1a937196b2552ee952618c9810fa53f67b62fdc0e1d6f5d5": {
+    "query": "\n            SELECT market_id,\n                exchange_name as \"exchange_name: ExchangeName\",\n                market_name, market_type, base_currency, quote_currency, underlying,\n                market_status as \"market_status: MarketStatus\",\n                market_data_status as \"market_data_status: MarketStatus\",\n                first_validated_trade_id, first_validated_trade_ts,\n                last_validated_trade_id, last_validated_trade_ts,\n                candle_base_interval, candle_base_in_seconds,\n                first_validated_candle, last_validated_candle,\n                last_update_ts, last_update_ip_address,\n                first_candle, last_candle, mita\n            FROM markets\n            WHERE market_data_status = $1\n        ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "market_id",
+          "type_info": "Uuid"
+        },
+        {
+          "ordinal": 1,
+          "name": "exchange_name: ExchangeName",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 2,
+          "name": "market_name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 3,
+          "name": "market_type",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "base_currency",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 5,
+          "name": "quote_currency",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 6,
+          "name": "underlying",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 7,
+          "name": "market_status: MarketStatus",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 8,
+          "name": "market_data_status: MarketStatus",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 9,
+          "name": "first_validated_trade_id",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 10,
+          "name": "first_validated_trade_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 11,
+          "name": "last_validated_trade_id",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 12,
+          "name": "last_validated_trade_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 13,
+          "name": "candle_base_interval",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 14,
+          "name": "candle_base_in_seconds",
+          "type_info": "Int4"
+        },
+        {
+          "ordinal": 15,
+          "name": "first_validated_candle",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 16,
+          "name": "last_validated_candle",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 17,
+          "name": "last_update_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 18,
+          "name": "last_update_ip_address",
+          "type_info": "Inet"
+        },
+        {
+          "ordinal": 19,
+          "name": "first_candle",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 20,
+          "name": "last_candle",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 21,
+          "name": "mita",
+          "type_info": "Text"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true
+      ]
+    }
+  },
+  "ca5d98cba2f1cbda817c3c3c945345b9deb895c449810c3c28f88480f60efb22": {
+    "query": "\n            SELECT market_id,\n                exchange_name as \"exchange_name: ExchangeName\",\n                market_name, market_type, base_currency, quote_currency, underlying,\n                market_status as \"market_status: MarketStatus\",\n                market_data_status as \"market_data_status: MarketStatus\",\n                first_validated_trade_id, first_validated_trade_ts,\n                last_validated_trade_id, last_validated_trade_ts,\n                candle_base_interval, candle_base_in_seconds,\n                first_validated_candle, last_validated_candle,\n                last_update_ts, last_update_ip_address,\n                first_candle, last_candle, mita\n            FROM markets\n            WHERE market_id = $1\n        ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "market_id",
+          "type_info": "Uuid"
+        },
+        {
+          "ordinal": 1,
+          "name": "exchange_name: ExchangeName",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 2,
+          "name": "market_name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 3,
+          "name": "market_type",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "base_currency",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 5,
+          "name": "quote_currency",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 6,
+          "name": "underlying",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 7,
+          "name": "market_status: MarketStatus",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 8,
+          "name": "market_data_status: MarketStatus",
           "type_info": "Text"
         },
         {
