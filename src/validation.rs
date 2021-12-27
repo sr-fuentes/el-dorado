@@ -130,9 +130,9 @@ impl Inquisidor {
         }
     }
 
-    pub async fn process_candle_validations(&self) {
+    pub async fn process_candle_validations(&self, status: ValidationStatus) {
         // Get all candle validations from the table
-        let validations = select_candle_validations_by_status(&self.pool, ValidationStatus::New)
+        let validations = select_candle_validations_by_status(&self.pool, status)
             .await
             .expect("Failed to select candle validations.");
         // Get all market details - for market id and strip name fn in validation

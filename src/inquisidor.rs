@@ -1,6 +1,7 @@
 use crate::{
     configuration::{get_configuration, Settings},
     exchanges::{ftx::RestClient, ExchangeName},
+    validation::ValidationStatus,
 };
 use chrono::{Duration, DurationRound, Utc};
 use sqlx::PgPool;
@@ -52,7 +53,7 @@ impl Inquisidor {
                 println!("New heartbeat: {:?}", heartbeat);
             }
             // Process any validation events
-            self.process_candle_validations().await;
+            self.process_candle_validations(ValidationStatus::New).await;
             // Sleep for 200 ms to give control back to tokio scheduler
             tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
         }
