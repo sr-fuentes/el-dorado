@@ -14,6 +14,7 @@ async fn main() {
         .subcommand(App::new("run").about("run el-dorado for a market"))
         .subcommand(App::new("historical").about("backfill to current start of day"))
         .subcommand(App::new("manage").about("run current cleanup script"))
+        .subcommand(App::new("manual").about("manually validate bad candles"))
         .subcommand(App::new("archive").about("archive trade for valid candles"))
         .subcommand(App::new("stream").about("stream trades to db"))
         .get_matches();
@@ -70,6 +71,11 @@ async fn main() {
             // Create new admin instance and refresh exchange
             let ig = Inquisidor::new().await;
             ig.run().await;
+        }
+        Some("manual") => {
+            // Create new admin instance and run all manual validations
+            let ig = Inquisidor::new().await;
+            ig.process_candle_validations(el_dorado::validation::ValidationStatus::Open).await;
         }
         Some("archive") => {
             // Create new admin instance and add new exchange
