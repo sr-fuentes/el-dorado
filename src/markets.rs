@@ -420,8 +420,11 @@ pub async fn update_market_data_status(
 #[cfg(test)]
 mod tests {
     use crate::configuration::*;
-    use crate::exchanges::select_exchanges;
-    use crate::markets::select_market_ids_by_exchange;
+    use crate::exchanges::{select_exchanges, ExchangeName};
+    use crate::inquisidor::Inquisidor;
+    use crate::markets::{
+        select_market_details_by_status_exchange, select_market_ids_by_exchange, MarketStatus,
+    };
     use sqlx::PgPool;
 
     #[tokio::test]
@@ -458,5 +461,18 @@ mod tests {
         println!("Market: {:?}", market);
         let stripped_market = market.strip_name();
         println!("Stripped Market: {}", stripped_market);
+    }
+
+    #[tokio::test]
+    async fn select_active_markets_returns_active_markets() {
+        let ig = Inquisidor::new().await;
+        let markets = select_market_details_by_status_exchange(
+            &ig.pool,
+            &ExchangeName::FtxUs,
+            &MarketStatus::Active,
+        )
+        .await
+        .expect("Failed to select markets.");
+        println!("Acive markets: {:?}", markets);
     }
 }
