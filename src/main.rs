@@ -75,7 +75,8 @@ async fn main() {
         Some("manual") => {
             // Create new admin instance and run all manual validations
             let ig = Inquisidor::new().await;
-            ig.process_candle_validations(el_dorado::validation::ValidationStatus::Open).await;
+            ig.process_candle_validations(el_dorado::validation::ValidationStatus::Open)
+                .await;
         }
         Some("archive") => {
             // Create new admin instance and add new exchange
