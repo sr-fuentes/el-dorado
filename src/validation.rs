@@ -264,8 +264,8 @@ impl Inquisidor {
         .await;
         // Validate new candle an d return validation status
         let is_valid = validate_candle(&candle, &mut exchange_candles);
-        let message = format!("Re-validation successful.");
-        return (is_valid, candle, message);
+        let message = "Re-validation successful.".to_string();
+        (is_valid, candle, message)
     }
 
     pub async fn manual_validate_candle(
@@ -321,7 +321,7 @@ impl Inquisidor {
                 false
             }
         };
-        return (is_valid, candle, msg);
+        (is_valid, candle, msg)
     }
 
     pub async fn recreate_ftx_candle(
