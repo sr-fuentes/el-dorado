@@ -167,7 +167,7 @@ impl Inquisidor {
         // For 01d candles - re-sample from heartbeat candles
         // For hb candles - re-download trades from REST API
         println!("Attempting auto-validation for {:?}", validation);
-        let (validated, candle) = match validation.duration {
+        let (validated, candle, message) = match validation.duration {
             900 => self.auto_validate_candle(validation, market).await,
             86400 => todo!(),
             d => panic!("{} is not a supported candle validation duration.", d),
@@ -177,7 +177,7 @@ impl Inquisidor {
             self.process_revalidated_candle(validation, market, candle)
                 .await;
             // Update validation to complete
-            update_candle_validation_status_processed(&self.pool, validation)
+            update_candle_validation_status_processed(&self.pool, validation, &message)
                 .await
                 .expect("Failed to update valdiations status to done.");
         } else {
@@ -187,6 +187,7 @@ impl Inquisidor {
                 validation,
                 ValidationType::Manual,
                 ValidationStatus::Open,
+                "Failed to auto-validate."
             )
             .await
             .expect("Failed to update validation status.");
@@ -203,7 +204,7 @@ impl Inquisidor {
         // user to determine whether to accept or not.
         // For 01d candles - TODO!
         println!("Attempting manual validation for {:?}", validation);
-        let (validated, candle, msg) = match validation.duration {
+        let (validated, candle, message) = match validation.duration {
             900 => self.manual_validate_candle(validation, market).await,
             86400 => todo!(),
             d => panic!("{} is not a supported candle validation duration.", d),
@@ -213,6 +214,9 @@ impl Inquisidor {
             self.process_revalidated_candle(validation, market, candle)
                 .await;
             // Update validation to complete
+            update_candle_validation_status_processed(&self.pool, validation, &message)
+                .await
+                .expect("Failed to update validation status to done.");
         }
     }
 
@@ -220,7 +224,7 @@ impl Inquisidor {
         &self,
         validation: &CandleValidation,
         market: &MarketDetail,
-    ) -> (bool, Candle) {
+    ) -> (bool, Candle, String) {
         // Recreate candle and then compare new candle to exchange candle for validation and return result.
         let candle = match validation.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
@@ -240,7 +244,8 @@ impl Inquisidor {
         .await;
         // Validate new candle an d return validation status
         let is_valid = validate_candle(&candle, &mut exchange_candles);
-        return (is_valid, candle);
+        let message = format!("Re-validation successful.");
+        return (is_valid, candle, message);
     }
 
     pub async fn manual_validate_candle(
@@ -256,7 +261,7 @@ impl Inquisidor {
         };
         // Set start and end for candle period
         let candle_start = validation.datetime;
-        // Get exchange candles from REST client
+        // Get exchange candles from REST client TODO - make multi exchange
         let exchange_candle = get_ftx_candles(
             &self.clients[&validation.exchange_name],
             market,
@@ -578,17 +583,19 @@ pub async fn select_candle_validations_by_status(
 pub async fn update_candle_validation_status_processed(
     pool: &PgPool,
     validation: &CandleValidation,
+    message: &str,
 ) -> Result<(), sqlx::Error> {
     let sql = r#"
         UPDATE candle_validations
-        SET (processed_ts, validation_status) = ($1, $2)
-        WHERE exchange_name = $3
-        AND market_id = $4
-        AND datetime = $5
+        SET (processed_ts, validation_status, notes) = ($1, $2, $3)
+        WHERE exchange_name = $4
+        AND market_id = $5
+        AND datetime = $6
         "#;
     sqlx::query(sql)
         .bind(Utc::now())
         .bind(ValidationStatus::Done.as_str())
+        .bind(message)
         .bind(validation.exchange_name.as_str())
         .bind(validation.market_id)
         .bind(validation.datetime)
@@ -602,10 +609,11 @@ pub async fn update_candle_validations_type_status(
     validation: &CandleValidation,
     validation_type: ValidationType,
     status: ValidationStatus,
+    message: &str,
 ) -> Result<(), sqlx::Error> {
     let sql = r#"
         UPDATE candle_validations
-        SET (validation_type, validation_status) = ($1, $2)
+        SET (validation_type, validation_status, notes) = ($1, $2, $3)
         WHERE exchange_name = $3
         AND market_id = $4
         AND datetime = $5
@@ -613,6 +621,7 @@ pub async fn update_candle_validations_type_status(
     sqlx::query(sql)
         .bind(validation_type.as_str())
         .bind(status.as_str())
+        .bind(message)
         .bind(validation.exchange_name.as_str())
         .bind(validation.market_id)
         .bind(validation.datetime)
