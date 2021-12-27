@@ -13,12 +13,12 @@ use crate::trades::{
     create_ftx_trade_table, delete_ftx_trades_by_time, drop_ftx_trade_table, insert_ftx_trades,
     select_ftx_trades_by_table,
 };
+use crate::utilities::get_input;
 use chrono::{DateTime, Duration, Utc};
+use rust_decimal_macros::dec;
 use sqlx::PgPool;
 use std::convert::TryFrom;
 use uuid::Uuid;
-use rust_decimal_macros::dec;
-use crate::utilities::get_input;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct CandleValidation {
@@ -208,6 +208,12 @@ impl Inquisidor {
             86400 => todo!(),
             d => panic!("{} is not a supported candle validation duration.", d),
         };
+        if validated {
+            // New candle was manually approved and validated, save trades and replace unvalidted
+            self.process_revalidated_candle(validation, market, candle)
+                .await;
+            // Update validation to complete
+        }
     }
 
     pub async fn auto_validate_candle(
@@ -258,11 +264,16 @@ impl Inquisidor {
             candle_start,
             900,
         )
-        .await.pop().unwrap();
+        .await
+        .pop()
+        .unwrap();
         // Present candle data versus exchange data and get input from user to validate or not
         let msg = match validation.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
-                println!("Manual Validation for {:?} {} {}", validation.exchange_name, market.market_name, validation.datetime);
+                println!(
+                    "Manual Validation for {:?} {} {}",
+                    validation.exchange_name, market.market_name, validation.datetime
+                );
                 let delta = candle.value - exchange_candle.volume;
                 let percent = delta / exchange_candle.volume * dec!(100.0);
                 println!("ED Value versus FTX Volume:");
@@ -435,19 +446,22 @@ impl Inquisidor {
         println!("New candle is validated. Deleting old trades.");
         let trade_tables = vec!["ws", "processed"]; // Removed rest as table is dropped
         for table in trade_tables.iter() {
-            delete_ftx_trades_by_time(
-                &self.pool,
-                validation.exchange_name.as_str(),
-                market.strip_name().as_str(),
-                table,
-                validation.datetime,
-                validation.datetime + Duration::seconds(900),
-            )
-            .await
-            .unwrap_or_else(|_| panic!("Could not delete {} trades.", table));
+            match validation.exchange_name {
+                ExchangeName::Ftx | ExchangeName::FtxUs => {
+                    delete_ftx_trades_by_time(
+                        &self.pool,
+                        validation.exchange_name.as_str(),
+                        market.strip_name().as_str(),
+                        table,
+                        validation.datetime,
+                        validation.datetime + Duration::seconds(900),
+                    )
+                    .await
+                    .unwrap_or_else(|_| panic!("Could not delete {} trades.", table));
+                }
+            }
         }
         // Delete existing candle
-        //println!("Deleting old candle.");
         delete_candle(
             &self.pool,
             validation.exchange_name.as_str(),
@@ -457,7 +471,6 @@ impl Inquisidor {
         .await
         .expect("Could not delete old candle.");
         // Insert candle with validated status
-        //println!("Inserting validated candle.");
         insert_candle(
             &self.pool,
             validation.exchange_name.as_str(),
@@ -474,32 +487,36 @@ impl Inquisidor {
         // trades will be identified on archive of the daily candle as there is a qc to check the
         // total number of trades for the day against the number of trades in the _validated table.
         let qc_table = format!(
-            "trades_{}_{}_qc",
+            "trades_{}_{}_qc_{}",
             validation.exchange_name.as_str(),
             market.strip_name(),
+            validation.validation_type.as_str(),
         );
-        let validated_trades = select_ftx_trades_by_table(&self.pool, qc_table.as_str())
-            .await
-            .expect("Failed to select trades from temp table.");
-        // Insert trades into _validated
-        //println!("Inserting validated trades.");
-        insert_ftx_trades(
-            &self.pool,
-            &market.market_id,
-            validation.exchange_name.as_str(),
-            market.strip_name().as_str(),
-            "validated",
-            validated_trades,
-        )
-        .await
-        .expect("Could not insert validated trades.");
-        // Drop temp table
-        //println!("Dropping temp table.");
+        match validation.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                let validated_trades = select_ftx_trades_by_table(&self.pool, qc_table.as_str())
+                    .await
+                    .expect("Failed to select trades from temp table.");
+                // Insert trades into _validated
+                insert_ftx_trades(
+                    &self.pool,
+                    &market.market_id,
+                    validation.exchange_name.as_str(),
+                    market.strip_name().as_str(),
+                    "validated",
+                    validated_trades,
+                )
+                .await
+                .expect("Could not insert validated trades.");
+            }
+        }
+        // Drop temp table TODO - make generic, dropping table does not need exchange specific
+        // implementation
         drop_ftx_trade_table(
             &self.pool,
             validation.exchange_name.as_str(),
             market.strip_name().as_str(),
-            "qc",
+            &format!("qc_{}", validation.validation_type.as_str()),
         )
         .await
         .expect("Could not drop qc table.");
