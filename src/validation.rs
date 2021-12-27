@@ -17,6 +17,8 @@ use chrono::{DateTime, Duration, Utc};
 use sqlx::PgPool;
 use std::convert::TryFrom;
 use uuid::Uuid;
+use rust_decimal_macros::dec;
+use crate::utilities::get_input;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct CandleValidation {
@@ -201,7 +203,7 @@ impl Inquisidor {
         // user to determine whether to accept or not.
         // For 01d candles - TODO!
         println!("Attempting manual validation for {:?}", validation);
-        let (validated, candle) = match validation.duration {
+        let (validated, candle, msg) = match validation.duration {
             900 => self.manual_validate_candle(validation, market).await,
             86400 => todo!(),
             d => panic!("{} is not a supported candle validation duration.", d),
@@ -213,28 +215,14 @@ impl Inquisidor {
         validation: &CandleValidation,
         market: &MarketDetail,
     ) -> (bool, Candle) {
-        // Create temp trade table if it does not exists. Then re-download trades for candle
-        // timeperiod. Compare new candle to exchange candle for validation and return result.
-        drop_ftx_trade_table(
-            &self.pool,
-            validation.exchange_name.as_str(),
-            market.strip_name().as_str(),
-            "qc",
-        )
-        .await
-        .expect("Failed to drop qc table.");
-        create_ftx_trade_table(
-            &self.pool,
-            validation.exchange_name.as_str(),
-            market.strip_name().as_str(),
-            "qc",
-        )
-        .await
-        .expect("Failed to create qc table.");
+        // Recreate candle and then compare new candle to exchange candle for validation and return result.
+        let candle = match validation.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                self.recreate_ftx_candle(validation, market).await
+            }
+        };
         // Set start and end for candle period
         let candle_start = validation.datetime;
-        let candle_end = candle_start + Duration::seconds(900);
-        let mut candle_end_or_last_trade = candle_end;
         // Get exchange candles from REST client
         let mut exchange_candles = get_ftx_candles(
             &self.clients[&validation.exchange_name],
@@ -244,117 +232,61 @@ impl Inquisidor {
             900,
         )
         .await;
-        // Download trades for candle period
-        while candle_start < candle_end_or_last_trade {
-            // Prevent 429 errors by only requesting 4 per second
-            tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
-            let mut new_trades = match self.clients[&validation.exchange_name]
-                .get_trades(
-                    market.market_name.as_str(),
-                    Some(5000),
-                    Some(candle_start),
-                    Some(candle_end_or_last_trade),
-                )
-                .await
-            {
-                Err(RestError::Reqwest(e)) => {
-                    if e.is_timeout() {
-                        println!("Request timed out. Waiting 30 seconds before retrying.");
-                        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                        continue;
-                    } else if e.is_connect() {
-                        println!(
-                            "Connect error with reqwest. Waiting 30 seconds before retry. {:?}",
-                            e
-                        );
-                        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                        continue;
-                    } else if e.status() == Some(reqwest::StatusCode::BAD_GATEWAY) {
-                        println!("502 Bad Gateway. Waiting 30 seconds before retry. {:?}", e);
-                        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                        continue;
-                    } else if e.status() == Some(reqwest::StatusCode::SERVICE_UNAVAILABLE) {
-                        println!(
-                            "503 Service Unavailable. Waiting 60 seconds before retry. {:?}",
-                            e
-                        );
-                        tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
-                        continue;
-                    } else {
-                        panic!("Error (not timeout or connect): {:?}", e)
-                    }
-                }
-                Err(e) => panic!("Other RestError: {:?}", e),
-                Ok(result) => result,
-            };
-            let num_trades = new_trades.len();
-            if num_trades > 0 {
-                new_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
-                candle_end_or_last_trade = new_trades.first().unwrap().time;
-                let first_trade = new_trades.last().unwrap().time;
-                println!(
-                    "{} trades returned. First: {}, Last: {}",
-                    num_trades, candle_end_or_last_trade, first_trade
-                );
-                if candle_end_or_last_trade == first_trade {
-                    candle_end_or_last_trade = candle_end_or_last_trade - Duration::microseconds(1);
-                    println!(
-                        "More than 5000 trades in microsecond. Resetting to: {}",
-                        candle_end_or_last_trade
-                    );
-                };
-                //println!("Inserting trades in temp table.");
-                // Temp table name can be used instead of exhcange name as logic for table name is
-                // located in the insert function
-                insert_ftx_trades(
-                    &self.pool,
-                    &market.market_id,
-                    validation.exchange_name.as_str(),
-                    market.strip_name().as_str(),
-                    "qc",
-                    new_trades,
-                )
-                .await
-                .expect("Failed to insert tmp ftx trades.");
-            };
-            if num_trades < 5000 {
-                // Trades returned are less than 100, end trade getting and make candle
-                let qc_table = format!(
-                    "trades_{}_{}_qc",
-                    validation.exchange_name.as_str(),
-                    market.strip_name()
-                );
-                let interval_trades = select_ftx_trades_by_table(&self.pool, qc_table.as_str())
-                    .await
-                    .expect("Could not fetch trades from temp table.");
-                // Create candle from interval trades, trades are already sorted and deduped
-                // from select query and primary key uniqueness
-                if !interval_trades.is_empty() {
-                    let new_candle =
-                        Candle::new_from_trades(market.market_id, candle_start, &interval_trades);
-                    // println!("New candle to re-validate: {:?}", new_candle);
-                    // Validate new candle and return validation status
-                    let is_valid = validate_candle(&new_candle, &mut exchange_candles);
-                    return (is_valid, new_candle);
-                };
-                break;
-            };
-        }
-        // If it gets to this point the validaion failed. Return false and the original candle
-        let original_candle = select_candles_by_daterange(
-            &self.pool,
-            validation.exchange_name.as_str(),
-            &market.market_id,
-            validation.datetime,
-            validation.datetime + Duration::seconds(900),
-        )
-        .await
-        .expect("Failed to select candle from db.")
-        .pop()
-        .unwrap();
-        (false, original_candle)
+        // Validate new candle an d return validation status
+        let is_valid = validate_candle(&candle, &mut exchange_candles);
+        return (is_valid, candle);
     }
 
+    pub async fn manual_validate_candle(
+        &self,
+        validation: &CandleValidation,
+        market: &MarketDetail,
+    ) -> (bool, Candle, String) {
+        // Recreate candle and then compare new candle to exchange candle for validation and return result.
+        let candle = match validation.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                self.recreate_ftx_candle(validation, market).await
+            }
+        };
+        // Set start and end for candle period
+        let candle_start = validation.datetime;
+        // Get exchange candles from REST client
+        let exchange_candle = get_ftx_candles(
+            &self.clients[&validation.exchange_name],
+            market,
+            candle_start,
+            candle_start,
+            900,
+        )
+        .await.pop().unwrap();
+        // Present candle data versus exchange data and get input from user to validate or not
+        let msg = match validation.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                println!("Manual Validation for {:?} {} {}", validation.exchange_name, market.market_name, validation.datetime);
+                let delta = candle.value - exchange_candle.volume;
+                let percent = delta / exchange_candle.volume * dec!(100.0);
+                println!("ED Value versus FTX Volume:");
+                println!("ElDorado: {:?}", candle.value);
+                println!("Exchange: {:?}", exchange_candle.volume);
+                let msg = format!("Delta: {:?}\tPercent: {:?}", delta, percent);
+                println!("{}", msg);
+                msg
+            }
+        };
+        // Get input for validation
+        let response: String = get_input("Accept El-Dorado Candle? [y/yes/n/no]:");
+        let is_valid = match response.to_lowercase().as_str() {
+            "y" | "yes" => {
+                println!("Accepting recreated candle.");
+                true
+            }
+            _ => {
+                println!("Rejecting recreated candle.");
+                false
+            }
+        };
+        return (is_valid, candle, msg);
+    }
 
     pub async fn recreate_ftx_candle(
         &self,
