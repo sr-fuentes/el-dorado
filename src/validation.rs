@@ -343,7 +343,7 @@ impl Inquisidor {
     ) {
         // Delete all trades from _rest _ws and _processed
         println!("New candle is validated. Deleting old trades.");
-        let trade_tables = vec!["rest", "ws", "processed"];
+        let trade_tables = vec!["ws", "processed"]; // Removed rest as table is dropped
         for table in trade_tables.iter() {
             delete_ftx_trades_by_time(
                 &self.pool,
