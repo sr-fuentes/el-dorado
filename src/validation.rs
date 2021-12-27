@@ -10,8 +10,8 @@ use crate::markets::{
     select_market_details, select_market_details_by_status_exchange, MarketDetail, MarketStatus,
 };
 use crate::trades::{
-    create_ftx_trade_table, delete_ftx_trades_by_time, drop_ftx_trade_table, insert_ftx_trades,
-    select_ftx_trades_by_table,
+    create_ftx_trade_table, delete_ftx_trades_by_time, drop_ftx_trade_table, drop_table,
+    insert_ftx_trades, select_ftx_trades_by_table,
 };
 use crate::utilities::get_input;
 use chrono::{DateTime, Duration, Utc};
@@ -187,11 +187,21 @@ impl Inquisidor {
                 validation,
                 ValidationType::Manual,
                 ValidationStatus::Open,
-                "Failed to auto-validate."
+                "Failed to auto-validate.",
             )
             .await
             .expect("Failed to update validation status.");
         }
+        // Drop the validation trade table
+        let qc_table = format!(
+            "trades_{}_{}_qc_{}",
+            validation.exchange_name.as_str(),
+            market.strip_name(),
+            validation.validation_type.as_str(),
+        );
+        drop_table(&self.pool, &qc_table)
+            .await
+            .expect("Failed to drop qc table.");
     }
 
     pub async fn manual_process_candle_validation(
@@ -218,6 +228,16 @@ impl Inquisidor {
                 .await
                 .expect("Failed to update validation status to done.");
         }
+        // Drop the validation trade table
+        let qc_table = format!(
+            "trades_{}_{}_qc_{}",
+            validation.exchange_name.as_str(),
+            market.strip_name(),
+            validation.validation_type.as_str(),
+        );
+        drop_table(&self.pool, &qc_table)
+            .await
+            .expect("Failed to drop qc table.");
     }
 
     pub async fn auto_validate_candle(
@@ -515,16 +535,6 @@ impl Inquisidor {
                 .expect("Could not insert validated trades.");
             }
         }
-        // Drop temp table TODO - make generic, dropping table does not need exchange specific
-        // implementation
-        drop_ftx_trade_table(
-            &self.pool,
-            validation.exchange_name.as_str(),
-            market.strip_name().as_str(),
-            &format!("qc_{}", validation.validation_type.as_str()),
-        )
-        .await
-        .expect("Could not drop qc table.");
     }
 }
 
