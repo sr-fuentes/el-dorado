@@ -644,8 +644,12 @@ pub async fn update_candle_validations_type_status(
 mod tests {
     use crate::candles::create_exchange_candle_table;
     use crate::configuration::get_configuration;
-    use crate::validation::{insert_candle_validation, CandleValidation};
+    use crate::validation::{insert_candle_validation, CandleValidation, ValidationType, ValidationStatus};
+    use crate::exchanges::ExchangeName;
+    use crate::inquisidor::Inquisidor;
     use sqlx::PgPool;
+    use uuid::Uuid;
+    use chrono::{Utc, TimeZone};
 
     pub async fn prep_candle_validation(validation: CandleValidation) {
         // Load configuration and db connection to dev
@@ -693,8 +697,46 @@ mod tests {
     }
 
     #[tokio::test]
-    pub async fn auto_revalidate_candle() {}
+    pub async fn auto_revalidate_candle() {
+        // Create validation that can be auto revalidated
+        let validation = CandleValidation {
+            exchange_name: ExchangeName::Ftx,
+            market_id: Uuid::parse_str("b3bf21db-92bb-4613-972a-1d0f1aab1e95").unwrap(),
+            datetime: Utc.ymd(2021, 12, 18).and_hms(7,45,00),
+            duration: 900,
+            validation_type: ValidationType::Auto,
+            created_ts: Utc::now(),
+            processed_ts: None,
+            validation_status: ValidationStatus::New,
+            notes: None,
+        };
+        prep_candle_validation(validation).await;
+        // Create ig instance and process new validation
+        let ig = Inquisidor::new().await;
+        ig.process_candle_validations(ValidationStatus::New).await;
+
+    }
 
     #[tokio::test]
-    pub async fn manual_revalidate_candle() {}
+    pub async fn manual_revalidate_candle() {
+        // Create validation that cannot be auto revalidated and needs to be manual revalidated
+        let validation = CandleValidation {
+            exchange_name: ExchangeName::Ftx,
+            market_id: Uuid::parse_str("b3bf21db-92bb-4613-972a-1d0f1aab1e95").unwrap(),
+            datetime: Utc.ymd(2021, 12, 10).and_hms(7,30,00),
+            duration: 900,
+            validation_type: ValidationType::Auto,
+            created_ts: Utc::now(),
+            processed_ts: None,
+            validation_status: ValidationStatus::New,
+            notes: None,
+        };
+        prep_candle_validation(validation).await;
+        // Create ig instance and process new validation
+        let ig = Inquisidor::new().await;
+        ig.process_candle_validations(ValidationStatus::New).await;
+        println!("Sleeping 5 seconds before starting manual validation.");
+        tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+        ig.process_candle_validations(ValidationStatus::Open).await;
+    }
 }
