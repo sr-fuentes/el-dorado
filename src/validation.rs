@@ -1,6 +1,6 @@
 use crate::candles::{
     create_01d_candles, delete_candle, get_ftx_candles, insert_candle, select_candles_by_daterange,
-    validate_01d_candles, validate_candle, validate_hb_candles, Candle,
+    validate_01d_candles, validate_candle, validate_hb_candles, Candle, DailyCandle,
 };
 use crate::exchanges::{
     ftx::RestClient, ftx::RestError, select_exchanges_by_status, ExchangeName, ExchangeStatus,
@@ -167,41 +167,11 @@ impl Inquisidor {
         // For 01d candles - re-sample from heartbeat candles
         // For hb candles - re-download trades from REST API
         println!("Attempting auto-validation for {:?}", validation);
-        let (validated, candle, message) = match validation.duration {
+        match validation.duration {
             900 => self.auto_validate_candle(validation, market).await,
-            86400 => todo!(),
+            86400 => self.auto_validate_01d_candle(validation, market).await,
             d => panic!("{} is not a supported candle validation duration.", d),
         };
-        if validated {
-            // New candle was validated, save trades if heartbeat and replace unvalidated candle
-            self.process_revalidated_candle(validation, market, candle)
-                .await;
-            // Update validation to complete
-            update_candle_validation_status_processed(&self.pool, validation, &message)
-                .await
-                .expect("Failed to update valdiations status to done.");
-        } else {
-            // Candle was not auto validated, update type to manual and status to open
-            update_candle_validations_type_status(
-                &self.pool,
-                validation,
-                ValidationType::Manual,
-                ValidationStatus::Open,
-                "Failed to auto-validate.",
-            )
-            .await
-            .expect("Failed to update validation status.");
-        }
-        // Drop the validation trade table
-        let qc_table = format!(
-            "trades_{}_{}_qc_{}",
-            validation.exchange_name.as_str(),
-            market.strip_name(),
-            validation.validation_type.as_str(),
-        );
-        drop_table(&self.pool, &qc_table)
-            .await
-            .expect("Failed to drop qc table.");
     }
 
     pub async fn manual_process_candle_validation(
@@ -244,7 +214,7 @@ impl Inquisidor {
         &self,
         validation: &CandleValidation,
         market: &MarketDetail,
-    ) -> (bool, Candle, String) {
+    ) {
         // Recreate candle and then compare new candle to exchange candle for validation and return result.
         let candle = match validation.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
@@ -265,7 +235,44 @@ impl Inquisidor {
         // Validate new candle an d return validation status
         let is_valid = validate_candle(&candle, &mut exchange_candles);
         let message = "Re-validation successful.".to_string();
-        (is_valid, candle, message)
+        if is_valid {
+            // New candle was validated, save trades if heartbeat and replace unvalidated candle
+            self.process_revalidated_candle(validation, market, candle)
+                .await;
+            // Update validation to complete
+            update_candle_validation_status_processed(&self.pool, validation, &message)
+                .await
+                .expect("Failed to update valdiations status to done.");
+        } else {
+            // Candle was not auto validated, update type to manual and status to open
+            update_candle_validations_type_status(
+                &self.pool,
+                validation,
+                ValidationType::Manual,
+                ValidationStatus::Open,
+                "Failed to auto-validate.",
+            )
+            .await
+            .expect("Failed to update validation status.");
+        }
+        // Drop the validation trade table
+        let qc_table = format!(
+            "trades_{}_{}_qc_{}",
+            validation.exchange_name.as_str(),
+            market.strip_name(),
+            validation.validation_type.as_str(),
+        );
+        drop_table(&self.pool, &qc_table)
+            .await
+            .expect("Failed to drop qc table.");
+    }
+
+    pub async fn auto_validate_01d_candle(
+        &self,
+        validation: &CandleValidation,
+        market: &MarketDetail,
+    ) {
+
     }
 
     pub async fn manual_validate_candle(
