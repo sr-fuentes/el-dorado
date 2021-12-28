@@ -292,6 +292,30 @@ impl Inquisidor {
         .await
         .pop()
         .unwrap();
+        // Get +/- 1 seconds of candles
+        let end_trades = match validation.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => self.clients[&validation.exchange_name]
+                .get_trades(
+                    market.market_name.as_str(),
+                    Some(5000),
+                    Some(candle_start + Duration::seconds(899)),
+                    Some(candle_start + Duration::seconds(901)),
+                )
+                .await
+                .expect("Failed to get ftx end of candle trades."),
+        };
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+        let start_trades = match validation.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => self.clients[&validation.exchange_name]
+                .get_trades(
+                    market.market_name.as_str(),
+                    Some(5000),
+                    Some(candle_start - Duration::seconds(1)),
+                    Some(candle_start + Duration::seconds(1)),
+                )
+                .await
+                .expect("Failed to get ftx end of candle trades."),
+        };
         // Present candle data versus exchange data and get input from user to validate or not
         let msg = match validation.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
@@ -301,10 +325,17 @@ impl Inquisidor {
                 );
                 let delta = candle.value - exchange_candle.volume;
                 let percent = delta / exchange_candle.volume * dec!(100.0);
+                println!("End of candle trades:\n{:?}", end_trades);
+                println!("Start of candle trades:\n{:?}", start_trades);
+                println!("New Candle: {:?}", candle);
                 println!("ED Value versus FTX Volume:");
                 println!("ElDorado: {:?}", candle.value);
                 println!("Exchange: {:?}", exchange_candle.volume);
-                let msg = format!("Delta: {:?}\tPercent: {:?}", delta, percent);
+                let msg = format!(
+                    "Delta: {:?} & Percent: {:?}",
+                    delta.round_dp(2),
+                    percent.round_dp(4)
+                );
                 println!("{}", msg);
                 msg
             }
@@ -643,7 +674,7 @@ mod tests {
     use crate::configuration::get_configuration;
     use crate::exchanges::ExchangeName;
     use crate::inquisidor::Inquisidor;
-    use crate::trades::{drop_ftx_trade_table, create_ftx_trade_table};
+    use crate::trades::{create_ftx_trade_table, drop_ftx_trade_table};
     use crate::validation::{
         insert_candle_validation, CandleValidation, ValidationStatus, ValidationType,
     };
@@ -685,10 +716,18 @@ mod tests {
             .expect("Failed to create table.");
 
         // Create trades table if it does not exist
-        drop_ftx_trade_table(&pool, "ftx", "btcperp", "processed").await.expect("Failed to drop table.");
-        create_ftx_trade_table(&pool, "ftx", "btcperp", "processed").await.expect("Failed to create trade table.");
-        drop_ftx_trade_table(&pool, "ftx", "btcperp", "validated").await.expect("Failed to drop table.");
-        create_ftx_trade_table(&pool, "ftx", "btcperp", "validated").await.expect("Failed to create trade table.");
+        drop_ftx_trade_table(&pool, "ftx", "btcperp", "processed")
+            .await
+            .expect("Failed to drop table.");
+        create_ftx_trade_table(&pool, "ftx", "btcperp", "processed")
+            .await
+            .expect("Failed to create trade table.");
+        drop_ftx_trade_table(&pool, "ftx", "btcperp", "validated")
+            .await
+            .expect("Failed to drop table.");
+        create_ftx_trade_table(&pool, "ftx", "btcperp", "validated")
+            .await
+            .expect("Failed to create trade table.");
 
         // Clear candle validations table
         let sql = r#"
