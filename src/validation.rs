@@ -467,23 +467,20 @@ impl Inquisidor {
         market: &MarketDetail,
         candle: Candle,
     ) {
-        // Delete all trades from _rest _ws and _processed
+        // Delete all trades from _processed (_rest and _ws will drop on next restart)
         println!("New candle is validated. Deleting old trades.");
-        let trade_tables = vec!["ws", "processed"]; // Removed rest as table is dropped
-        for table in trade_tables.iter() {
-            match validation.exchange_name {
-                ExchangeName::Ftx | ExchangeName::FtxUs => {
-                    delete_ftx_trades_by_time(
-                        &self.pool,
-                        validation.exchange_name.as_str(),
-                        market.strip_name().as_str(),
-                        table,
-                        validation.datetime,
-                        validation.datetime + Duration::seconds(900),
-                    )
-                    .await
-                    .unwrap_or_else(|_| panic!("Could not delete {} trades.", table));
-                }
+        match validation.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                delete_ftx_trades_by_time(
+                    &self.pool,
+                    validation.exchange_name.as_str(),
+                    market.strip_name().as_str(),
+                    "processed",
+                    validation.datetime,
+                    validation.datetime + Duration::seconds(900),
+                )
+                .await
+                .expect("Could not delete processed trades.");
             }
         }
         // Delete existing candle
@@ -624,9 +621,9 @@ pub async fn update_candle_validations_type_status(
     let sql = r#"
         UPDATE candle_validations
         SET (validation_type, validation_status, notes) = ($1, $2, $3)
-        WHERE exchange_name = $3
-        AND market_id = $4
-        AND datetime = $5
+        WHERE exchange_name = $4
+        AND market_id = $5
+        AND datetime = $6
         "#;
     sqlx::query(sql)
         .bind(validation_type.as_str())
@@ -644,12 +641,15 @@ pub async fn update_candle_validations_type_status(
 mod tests {
     use crate::candles::create_exchange_candle_table;
     use crate::configuration::get_configuration;
-    use crate::validation::{insert_candle_validation, CandleValidation, ValidationType, ValidationStatus};
     use crate::exchanges::ExchangeName;
     use crate::inquisidor::Inquisidor;
+    use crate::trades::{drop_ftx_trade_table, create_ftx_trade_table};
+    use crate::validation::{
+        insert_candle_validation, CandleValidation, ValidationStatus, ValidationType,
+    };
+    use chrono::{TimeZone, Utc};
     use sqlx::PgPool;
     use uuid::Uuid;
-    use chrono::{Utc, TimeZone};
 
     pub async fn prep_candle_validation(validation: CandleValidation) {
         // Load configuration and db connection to dev
@@ -665,7 +665,7 @@ mod tests {
         let sql = r#"
             UPDATE markets set market_id = 'b3bf21db-92bb-4613-972a-1d0f1aab1e95'
             WHERE market_name = 'BTC-PERP'
-            AND exchange_Name = 'FTX'
+            AND exchange_name = 'ftx'
             "#;
         sqlx::query(sql)
             .execute(&pool)
@@ -683,6 +683,22 @@ mod tests {
         create_exchange_candle_table(&pool, "ftx")
             .await
             .expect("Failed to create table.");
+
+        // Create trades table if it does not exist
+        drop_ftx_trade_table(&pool, "ftx", "btcperp", "processed").await.expect("Failed to drop table.");
+        create_ftx_trade_table(&pool, "ftx", "btcperp", "processed").await.expect("Failed to create trade table.");
+        drop_ftx_trade_table(&pool, "ftx", "btcperp", "validated").await.expect("Failed to drop table.");
+        create_ftx_trade_table(&pool, "ftx", "btcperp", "validated").await.expect("Failed to create trade table.");
+
+        // Clear candle validations table
+        let sql = r#"
+            DELETE FROM candle_validations
+            WHERE 1=1
+            "#;
+        sqlx::query(sql)
+            .execute(&pool)
+            .await
+            .expect("Failed to delete validation records.");
 
         // Insert bad candle validation that can be fixed automatically
         insert_candle_validation(
@@ -702,7 +718,7 @@ mod tests {
         let validation = CandleValidation {
             exchange_name: ExchangeName::Ftx,
             market_id: Uuid::parse_str("b3bf21db-92bb-4613-972a-1d0f1aab1e95").unwrap(),
-            datetime: Utc.ymd(2021, 12, 18).and_hms(7,45,00),
+            datetime: Utc.ymd(2021, 12, 18).and_hms(7, 45, 00),
             duration: 900,
             validation_type: ValidationType::Auto,
             created_ts: Utc::now(),
@@ -714,7 +730,6 @@ mod tests {
         // Create ig instance and process new validation
         let ig = Inquisidor::new().await;
         ig.process_candle_validations(ValidationStatus::New).await;
-
     }
 
     #[tokio::test]
@@ -723,7 +738,7 @@ mod tests {
         let validation = CandleValidation {
             exchange_name: ExchangeName::Ftx,
             market_id: Uuid::parse_str("b3bf21db-92bb-4613-972a-1d0f1aab1e95").unwrap(),
-            datetime: Utc.ymd(2021, 12, 10).and_hms(7,30,00),
+            datetime: Utc.ymd(2021, 12, 10).and_hms(7, 30, 00),
             duration: 900,
             validation_type: ValidationType::Auto,
             created_ts: Utc::now(),
