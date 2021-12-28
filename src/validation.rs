@@ -639,3 +639,62 @@ pub async fn update_candle_validations_type_status(
         .await?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::candles::create_exchange_candle_table;
+    use crate::configuration::get_configuration;
+    use crate::validation::{insert_candle_validation, CandleValidation};
+    use sqlx::PgPool;
+
+    pub async fn prep_candle_validation(validation: CandleValidation) {
+        // Load configuration and db connection to dev
+        let configuration = get_configuration().expect("Failed to read configuration.");
+        println!("Configuration: {:?}", configuration);
+
+        // Create db connection
+        let pool = PgPool::connect_with(configuration.database.with_db())
+            .await
+            .expect("Failed to connect to Postgres.");
+
+        // Update FTX BTC-PERP market_id to b3bf21db-92bb-4613-972a-1d0f1aab1e95 to match prod val
+        let sql = r#"
+            UPDATE markets set market_id = 'b3bf21db-92bb-4613-972a-1d0f1aab1e95'
+            WHERE market_name = 'BTC-PERP'
+            AND exchange_Name = 'FTX'
+            "#;
+        sqlx::query(sql)
+            .execute(&pool)
+            .await
+            .expect("Failed to update id.");
+
+        // Create candles table if it does not exists
+        let sql = r#"
+            DROP TABLE IF EXISTS candles_15t_ftx
+            "#;
+        sqlx::query(sql)
+            .execute(&pool)
+            .await
+            .expect("Failed to drop table.");
+        create_exchange_candle_table(&pool, "ftx")
+            .await
+            .expect("Failed to create table.");
+
+        // Insert bad candle validation that can be fixed automatically
+        insert_candle_validation(
+            &pool,
+            validation.exchange_name.as_str(),
+            &validation.market_id,
+            &validation.datetime,
+            validation.duration,
+        )
+        .await
+        .expect("Failed to insert candle validation.");
+    }
+
+    #[tokio::test]
+    pub async fn auto_revalidate_candle() {}
+
+    #[tokio::test]
+    pub async fn manual_revalidate_candle() {}
+}
