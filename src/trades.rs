@@ -169,6 +169,17 @@ pub async fn drop_ftx_trade_table(
     Ok(())
 }
 
+pub async fn drop_table(pool: &PgPool, table: &str) -> Result<(), sqlx::Error> {
+    let sql = format!(
+        r#"
+        DROP TABLE IF EXISTS {}
+        "#,
+        table
+    );
+    sqlx::query(&sql).execute(pool).await?;
+    Ok(())
+}
+
 pub async fn alter_trade_table_to_temp(
     pool: &PgPool,
     exchange_name: &str,
