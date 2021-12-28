@@ -1,6 +1,6 @@
 use crate::candles::{
     create_01d_candles, delete_candle, get_ftx_candles, insert_candle, select_candles_by_daterange,
-    validate_01d_candles, validate_candle, validate_hb_candles, Candle, DailyCandle,
+    validate_01d_candles, validate_candle, validate_hb_candles, Candle, resample_candles,
 };
 use crate::exchanges::{
     ftx::RestClient, ftx::RestError, select_exchanges_by_status, ExchangeName, ExchangeStatus,
@@ -234,8 +234,8 @@ impl Inquisidor {
         .await;
         // Validate new candle an d return validation status
         let is_valid = validate_candle(&candle, &mut exchange_candles);
-        let message = "Re-validation successful.".to_string();
         if is_valid {
+            let message = "Re-validation successful.".to_string();
             // New candle was validated, save trades if heartbeat and replace unvalidated candle
             self.process_revalidated_candle(validation, market, candle)
                 .await;
@@ -272,7 +272,51 @@ impl Inquisidor {
         validation: &CandleValidation,
         market: &MarketDetail,
     ) {
-
+        // Check that all of the hb candles are validated before continuing. If they are all
+        // validated then re-create the daily candle from the heartbeat candles and re-validate.
+        let hb_candles = select_candles_by_daterange(
+            &self.pool,
+            validation.exchange_name.as_str(),
+            &validation.market_id,
+            validation.datetime,
+            validation.datetime + Duration::days(1),
+        )
+        .await.expect("Failed to select hb candles.");
+        // Return if not all hb candles are validated
+        if !hb_candles.iter().all(|c| c.is_validated) {return};
+        // Resample 01d candle
+        let candle = resample_candles(validation.market_id, &hb_candles, Duration::days(1)).pop().unwrap();
+        // Get exchange candle
+        let mut exchange_candles = get_ftx_candles(
+            &self.clients[&validation.exchange_name],
+            market,
+            validation.datetime,
+            validation.datetime,
+            86400,
+        )
+        .await;
+        // Validate new candle volume
+        let is_valid = validate_candle(&candle, &mut exchange_candles);
+        if is_valid {
+            let message = "Re-validation successful.".to_string();
+            // New candle was validated, update new candle
+            self.process_revalidated_01d_candle();
+            // Update validation to complete
+            update_candle_validation_status_processed(&self.pool, validation, &message)
+                .await
+                .expect("Failed to update validation status to done.");
+        } else {
+            // Candle was not validated, update to manual and open
+            update_candle_validations_type_status(
+                &self.pool,
+                validation,
+                ValidationType::Manual,
+                ValidationStatus::Open,
+                "Failed to auto-validate.",
+            )
+            .await
+            .expect("Failed to update validation status.");
+        }
     }
 
     pub async fn manual_validate_candle(
