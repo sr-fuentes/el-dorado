@@ -9,6 +9,7 @@ use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use sqlx::PgPool;
 use uuid::Uuid;
+use std::convert::TryFrom;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, sqlx::FromRow)]
 pub struct Candle {
@@ -52,6 +53,51 @@ pub struct DailyCandle {
     pub is_validated: bool,
     pub market_id: Uuid,
     pub is_complete: bool,
+}
+
+pub enum TimeFrame {
+    T15,
+    H01,
+    H04,
+    H12,
+    D01,
+}
+
+impl TimeFrame {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TimeFrame::T15 => "t15",
+            TimeFrame::H01 => "h01",
+            TimeFrame::H04 => "h04",
+            TimeFrame::H12 => "h12",
+            TimeFrame::D01 => "d01",
+        }
+    }
+
+    pub fn as_secs(&self) -> i64 {
+        match self {
+            TimeFrame::T15 => 900,
+            TimeFrame::H01 => 3600,
+            TimeFrame::H04 => 14400,
+            TimeFrame::H12 => 43200,
+            TimeFrame::D01 => 86400,
+        }
+    }
+}
+
+impl TryFrom<String> for TimeFrame {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        match s.to_lowercase().as_str() {
+            "t15" => Ok(Self::T15),
+            "h01" => Ok(Self::H01),
+            "h04" => Ok(Self::H04),
+            "h12" => Ok(Self::H12),
+            "d01" => Ok(Self::D01),
+            other => Err(format!("{} is not a supported TimeFrame.", other)),
+        }
+    }
 }
 
 impl Candle {
