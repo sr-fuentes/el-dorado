@@ -85,7 +85,7 @@ pub async fn cleanup_03(pool: &PgPool, config: &Settings) {
                 .await
                 .expect("Could not delete candle.");
             println!("Inserting new 01d candle.");
-            insert_candles_01d(pool, &market.market_id, &resampled_candles)
+            insert_candles_01d(pool, &market.market_id, &resampled_candles, false)
                 .await
                 .expect("Could not insert resampled candles.");
         } else {

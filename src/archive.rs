@@ -178,7 +178,7 @@ mod test {
         };
 
         // Insert 01D candles
-        insert_candles_01d(&pool, &market.market_id, &resampled_candles)
+        insert_candles_01d(&pool, &market.market_id, &resampled_candles, false)
             .await
             .expect("Could not insert candles.");
 
