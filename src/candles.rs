@@ -402,7 +402,7 @@ pub async fn create_01d_candles(pool: &PgPool, exchange_name: &str, market_id: &
     };
 
     // Insert 01D candles
-    insert_candles_01d(pool, market_id, &resampled_candles)
+    insert_candles_01d(pool, market_id, &resampled_candles, false)
         .await
         .expect("Could not insert candles.");
 }
@@ -576,9 +576,18 @@ pub async fn validate_01d_candles(
                 .expect("Could not update candle validation status.");
         } else {
             println!(
-                "{:?} 01d not validated. HB={}, VOL={}",
+                "{:?} 01d not validated adding to validation table. HB={}, VOL={}",
                 candle.datetime, hb_is_validated, vol_is_validated
             );
+            insert_candle_validation(
+                pool,
+                exchange_name,
+                &market.market_id,
+                &candle.datetime,
+                86400,
+            )
+            .await
+            .expect("Failed to insert candle validation.");
         }
     }
 }
@@ -875,6 +884,7 @@ pub async fn insert_candles_01d(
     pool: &PgPool,
     market_id: &Uuid,
     candles: &[Candle],
+    is_validated: bool,
 ) -> Result<(), sqlx::Error> {
     let sql = r#"
         INSERT INTO candles_01d (
@@ -899,7 +909,7 @@ pub async fn insert_candles_01d(
             .bind(candle.liquidation_count)
             .bind(candle.last_trade_ts)
             .bind(&candle.last_trade_id)
-            .bind(candle.is_validated)
+            .bind(is_validated)
             .bind(market_id)
             .bind(candle.first_trade_ts)
             .bind(&candle.first_trade_id)
