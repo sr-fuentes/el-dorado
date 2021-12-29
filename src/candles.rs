@@ -8,8 +8,8 @@ use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use sqlx::PgPool;
-use uuid::Uuid;
 use std::convert::TryFrom;
+use uuid::Uuid;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, sqlx::FromRow)]
 pub struct Candle {
