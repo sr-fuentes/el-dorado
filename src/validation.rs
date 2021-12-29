@@ -732,7 +732,7 @@ pub async fn insert_candle_validation(
             exchange_name, market_id, datetime, duration, validation_type, created_ts,
             validation_status, notes)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT (exchange_name, market_id, datetime) DO NOTHING
+        ON CONFLICT (exchange_name, market_id, datetime, duration) DO NOTHING
         "#;
     sqlx::query(sql)
         .bind(exchange)
