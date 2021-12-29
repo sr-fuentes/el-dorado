@@ -421,21 +421,21 @@ pub async fn validate_hb_candles(
     if !unvalidated_candles.is_empty() {
         let first_candle = unvalidated_candles.first().unwrap().datetime;
         let last_candle = unvalidated_candles.last().unwrap().datetime;
-        println!(
-            "Getting exchange candles from {:?} to {:?}",
-            first_candle, last_candle
-        );
+        // // println!(
+        //     "Getting exchange candles from {:?} to {:?}",
+        //     first_candle, last_candle
+        // );
         let mut exchange_candles =
             get_ftx_candles(client, market, first_candle, last_candle, 900).await;
-        println!("Pulled {} candles from exchange.", exchange_candles.len());
-        println!(
-            "First returned candle is: {:?}",
-            exchange_candles.first().unwrap().time
-        );
-        println!(
-            "Last returned candle is: {:?}",
-            exchange_candles.last().unwrap().time
-        );
+        // println!("Pulled {} candles from exchange.", exchange_candles.len());
+        // println!(
+        //     "First returned candle is: {:?}",
+        //     exchange_candles.first().unwrap().time
+        // );
+        // println!(
+        //     "Last returned candle is: {:?}",
+        //     exchange_candles.last().unwrap().time
+        // );
         for unvalidated_candle in unvalidated_candles {
             // validate candle - get candle from exchange, comp volume. if volume matches
             // consider it validated - if not - pull trades
