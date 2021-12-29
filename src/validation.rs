@@ -1,6 +1,7 @@
 use crate::candles::{
-    create_01d_candles, delete_candle, get_ftx_candles, insert_candle, select_candles_by_daterange,
-    validate_01d_candles, validate_candle, validate_hb_candles, Candle, resample_candles,
+    create_01d_candles, delete_candle, delete_candle_01d, get_ftx_candles, insert_candle,
+    insert_candles_01d, resample_candles, select_candles_by_daterange, validate_01d_candles,
+    validate_candle, validate_hb_candles, Candle,
 };
 use crate::exchanges::{
     ftx::RestClient, ftx::RestError, select_exchanges_by_status, ExchangeName, ExchangeStatus,
@@ -210,11 +211,7 @@ impl Inquisidor {
             .expect("Failed to drop qc table.");
     }
 
-    pub async fn auto_validate_candle(
-        &self,
-        validation: &CandleValidation,
-        market: &MarketDetail,
-    ) {
+    pub async fn auto_validate_candle(&self, validation: &CandleValidation, market: &MarketDetail) {
         // Recreate candle and then compare new candle to exchange candle for validation and return result.
         let candle = match validation.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
@@ -281,11 +278,16 @@ impl Inquisidor {
             validation.datetime,
             validation.datetime + Duration::days(1),
         )
-        .await.expect("Failed to select hb candles.");
+        .await
+        .expect("Failed to select hb candles.");
         // Return if not all hb candles are validated
-        if !hb_candles.iter().all(|c| c.is_validated) {return};
+        if !hb_candles.iter().all(|c| c.is_validated) {
+            return;
+        };
         // Resample 01d candle
-        let candle = resample_candles(validation.market_id, &hb_candles, Duration::days(1)).pop().unwrap();
+        let candle = resample_candles(validation.market_id, &hb_candles, Duration::days(1))
+            .pop()
+            .unwrap();
         // Get exchange candle
         let mut exchange_candles = get_ftx_candles(
             &self.clients[&validation.exchange_name],
@@ -300,7 +302,8 @@ impl Inquisidor {
         if is_valid {
             let message = "Re-validation successful.".to_string();
             // New candle was validated, update new candle
-            self.process_revalidated_01d_candle();
+            self.process_revalidated_01d_candle(validation, candle)
+                .await;
             // Update validation to complete
             update_candle_validation_status_processed(&self.pool, validation, &message)
                 .await
@@ -614,6 +617,21 @@ impl Inquisidor {
                 .expect("Could not insert validated trades.");
             }
         }
+    }
+
+    pub async fn process_revalidated_01d_candle(
+        &self,
+        validation: &CandleValidation,
+        candle: Candle,
+    ) {
+        // Delete existing candle
+        delete_candle_01d(&self.pool, &validation.market_id, &validation.datetime)
+            .await
+            .expect("Failed to delete 01D candle.");
+        // Insert candle with validated status
+        insert_candles_01d(&self.pool, &validation.market_id, &vec![candle])
+            .await
+            .expect("Failed to insert 01D candle.");
     }
 }
 
