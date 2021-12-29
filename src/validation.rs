@@ -266,9 +266,14 @@ impl Inquisidor {
             return;
         };
         // Resample 01d candle
-        let candle = resample_candles(validation.market_id, &hb_candles, Duration::days(1))
-            .pop()
-            .unwrap();
+        let candle =
+            match resample_candles(validation.market_id, &hb_candles, Duration::days(1)).pop() {
+                Some(c) => c,
+                None => {
+                    println!("No heartbeat candles to resample.");
+                    return;
+                }
+            };
         // Get exchange candle
         let mut exchange_candles = get_ftx_candles(
             &self.clients[&validation.exchange_name],
@@ -969,5 +974,25 @@ mod tests {
         println!("Sleeping 5 seconds before starting manual validation.");
         tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
         ig.process_candle_validations(ValidationStatus::Open).await;
+    }
+
+    #[tokio::test]
+    pub async fn auto_revalidate_01d_candle_no_heartbeats() {
+        // Create validation that cannot be auto revalidated and needs to be manual revalidated
+        let validation = CandleValidation {
+            exchange_name: ExchangeName::Ftx,
+            market_id: Uuid::parse_str("b3bf21db-92bb-4613-972a-1d0f1aab1e95").unwrap(),
+            datetime: Utc.ymd(2021, 12, 18).and_hms(0, 0, 0),
+            duration: 86400,
+            validation_type: ValidationType::Auto,
+            created_ts: Utc::now(),
+            processed_ts: None,
+            validation_status: ValidationStatus::New,
+            notes: None,
+        };
+        prep_candle_validation(validation).await;
+        // Create ig instance and process new validation
+        let ig = Inquisidor::new().await;
+        ig.process_candle_validations(ValidationStatus::New).await;
     }
 }
