@@ -852,7 +852,7 @@ pub async fn update_candle_validations_type_status(
 
 #[cfg(test)]
 mod tests {
-    use crate::candles::{Candle, create_exchange_candle_table, insert_candle};
+    use crate::candles::{create_exchange_candle_table, insert_candle, Candle};
     use crate::configuration::get_configuration;
     use crate::exchanges::ExchangeName;
     use crate::inquisidor::Inquisidor;
@@ -861,9 +861,9 @@ mod tests {
         insert_candle_validation, CandleValidation, ValidationStatus, ValidationType,
     };
     use chrono::{TimeZone, Utc};
+    use rust_decimal_macros::dec;
     use sqlx::PgPool;
     use uuid::Uuid;
-    use rust_decimal_macros::dec;
 
     pub async fn prep_candle_validation(validation: CandleValidation) {
         // Load configuration and db connection to dev
@@ -1034,7 +1034,15 @@ mod tests {
         };
         // Create ig instance and process new validation
         let ig = Inquisidor::new().await;
-        insert_candle(&ig.pool, "ftx", &Uuid::parse_str("b3bf21db-92bb-4613-972a-1d0f1aab1e95").unwrap(), candle, true).await.expect("Failed to insert hb candle.");
+        insert_candle(
+            &ig.pool,
+            "ftx",
+            &Uuid::parse_str("b3bf21db-92bb-4613-972a-1d0f1aab1e95").unwrap(),
+            candle,
+            true,
+        )
+        .await
+        .expect("Failed to insert hb candle.");
         ig.process_candle_validations(ValidationStatus::New).await;
         println!("Sleeping 5 seconds before starting manual validation.");
         tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
