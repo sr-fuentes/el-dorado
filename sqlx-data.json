@@ -223,6 +223,76 @@
       ]
     }
   },
+  "67f3e89ce29bb4222d22ad0b2e47701c10247da6cb777506c5854f081b45aef0": {
+    "query": "\n        SELECT exchange_name as \"exchange_name: ExchangeName\",\n            market_id, datetime, duration,\n            validation_type as \"validation_type: ValidationType\",\n            created_ts, processed_ts,\n            validation_status as \"validation_status: ValidationStatus\",\n            notes\n        FROM candle_validations\n        WHERE duration = 900\n        AND market_id = $1\n        AND datetime >= $2 AND datetime < $3\n        ORDER BY datetime\n        ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "exchange_name: ExchangeName",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 1,
+          "name": "market_id",
+          "type_info": "Uuid"
+        },
+        {
+          "ordinal": 2,
+          "name": "datetime",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 3,
+          "name": "duration",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 4,
+          "name": "validation_type: ValidationType",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 5,
+          "name": "created_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 6,
+          "name": "processed_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 7,
+          "name": "validation_status: ValidationStatus",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 8,
+          "name": "notes",
+          "type_info": "Text"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Timestamptz",
+          "Timestamptz"
+        ]
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        false,
+        true
+      ]
+    }
+  },
   "69baf9c709d93664157df28337124095b970c2e5461a9f9db316de42224043d4": {
     "query": "\n        SELECT exchange_name as \"exchange_name: ExchangeName\",\n            market_id, datetime, duration,\n            validation_type as \"validation_type: ValidationType\",\n            created_ts, processed_ts,\n            validation_status as \"validation_status: ValidationStatus\",\n            notes\n        FROM candle_validations\n        WHERE validation_status = $1\n        ORDER by exchange_name, market_id\n        ",
     "describe": {
