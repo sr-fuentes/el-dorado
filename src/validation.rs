@@ -187,7 +187,7 @@ impl Inquisidor {
         println!("Attempting manual validation for {:?}", validation);
         match validation.duration {
             900 => self.manual_validate_candle(validation, market).await,
-            86400 => self.manual_validate_01_candle(),
+            86400 => self.manual_validate_01_candle(validation, market).await,
             d => panic!("{} is not a supported candle validation duration.", d),
         };
     }
@@ -407,6 +407,86 @@ impl Inquisidor {
         drop_table(&self.pool, &qc_table)
             .await
             .expect("Failed to drop qc table.");
+    }
+
+    pub async fn manual_validate_01_candle(
+        &self,
+        validation: &CandleValidation,
+        market: &MarketDetail,
+    ) {
+        // Get hb candles and resample to daily candle
+        let hb_candles = select_candles_by_daterange(
+            &self.pool,
+            validation.exchange_name.as_str(),
+            &validation.market_id,
+            validation.datetime,
+            validation.datetime + Duration::days(1),
+        )
+        .await
+        .expect("Failed to select hb candles.");
+        // Resample 01d candle
+        let candle = resample_candles(validation.market_id, &hb_candles, Duration::days(1))
+            .pop()
+            .unwrap();
+        // Get exchange candle
+        let exchange_candle = get_ftx_candles(
+            &self.clients[&validation.exchange_name],
+            market,
+            validation.datetime,
+            validation.datetime,
+            86400,
+        )
+        .await
+        .pop()
+        .unwrap();
+        // Get hb validations
+        let hb_validations = select_candle_validations_for_01d(&self.pool, validation)
+            .await
+            .expect("Failed to get hb validations.");
+        // Present candle data versus exchange data and get input from user to validate
+        let message = match validation.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                println!(
+                    "Manual Validation for 01D {:?} {} {}",
+                    validation.exchange_name, market.market_name, validation.datetime
+                );
+                let delta = candle.value - exchange_candle.volume;
+                let percent = delta / exchange_candle.volume * dec!(100.0);
+                println!("New Candle: {:?}", candle);
+                println!("ED Value versus FTX Volume:");
+                println!("ElDorado: {:?}", candle.value);
+                println!("Exchange: {:?}", exchange_candle.volume);
+                let message = format!(
+                    "Delta: {:?} & Percent: {:?}",
+                    delta.round_dp(2),
+                    percent.round_dp(4)
+                );
+                println!("{}", message);
+                println!("HB Validations:\n{:?}", hb_validations);
+                message
+            }
+        };
+        // Get input for validation
+        let response: String = get_input("Accept El-Dorado 01D Candle? [y/yes/n/no]:");
+        let is_valid = match response.to_lowercase().as_str() {
+            "y" | "yes" => {
+                println!("Accepting recreated candle.");
+                true
+            }
+            _ => {
+                println!("Rejecting recreated candle.");
+                false
+            }
+        };
+        if is_valid {
+            // New candle was validated, update new candle
+            self.process_revalidated_01d_candle(validation, candle)
+                .await;
+            // Update validation to complete
+            update_candle_validation_status_processed(&self.pool, validation, &message)
+                .await
+                .expect("Failed to update validation status to done.");
+        }
     }
 
     pub async fn recreate_ftx_candle(
@@ -681,6 +761,34 @@ pub async fn select_candle_validations_by_status(
         ORDER by exchange_name, market_id
         "#,
         status.as_str()
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+pub async fn select_candle_validations_for_01d(
+    pool: &PgPool,
+    validation: &CandleValidation,
+) -> Result<Vec<CandleValidation>, sqlx::Error> {
+    let rows = sqlx::query_as!(
+        CandleValidation,
+        r#"
+        SELECT exchange_name as "exchange_name: ExchangeName",
+            market_id, datetime, duration,
+            validation_type as "validation_type: ValidationType",
+            created_ts, processed_ts,
+            validation_status as "validation_status: ValidationStatus",
+            notes
+        FROM candle_validations
+        WHERE duration = 900
+        AND market_id = $1
+        AND datetime >= $2 AND datetime < $3
+        ORDER BY datetime
+        "#,
+        validation.market_id,
+        validation.datetime,
+        validation.datetime + Duration::days(1),
     )
     .fetch_all(pool)
     .await?;
