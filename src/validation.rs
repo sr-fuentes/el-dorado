@@ -714,7 +714,7 @@ impl Inquisidor {
             .await
             .expect("Failed to delete 01D candle.");
         // Insert candle with validated status
-        insert_candles_01d(&self.pool, &validation.market_id, &vec![candle])
+        insert_candles_01d(&self.pool, &validation.market_id, &vec![candle], true)
             .await
             .expect("Failed to insert 01D candle.");
     }
@@ -852,7 +852,7 @@ pub async fn update_candle_validations_type_status(
 
 #[cfg(test)]
 mod tests {
-    use crate::candles::create_exchange_candle_table;
+    use crate::candles::{Candle, create_exchange_candle_table, insert_candle};
     use crate::configuration::get_configuration;
     use crate::exchanges::ExchangeName;
     use crate::inquisidor::Inquisidor;
@@ -863,6 +863,7 @@ mod tests {
     use chrono::{TimeZone, Utc};
     use sqlx::PgPool;
     use uuid::Uuid;
+    use rust_decimal_macros::dec;
 
     pub async fn prep_candle_validation(validation: CandleValidation) {
         // Load configuration and db connection to dev
@@ -994,5 +995,49 @@ mod tests {
         // Create ig instance and process new validation
         let ig = Inquisidor::new().await;
         ig.process_candle_validations(ValidationStatus::New).await;
+    }
+
+    #[tokio::test]
+    pub async fn manual_revalidate_01d_candle_w_bad_heartbeatsy() {
+        // Create validation that cannot be auto revalidated and needs to be manual revalidated
+        let validation = CandleValidation {
+            exchange_name: ExchangeName::Ftx,
+            market_id: Uuid::parse_str("b3bf21db-92bb-4613-972a-1d0f1aab1e95").unwrap(),
+            datetime: Utc.ymd(2021, 12, 18).and_hms(0, 0, 0),
+            duration: 86400,
+            validation_type: ValidationType::Auto,
+            created_ts: Utc::now(),
+            processed_ts: None,
+            validation_status: ValidationStatus::New,
+            notes: None,
+        };
+        prep_candle_validation(validation).await;
+        // Insert hb candles into db
+        let candle = Candle {
+            datetime: Utc.ymd(2021, 12, 18).and_hms(0, 0, 0),
+            open: dec!(46149),
+            high: dec!(46268),
+            low: dec!(45778),
+            close: dec!(45889),
+            volume: dec!(1559.2075),
+            volume_net: dec!(-333.4519),
+            volume_liquidation: dec!(0.5508),
+            value: dec!(71748093.1406),
+            trade_count: 9801,
+            liquidation_count: 20,
+            last_trade_ts: Utc.ymd(2021, 12, 18).and_hms(0, 0, 0),
+            last_trade_id: "123".to_string(),
+            first_trade_ts: Utc.ymd(2021, 12, 18).and_hms(0, 0, 0),
+            first_trade_id: "567".to_string(),
+            is_validated: false,
+            market_id: Uuid::parse_str("b3bf21db-92bb-4613-972a-1d0f1aab1e95").unwrap(),
+        };
+        // Create ig instance and process new validation
+        let ig = Inquisidor::new().await;
+        insert_candle(&ig.pool, "ftx", &Uuid::parse_str("b3bf21db-92bb-4613-972a-1d0f1aab1e95").unwrap(), candle, true).await.expect("Failed to insert hb candle.");
+        ig.process_candle_validations(ValidationStatus::New).await;
+        println!("Sleeping 5 seconds before starting manual validation.");
+        tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+        ig.process_candle_validations(ValidationStatus::Open).await;
     }
 }
