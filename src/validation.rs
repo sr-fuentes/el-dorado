@@ -185,30 +185,11 @@ impl Inquisidor {
         // user to determine whether to accept or not.
         // For 01d candles - TODO!
         println!("Attempting manual validation for {:?}", validation);
-        let (validated, candle, message) = match validation.duration {
+        match validation.duration {
             900 => self.manual_validate_candle(validation, market).await,
-            86400 => todo!(),
+            86400 => self.manual_validate_01_candle(),
             d => panic!("{} is not a supported candle validation duration.", d),
         };
-        if validated {
-            // New candle was manually approved and validated, save trades and replace unvalidted
-            self.process_revalidated_candle(validation, market, candle)
-                .await;
-            // Update validation to complete
-            update_candle_validation_status_processed(&self.pool, validation, &message)
-                .await
-                .expect("Failed to update validation status to done.");
-        }
-        // Drop the validation trade table
-        let qc_table = format!(
-            "trades_{}_{}_qc_{}",
-            validation.exchange_name.as_str(),
-            market.strip_name(),
-            validation.validation_type.as_str(),
-        );
-        drop_table(&self.pool, &qc_table)
-            .await
-            .expect("Failed to drop qc table.");
     }
 
     pub async fn auto_validate_candle(&self, validation: &CandleValidation, market: &MarketDetail) {
@@ -310,6 +291,7 @@ impl Inquisidor {
                 .expect("Failed to update validation status to done.");
         } else {
             // Candle was not validated, update to manual and open
+            println!("Failed to validated 01D candle.");
             update_candle_validations_type_status(
                 &self.pool,
                 validation,
@@ -326,7 +308,7 @@ impl Inquisidor {
         &self,
         validation: &CandleValidation,
         market: &MarketDetail,
-    ) -> (bool, Candle, String) {
+    ) {
         // Recreate candle and then compare new candle to exchange candle for validation and return result.
         let candle = match validation.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
@@ -371,7 +353,7 @@ impl Inquisidor {
                 .expect("Failed to get ftx end of candle trades."),
         };
         // Present candle data versus exchange data and get input from user to validate or not
-        let msg = match validation.exchange_name {
+        let message = match validation.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
                 println!(
                     "Manual Validation for {:?} {} {}",
@@ -385,13 +367,13 @@ impl Inquisidor {
                 println!("ED Value versus FTX Volume:");
                 println!("ElDorado: {:?}", candle.value);
                 println!("Exchange: {:?}", exchange_candle.volume);
-                let msg = format!(
+                let message = format!(
                     "Delta: {:?} & Percent: {:?}",
                     delta.round_dp(2),
                     percent.round_dp(4)
                 );
-                println!("{}", msg);
-                msg
+                println!("{}", message);
+                message
             }
         };
         // Get input for validation
@@ -406,7 +388,25 @@ impl Inquisidor {
                 false
             }
         };
-        (is_valid, candle, msg)
+        if is_valid {
+            // New candle was manually approved and validated, save trades and replace unvalidted
+            self.process_revalidated_candle(validation, market, candle)
+                .await;
+            // Update validation to complete
+            update_candle_validation_status_processed(&self.pool, validation, &message)
+                .await
+                .expect("Failed to update validation status to done.");
+        }
+        // Drop the validation trade table
+        let qc_table = format!(
+            "trades_{}_{}_qc_{}",
+            validation.exchange_name.as_str(),
+            market.strip_name(),
+            validation.validation_type.as_str(),
+        );
+        drop_table(&self.pool, &qc_table)
+            .await
+            .expect("Failed to drop qc table.");
     }
 
     pub async fn recreate_ftx_candle(
