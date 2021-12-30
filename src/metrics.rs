@@ -39,6 +39,7 @@ impl Metric {
     pub fn new(tf: TimeFrame, candles: &[Candle]) {
         // Get look back periods for TimeFrame
         let lbps = tf.lbps();
+        let n = candles.len();
         // Iterate through candles and return Vecs of Decimals to use for calculations
         let vecs = candles.iter().fold(
             (
@@ -119,13 +120,31 @@ impl Metric {
                 (can.close, vc, vh, vl, vv, va, vn, vr, vtr, vuw, vb, vlw)
             },
         );
-        // println!("Vecs: {:?}", vecs);
-        //let mut metrics: Vec<Metric> = Vec::new();
+        // Create empty vec to hold metrics
+        // let metrics = Vec::new();
+        // Calculate the metrics
+        let ema1 = Metric::ewma(&vecs.1, 7);
+        let ema2 = Metric::ewma(&vecs.1, 30);
+        let ema3 = Metric::ewma(&vecs.1, 90);
+        let mv1: Decimal =
+            &vecs.5[n - 7..].iter().sum::<Decimal>() / &vecs.4[n - 7..].iter().sum::<Decimal>();
+        let mv2: Decimal =
+            &vecs.5[n - 30..].iter().sum::<Decimal>() / &vecs.4[n - 30..].iter().sum::<Decimal>();
+        let mv3: Decimal =
+            &vecs.5[n - 90..].iter().sum::<Decimal>() / &vecs.4[n - 90..].iter().sum::<Decimal>();
+        // For each look back period, calc period specific metrics
         for lbp in &lbps[0..1] {
+            // Set slice ranges
+            let range_start = n - *lbp as usize;
+            let range_shift_start = range_start - 1;
+            let range_shift_end = n - 1;
             println!("Look Back Period: {}", lbp);
-            let n = Metric::ewma(&vecs.8, *lbp);
-            println!("Vec: {:?}", vecs.8);
-            println!("N: {:?}", n);
+            // Calc metrics
+            let atr = Metric::ewma(&vecs.8, *lbp);
+            let vw = &vecs.5[range_start..].iter().sum::<Decimal>()
+                / &vecs.4[range_start..].iter().sum::<Decimal>();
+            let ma = Metric::ewma(&vecs.1[..range_shift_end], *lbp);
+            let ofs = Metric::z(&vecs.6, range_shift_start, range_shift_end);
         }
 
         // pub market_id: Uuid,
@@ -187,6 +206,20 @@ impl Metric {
         }
         ewma
     }
+
+    pub fn z(v: &[Decimal], rs: usize, re: usize) -> Decimal {
+        // Calculate the deviation mulitple of the last item in candle
+        // to standard deviation of the period
+        let n = Decimal::from(v[rs..re].len());
+        let shift_mean = v[rs..re].iter().sum::<Decimal>() / n;
+        let shift_sd = (v[rs..re]
+            .iter()
+            .fold(dec!(0), |s, x| s + (shift_mean - x).powi(2))
+            / n)
+            .sqrt()
+            .unwrap();
+        (v[v.len()] - shift_mean) / shift_sd
+    }
 }
 
 #[cfg(test)]
@@ -246,6 +279,25 @@ mod tests {
     }
 
     #[tokio::test]
+    pub async fn calc_daily_ema_shift() {
+        // Get daily BTC-PERP candles from FTX
+        let client = crate::exchanges::ftx::RestClient::new_intl();
+        let mut candles = client
+            .get_candles("BTC-PERP", Some(86400), None, None)
+            .await
+            .expect("Failed to get candles.");
+        // Sort candles and put close prices into vector
+        candles.sort_by(|c1, c2| c1.time.cmp(&c2.time));
+        let vc: Vec<Decimal> = candles.iter().map(|c| c.close).collect();
+        // Calc the EMA
+        let period = 90 as i64;
+        let n = vc.len();
+        let ewma = Metric::ewma(&vc[..n - 1], period);
+        println!("Candle Closes: {:?}", vc);
+        println!("EWMA {}: {:?}", period, ewma);
+    }
+
+    #[tokio::test]
     pub async fn calc_atr() {
         // Get daily BTC-PERP candles from FTX
         let client = crate::exchanges::ftx::RestClient::new_intl();
@@ -255,11 +307,25 @@ mod tests {
             .expect("Failed to get candles.");
         // Sort candles and put tr values into vector
         candles.sort_by(|c1, c2| c1.time.cmp(&c2.time));
-        // let vtr = candles.iter().fold(Vec::new(), |c, )
+        let vtr = candles
+            .iter()
+            .fold((dec!(0), Vec::new()), |(c, mut vtr), can| {
+                let hl = can.high - can.low;
+                let tr = match c.is_zero() {
+                    true => hl,
+                    false => {
+                        let hpdc = (can.high - c).abs();
+                        let pdcl = (c - can.low).abs();
+                        hl.max(hpdc).max(pdcl)
+                    }
+                };
+                vtr.push(tr);
+                (can.close, vtr)
+            });
         // Calc the EMA
-        let period = 90 as i64;
-        let ewma = Metric::ewma(&vc, period);
-        println!("Candle Closes: {:?}", vc);
-        println!("EWMA {}: {:?}", period, ewma);
+        let period = 14 as i64;
+        let ewma = Metric::ewma(&vtr.1, period);
+        println!("Candle TRs: {:?}", vtr.1);
+        println!("ATR {}: {:?}", period, ewma);
     }
 }
