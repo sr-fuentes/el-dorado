@@ -229,7 +229,7 @@ impl Metric {
         i += 1;
         // For each item in range (don window), check min and max until next range
         for range in ranges.iter() {
-            while i <= *range as usize {
+            while i <= *range as usize && i <= c.len() {
                 // Compare current min/max to len()-i value
                 min = min.min(c[c.len() - i]);
                 max = max.max(c[c.len() - i]);
@@ -392,8 +392,9 @@ mod tests {
         // Sort candles and put close prices into vector
         candles.sort_by(|c1, c2| c1.time.cmp(&c2.time));
         let vc: Vec<Decimal> = candles.iter().map(|c| c.close).collect();
-        let dons = Metric::dons(&vc, &vc, &vc);
-        println!("Closes: {:?}", vc);
+        let slice = &vc[0..50];
+        let dons = Metric::dons(slice, &vc, &vc);
+        println!("Closes: {:?}", slice);
         println!("Dons: {:?}", dons);
     }
 }
