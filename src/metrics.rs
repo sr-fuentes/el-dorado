@@ -26,6 +26,34 @@ pub struct Metric {
     pub lbp: i64,
     pub close: Decimal,
     pub r: Decimal,
+    pub h004c: Decimal,
+    pub l004c: Decimal,
+    pub h004h: Decimal,
+    pub l004l: Decimal,
+    pub h008c: Decimal,
+    pub l008c: Decimal,
+    pub h008h: Decimal,
+    pub l008l: Decimal,
+    pub h012c: Decimal,
+    pub l012c: Decimal,
+    pub h012h: Decimal,
+    pub l012l: Decimal,
+    pub h024c: Decimal,
+    pub l024c: Decimal,
+    pub h024h: Decimal,
+    pub l024l: Decimal,
+    pub h048c: Decimal,
+    pub l048c: Decimal,
+    pub h048h: Decimal,
+    pub l048l: Decimal,
+    pub h096c: Decimal,
+    pub l096c: Decimal,
+    pub h096h: Decimal,
+    pub l096l: Decimal,
+    pub h192c: Decimal,
+    pub l192c: Decimal,
+    pub h192h: Decimal,
+    pub l192l: Decimal,
     pub ema1: Decimal,
     pub ema2: Decimal,
     pub ema3: Decimal,
@@ -171,6 +199,34 @@ impl Metric {
                 lbp: *lbp,
                 close: vecs.0,
                 r: vecs.7[n - 1],
+                h004c: dons[0],
+                l004c: dons[1],
+                h004h: dons[2],
+                l004l: dons[3],
+                h008c: dons[4],
+                l008c: dons[5],
+                h008h: dons[6],
+                l008l: dons[7],
+                h012c: dons[8],
+                l012c: dons[9],
+                h012h: dons[10],
+                l012l: dons[11],
+                h024c: dons[12],
+                l024c: dons[13],
+                h024h: dons[14],
+                l024l: dons[15],
+                h048c: dons[16],
+                l048c: dons[17],
+                h048h: dons[18],
+                l048l: dons[19],
+                h096c: dons[20],
+                l096c: dons[21],
+                h096h: dons[22],
+                l096l: dons[23],
+                h192c: dons[24],
+                l192c: dons[25],
+                h192h: dons[26],
+                l192l: dons[27],
                 ema1,
                 ema2,
                 ema3,
@@ -218,25 +274,30 @@ impl Metric {
         (v[v.len() - 1] - shift_mean) / shift_sd
     }
 
-    pub fn dons(c: &[Decimal], _h: &[Decimal], _l: &[Decimal]) -> Vec<Decimal> {
+    pub fn dons(c: &[Decimal], h: &[Decimal], l: &[Decimal]) -> Vec<Decimal> {
         // For each of the ranges below, calc the higheset and lowest value
         let mut dons = Vec::new();
         let ranges = [4, 8, 12, 24, 48, 96, 192];
         // Set min and max to last elexment of vecs (first item to check)
         let mut i = 1;
-        let mut min = c[c.len() - i];
-        let mut max = c[c.len() - i];
-        i += 1;
+        let mut min_c = Decimal::MAX;
+        let mut min_l = Decimal::MAX;
+        let mut max_c = Decimal::MIN;
+        let mut max_h = Decimal::MIN;
         // For each item in range (don window), check min and max until next range
         for range in ranges.iter() {
             while i <= *range as usize && i <= c.len() {
                 // Compare current min/max to len()-i value
-                min = min.min(c[c.len() - i]);
-                max = max.max(c[c.len() - i]);
+                min_c = min_c.min(c[c.len() - i]);
+                min_l = min_l.min(l[l.len() - i]);
+                max_c = max_c.max(c[c.len() - i]);
+                max_h = max_h.max(h[h.len() - i]);
                 i += 1;
             }
-            dons.push(max);
-            dons.push(min);
+            dons.push(max_c);
+            dons.push(min_c);
+            dons.push(max_h);
+            dons.push(min_l);
         }
         dons
     }
@@ -392,9 +453,9 @@ mod tests {
         // Sort candles and put close prices into vector
         candles.sort_by(|c1, c2| c1.time.cmp(&c2.time));
         let vc: Vec<Decimal> = candles.iter().map(|c| c.close).collect();
-        let slice = &vc[0..50];
-        let dons = Metric::dons(slice, &vc, &vc);
-        println!("Closes: {:?}", slice);
+        // let slice = &vc[0..50];
+        let dons = Metric::dons(&vc, &vc, &vc);
+        println!("Closes: {:?}", vc);
         println!("Dons: {:?}", dons);
     }
 }
