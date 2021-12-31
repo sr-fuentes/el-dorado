@@ -380,4 +380,20 @@ mod tests {
         println!("vr: {:?}", vr.1);
         println!("z: {:?}", z);
     }
+
+    #[tokio::test]
+    pub async fn calc_dons() {
+        // Get daily BTC-PERP candles from FTX
+        let client = crate::exchanges::ftx::RestClient::new_intl();
+        let mut candles = client
+            .get_candles("BTC-PERP", Some(86400), None, None)
+            .await
+            .expect("Failed to get candles.");
+        // Sort candles and put close prices into vector
+        candles.sort_by(|c1, c2| c1.time.cmp(&c2.time));
+        let vc: Vec<Decimal> = candles.iter().map(|c| c.close).collect();
+        let dons = Metric::dons(&vc, &vc, &vc);
+        println!("Closes: {:?}", vc);
+        println!("Dons: {:?}", dons);
+    }
 }
