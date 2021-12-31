@@ -1,6 +1,6 @@
 use crate::candles::{Candle, TimeFrame};
 use crate::exchanges::ExchangeName;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use uuid::Uuid;
@@ -19,7 +19,7 @@ impl TimeFrame {
 
 #[derive(Debug)]
 pub struct MetricAP {
-    pub market_id: Uuid,
+    pub market_name: String,
     pub exchange_name: ExchangeName,
     pub datetime: DateTime<Utc>,
     pub time_frame: TimeFrame,
@@ -139,11 +139,11 @@ impl Metric {
 
 impl MetricAP {
     // Takes vec of candles for a time frame and calculates metrics for the period
-    pub fn new(exchange: &ExchangeName, tf: TimeFrame, candles: &[Candle]) -> Vec<MetricAP> {
+    pub fn new(market: &str, exchange: &ExchangeName, tf: TimeFrame, candles: &[Candle]) -> Vec<MetricAP> {
         // Get look back periods for TimeFrame
         let lbps = tf.lbps();
         let n = candles.len();
-        let datetime = candles[n - 1].datetime + Duration::seconds(tf.as_secs());
+        let datetime = candles[n - 1].datetime;
         // Iterate through candles and return Vecs of Decimals to use for calculations
         let vecs = candles.iter().fold(
             (
@@ -257,7 +257,7 @@ impl MetricAP {
             let bz = Metric::z(&vecs.10, range_shift_start, range_shift_end);
             let lwz = Metric::z(&vecs.11, range_shift_start, range_shift_end);
             let new_metric = MetricAP {
-                market_id: candles[0].market_id,
+                market_name: market.to_string(),
                 exchange_name: *exchange,
                 datetime,
                 time_frame: tf,
@@ -347,7 +347,7 @@ mod tests {
         .expect("Failed to select candles.");
         println!("Num Candles: {:?}", candles.len());
         let timer_start = Utc::now();
-        let metrics = MetricAP::new(&ExchangeName::Ftx, TimeFrame::T15, &candles);
+        let metrics = MetricAP::new("BTC-PERP", &ExchangeName::Ftx, TimeFrame::T15, &candles);
         let timer_end = Utc::now();
         let time_elapsed = timer_end - timer_start;
         println!("Time to calc: {:?}", time_elapsed);
