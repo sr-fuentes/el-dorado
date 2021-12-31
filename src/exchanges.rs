@@ -14,7 +14,7 @@ pub struct Exchange {
     pub name: ExchangeName,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, sqlx::Type, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, sqlx::Type, Hash)]
 #[sqlx(rename_all = "lowercase")]
 pub enum ExchangeName {
     Ftx,
