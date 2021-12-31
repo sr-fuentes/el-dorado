@@ -170,7 +170,7 @@ impl Metric {
                 time_frame: tf,
                 lbp: *lbp,
                 close: vecs.0,
-                r: vecs.7[n-1],
+                r: vecs.7[n - 1],
                 ema1,
                 ema2,
                 ema3,
@@ -218,24 +218,25 @@ impl Metric {
         (v[v.len() - 1] - shift_mean) / shift_sd
     }
 
-    pub fn dons(c: &[Decimal], h: &[Decimal], l: &[Decimal]) -> Vec<Decimal> {
+    pub fn dons(c: &[Decimal], _h: &[Decimal], _l: &[Decimal]) -> Vec<Decimal> {
         // For each of the ranges below, calc the higheset and lowest value
         let mut dons = Vec::new();
         let ranges = [4, 8, 12, 24, 48, 96, 192];
         // Set min and max to last elexment of vecs (first item to check)
         let mut i = 1;
-        let mut min = c[c.len()-i];
-        let mut max = c[c.len()-i];
+        let mut min = c[c.len() - i];
+        let mut max = c[c.len() - i];
         i += 1;
         // For each item in range (don window), check min and max until next range
         for range in ranges.iter() {
             while i <= *range as usize {
                 // Compare current min/max to len()-i value
-                min = min.min(c[c.len()-i]);
-                max = max.max(c[c.len()-i]);
+                min = min.min(c[c.len() - i]);
+                max = max.max(c[c.len() - i]);
+                i += 1;
             }
-            dons.push(max.clone());
-            dons.push(min.clone());
+            dons.push(max);
+            dons.push(min);
         }
         dons
     }
