@@ -18,7 +18,7 @@ impl TimeFrame {
 }
 
 #[derive(Debug)]
-pub struct Metric {
+pub struct MetricAP {
     pub market_id: Uuid,
     pub exchange_name: ExchangeName,
     pub datetime: DateTime<Utc>,
@@ -72,9 +72,74 @@ pub struct Metric {
     pub lwz: Decimal,
 }
 
+pub struct Metric {
+    pub market_id: Uuid,
+    pub exchange_name: ExchangeName,
+    pub datetime: DateTime<Utc>,
+    pub time_frame: TimeFrame,
+    pub lbp: i64,
+    pub close: Decimal,
+    pub r: Decimal,
+}
+
 impl Metric {
+    pub fn ewma(v: &[Decimal], lbp: i64) -> Decimal {
+        // Set k = smoothing factor
+        let k = dec!(2) / (Decimal::from_i64(lbp).unwrap() + dec!(1));
+        let ik = dec!(1.0) - k;
+        let mut ewma = v[0];
+        for i in v.iter().skip(1) {
+            ewma = i * k + ewma * ik;
+        }
+        ewma
+    }
+
+    pub fn z(v: &[Decimal], rs: usize, re: usize) -> Decimal {
+        // Calculate the deviation mulitple of the last item in candle
+        // to standard deviation of the period
+        let n = Decimal::from(v[rs..re].len());
+        let shift_mean = v[rs..re].iter().sum::<Decimal>() / n;
+        let shift_sd = (v[rs..re]
+            .iter()
+            .fold(dec!(0), |s, x| s + (shift_mean - x).powi(2))
+            / n)
+            .sqrt()
+            .unwrap();
+        (v[v.len() - 1] - shift_mean) / shift_sd
+    }
+
+    pub fn dons(c: &[Decimal], h: &[Decimal], l: &[Decimal]) -> Vec<Decimal> {
+        // For each of the ranges below, calc the higheset and lowest value
+        let mut dons = Vec::new();
+        let ranges = [4, 8, 12, 24, 48, 96, 192];
+        // Set min and max to last elexment of vecs (first item to check)
+        let mut i = 1;
+        let mut min_c = Decimal::MAX;
+        let mut min_l = Decimal::MAX;
+        let mut max_c = Decimal::MIN;
+        let mut max_h = Decimal::MIN;
+        // For each item in range (don window), check min and max until next range
+        for range in ranges.iter() {
+            while i <= *range as usize && i <= c.len() {
+                // Compare current min/max to len()-i value
+                min_c = min_c.min(c[c.len() - i]);
+                min_l = min_l.min(l[l.len() - i]);
+                max_c = max_c.max(c[c.len() - i]);
+                max_h = max_h.max(h[h.len() - i]);
+                i += 1;
+            }
+            dons.push(max_c);
+            dons.push(min_c);
+            dons.push(max_h);
+            dons.push(min_l);
+        }
+        dons
+    }
+}
+
+impl MetricAP {
     // Takes vec of candles for a time frame and calculates metrics for the period
-    pub fn new(exchange: &ExchangeName, tf: TimeFrame, candles: &[Candle]) -> Vec<Metric> {
+    pub fn new(exchange: &ExchangeName, tf: TimeFrame, candles: &[Candle]) -> Vec<MetricAP> {
         // Get look back periods for TimeFrame
         let lbps = tf.lbps();
         let n = candles.len();
@@ -173,7 +238,7 @@ impl Metric {
         let mv3: Decimal =
             vecs.5[n - 90..].iter().sum::<Decimal>() / vecs.4[n - 90..].iter().sum::<Decimal>();
         // For each look back period, calc period specific metrics
-        for lbp in &lbps[0..1] {
+        for lbp in lbps.iter() {
             // Set slice ranges
             let range_start = n - *lbp as usize;
             let range_shift_start = range_start - 1;
@@ -191,7 +256,7 @@ impl Metric {
             let uwz = Metric::z(&vecs.9, range_shift_start, range_shift_end);
             let bz = Metric::z(&vecs.10, range_shift_start, range_shift_end);
             let lwz = Metric::z(&vecs.11, range_shift_start, range_shift_end);
-            let new_metric = Metric {
+            let new_metric = MetricAP {
                 market_id: candles[0].market_id,
                 exchange_name: *exchange,
                 datetime,
@@ -248,59 +313,6 @@ impl Metric {
         }
         metrics
     }
-
-    pub fn ewma(v: &[Decimal], lbp: i64) -> Decimal {
-        // Set k = smoothing factor
-        let k = dec!(2) / (Decimal::from_i64(lbp).unwrap() + dec!(1));
-        let ik = dec!(1.0) - k;
-        let mut ewma = v[0];
-        for i in v.iter().skip(1) {
-            ewma = i * k + ewma * ik;
-        }
-        ewma
-    }
-
-    pub fn z(v: &[Decimal], rs: usize, re: usize) -> Decimal {
-        // Calculate the deviation mulitple of the last item in candle
-        // to standard deviation of the period
-        let n = Decimal::from(v[rs..re].len());
-        let shift_mean = v[rs..re].iter().sum::<Decimal>() / n;
-        let shift_sd = (v[rs..re]
-            .iter()
-            .fold(dec!(0), |s, x| s + (shift_mean - x).powi(2))
-            / n)
-            .sqrt()
-            .unwrap();
-        (v[v.len() - 1] - shift_mean) / shift_sd
-    }
-
-    pub fn dons(c: &[Decimal], h: &[Decimal], l: &[Decimal]) -> Vec<Decimal> {
-        // For each of the ranges below, calc the higheset and lowest value
-        let mut dons = Vec::new();
-        let ranges = [4, 8, 12, 24, 48, 96, 192];
-        // Set min and max to last elexment of vecs (first item to check)
-        let mut i = 1;
-        let mut min_c = Decimal::MAX;
-        let mut min_l = Decimal::MAX;
-        let mut max_c = Decimal::MIN;
-        let mut max_h = Decimal::MIN;
-        // For each item in range (don window), check min and max until next range
-        for range in ranges.iter() {
-            while i <= *range as usize && i <= c.len() {
-                // Compare current min/max to len()-i value
-                min_c = min_c.min(c[c.len() - i]);
-                min_l = min_l.min(l[l.len() - i]);
-                max_c = max_c.max(c[c.len() - i]);
-                max_h = max_h.max(h[h.len() - i]);
-                i += 1;
-            }
-            dons.push(max_c);
-            dons.push(min_c);
-            dons.push(max_h);
-            dons.push(min_l);
-        }
-        dons
-    }
 }
 
 #[cfg(test)]
@@ -335,7 +347,7 @@ mod tests {
         .expect("Failed to select candles.");
         println!("Num Candles: {:?}", candles.len());
         let timer_start = Utc::now();
-        let metrics = Metric::new(&ExchangeName::Ftx, TimeFrame::T15, &candles);
+        let metrics = MetricAP::new(&ExchangeName::Ftx, TimeFrame::T15, &candles);
         let timer_end = Utc::now();
         let time_elapsed = timer_end - timer_start;
         println!("Time to calc: {:?}", time_elapsed);
