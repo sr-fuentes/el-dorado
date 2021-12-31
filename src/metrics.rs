@@ -134,6 +134,7 @@ impl Metric {
         // Create empty vec to hold metrics
         let mut metrics = Vec::new();
         // Calculate the metrics
+        let dons = Metric::dons(&vecs.1, &vecs.2, &vecs.3);
         let ema1 = Metric::ewma(&vecs.1, 7);
         let ema2 = Metric::ewma(&vecs.1, 30);
         let ema3 = Metric::ewma(&vecs.1, 90);
@@ -215,6 +216,28 @@ impl Metric {
             .sqrt()
             .unwrap();
         (v[v.len() - 1] - shift_mean) / shift_sd
+    }
+
+    pub fn dons(c: &[Decimal], h: &[Decimal], l: &[Decimal]) -> Vec<Decimal> {
+        // For each of the ranges below, calc the higheset and lowest value
+        let mut dons = Vec::new();
+        let ranges = [4, 8, 12, 24, 48, 96, 192];
+        // Set min and max to last elexment of vecs (first item to check)
+        let mut i = 1;
+        let mut min = c[c.len()-i];
+        let mut max = c[c.len()-i];
+        i += 1;
+        // For each item in range (don window), check min and max until next range
+        for range in ranges.iter() {
+            while i <= *range as usize {
+                // Compare current min/max to len()-i value
+                min = min.min(c[c.len()-i]);
+                max = max.max(c[c.len()-i]);
+            }
+            dons.push(max.clone());
+            dons.push(min.clone());
+        }
+        dons
     }
 }
 
