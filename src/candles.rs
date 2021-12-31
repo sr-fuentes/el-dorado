@@ -55,6 +55,7 @@ pub struct DailyCandle {
     pub is_complete: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum TimeFrame {
     T15,
     H01,
