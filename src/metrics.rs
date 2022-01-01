@@ -3,6 +3,7 @@ use crate::exchanges::ExchangeName;
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
+use sqlx::PgPool;
 use uuid::Uuid;
 
 impl TimeFrame {
@@ -139,7 +140,12 @@ impl Metric {
 
 impl MetricAP {
     // Takes vec of candles for a time frame and calculates metrics for the period
-    pub fn new(market: &str, exchange: &ExchangeName, tf: TimeFrame, candles: &[Candle]) -> Vec<MetricAP> {
+    pub fn new(
+        market: &str,
+        exchange: &ExchangeName,
+        tf: TimeFrame,
+        candles: &[Candle],
+    ) -> Vec<MetricAP> {
         // Get look back periods for TimeFrame
         let lbps = tf.lbps();
         let n = candles.len();
@@ -313,6 +319,76 @@ impl MetricAP {
         }
         metrics
     }
+}
+
+pub async fn insert_metric_ap(pool: &PgPool, metric: &MetricAP) -> Result<(), sqlx::Error> {
+    let sql = r#"
+        INSERT INTO metrics (
+            exchange_name, market_name, datetime, time_frame, lbp, close, r, H004R, H004C, L004R,
+            L004C, H008R, H008C, L008R, L008C, H012R, H012C, L012R,
+            L012C, H024R, H024C, L024R, L024C, H048R, H048C, L048R,
+            L048C, H096R, H096C, L096R, L096C, H192R, H192C, L192R,
+            L192C, EMA1, EMA2, EMA3, MV1, MV2, MV3,
+            ofs, vs, rs, n, trs, uws, mbs, lws, ma, vw)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+            $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35,
+            $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51)
+        "#;
+    sqlx::query(sql)
+        .bind(metric.exchange_name)
+        .bind(&metric.market_name)
+        .bind(metric.datetime)
+        .bind(metric.time_frame.as_str())
+        .bind(metric.lbp)
+        .bind(metric.close)
+        .bind(metric.r)
+        .bind(metric.h004h)
+        .bind(metric.h004c)
+        .bind(metric.l004l)
+        .bind(metric.l004c)
+        .bind(metric.h008h)
+        .bind(metric.h008c)
+        .bind(metric.l008l)
+        .bind(metric.l008c)
+        .bind(metric.h012h)
+        .bind(metric.h012c)
+        .bind(metric.l012l)
+        .bind(metric.l012c)
+        .bind(metric.h024h)
+        .bind(metric.h024c)
+        .bind(metric.l024l)
+        .bind(metric.l024c)
+        .bind(metric.h048h)
+        .bind(metric.h048c)
+        .bind(metric.l048l)
+        .bind(metric.l048c)
+        .bind(metric.h096h)
+        .bind(metric.h096c)
+        .bind(metric.l096l)
+        .bind(metric.l096c)
+        .bind(metric.h192h)
+        .bind(metric.h192c)
+        .bind(metric.l192l)
+        .bind(metric.l192c)
+        .bind(metric.ema1)
+        .bind(metric.ema2)
+        .bind(metric.ema3)
+        .bind(metric.mv1)
+        .bind(metric.mv2)
+        .bind(metric.mv3)
+        .bind(metric.ofz)
+        .bind(metric.vz)
+        .bind(metric.rz)
+        .bind(metric.atr)
+        .bind(metric.trz)
+        .bind(metric.uwz)
+        .bind(metric.bz)
+        .bind(metric.lwz)
+        .bind(metric.ma)
+        .bind(metric.vw)
+        .execute(pool)
+        .await?;
+    Ok(())
 }
 
 #[cfg(test)]
