@@ -323,19 +323,19 @@ impl MetricAP {
 
 pub async fn insert_metric_ap(pool: &PgPool, metric: &MetricAP) -> Result<(), sqlx::Error> {
     let sql = r#"
-        INSERT INTO metrics (
+        INSERT INTO metrics_ap (
             exchange_name, market_name, datetime, time_frame, lbp, close, r, H004R, H004C, L004R,
             L004C, H008R, H008C, L008R, L008C, H012R, H012C, L012R,
             L012C, H024R, H024C, L024R, L024C, H048R, H048C, L048R,
             L048C, H096R, H096C, L096R, L096C, H192R, H192C, L192R,
             L192C, EMA1, EMA2, EMA3, MV1, MV2, MV3,
-            ofs, vs, rs, n, trs, uws, mbs, lws, ma, vw)
+            ofs, vs, rs, n, trs, uws, mbs, lws, ma, vw, insert_ts)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
             $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35,
-            $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51)
+            $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, now())
         "#;
     sqlx::query(sql)
-        .bind(metric.exchange_name)
+        .bind(metric.exchange_name.as_str())
         .bind(&metric.market_name)
         .bind(metric.datetime)
         .bind(metric.time_frame.as_str())
@@ -428,6 +428,11 @@ mod tests {
         let time_elapsed = timer_end - timer_start;
         println!("Time to calc: {:?}", time_elapsed);
         println!("Metrics: {:?}", metrics);
+        for metric in metrics.iter() {
+            insert_metric_ap(&pool, metric)
+                .await
+                .expect("Failed to insert metric ap.");
+        }
     }
 
     #[tokio::test]
