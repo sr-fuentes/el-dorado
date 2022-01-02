@@ -1,10 +1,13 @@
 use crate::candles::Candle;
-use crate::candles::{insert_candle, select_last_candle, select_previous_candle};
+use crate::candles::{
+    insert_candle, select_candles_gte_datetime, select_last_candle, select_previous_candle,
+};
 use crate::configuration::{get_configuration, Settings};
 use crate::exchanges::{ftx::Trade, select_exchanges, Exchange};
 use crate::markets::{
     select_market_detail_by_exchange_mita, update_market_data_status, MarketDetail, MarketStatus,
 };
+use crate::metrics::{insert_metric_ap, MetricAP};
 use crate::trades::{
     delete_ftx_trades_by_time, drop_ftx_trade_table, insert_ftx_trades, select_ftx_trades_by_time,
 };
@@ -310,10 +313,30 @@ impl Mita {
                 .await;
             // Insert candles
             self.insert_candles(market, candles).await;
-            // Process trades
+            // Calc new metrics
+            let candles = select_candles_gte_datetime(
+                &self.pool,
+                market.exchange_name.as_str(),
+                &market.market_id,
+                start - Duration::days(91),
+            )
+            .await
+            .expect("Failed to select candles.");
+            // Insert metrics
+            let metrics = MetricAP::new(
+                &market.market_name,
+                &market.exchange_name,
+                crate::candles::TimeFrame::T15,
+                &candles,
+            );
+            for metric in metrics.iter() {
+                insert_metric_ap(&self.pool, metric)
+                    .await
+                    .expect("Failed to insert metric ap.");
+            }
+            // Process trades TODO: Move to event
             self.process_interval_trades(start, end, market, trades)
                 .await;
-            // Make new metrics
             // Return new heartbeat
             end
         }
