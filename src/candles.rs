@@ -84,6 +84,17 @@ impl TimeFrame {
             TimeFrame::D01 => 86400,
         }
     }
+
+    pub fn time_frames() -> Vec<TimeFrame> {
+        let time_frames = vec![
+            TimeFrame::T15,
+            TimeFrame::H01,
+            TimeFrame::H04,
+            TimeFrame::H12,
+            TimeFrame::D01,
+        ];
+        time_frames
+    }
 }
 
 impl TryFrom<String> for TimeFrame {
