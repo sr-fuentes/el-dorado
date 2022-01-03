@@ -196,6 +196,7 @@ impl Inquisidor {
         )
         .await
         .expect("Failed to select daily trades.");
+        let mut updated_count = 0;
         for candle in hb_candles.iter() {
             // Check trade counts against candle
             let filtered_trades: Vec<Trade> = trades
@@ -204,6 +205,7 @@ impl Inquisidor {
                 .cloned()
                 .collect();
             if filtered_trades.len() as i64 != candle.trade_count {
+                updated_count += 1;
                 println!(
                     "{:?} trade count does not match: {} trades v {} candle trade count.",
                     candle.datetime,
@@ -245,9 +247,25 @@ impl Inquisidor {
                     }
                 }
             }
-        };
-        // Try trade count validation again, if still off then move to open and manual
-        // if match then mark validation as closed
+        }
+        // Mark as closed - if there is another issue then it wont be able to be added do to unique
+        // constrain on validation table but we don't want it constantly trying to re-download
+        // trades. TODO add a check on the insert to see if a validtion exists that is closed and
+        // raise a manual validation.
+        let message = format!("{} candles updated to fix trades.", updated_count);
+        update_candle_validation_status_processed(&self.pool, validation, &message)
+            .await
+            .expect("Failed to update validation status to done.");
+        // Drop the validation trade table
+        let qc_table = format!(
+            "trades_{}_{}_qc_{}",
+            validation.exchange_name.as_str(),
+            market.strip_name(),
+            validation.validation_type.as_str(),
+        );
+        drop_table(&self.pool, &qc_table)
+            .await
+            .expect("Failed to drop qc table.");
     }
 
     pub async fn auto_process_candle_validation(
