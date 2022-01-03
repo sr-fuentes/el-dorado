@@ -858,6 +858,33 @@ pub async fn insert_candle_validation(
     Ok(())
 }
 
+pub async fn insert_candle_count_validation(
+    pool: &PgPool,
+    exchange: &str,
+    market_id: &Uuid,
+    datetime: &DateTime<Utc>,
+) -> Result<(), sqlx::Error> {
+    let sql = r#"
+        INSERT INTO candle_validations (
+            exchange_name, market_id, datetime, duration, validation_type, created_ts,
+            validation_status, notes)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (exchange_name, market_id, datetime, duration) DO NOTHING
+        "#;
+    sqlx::query(sql)
+        .bind(exchange)
+        .bind(market_id)
+        .bind(datetime)
+        .bind(86400)
+        .bind(ValidationType::Count.as_str())
+        .bind(Utc::now())
+        .bind(ValidationStatus::New.as_str())
+        .bind("Trade count QC failed on archive.")
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 pub async fn select_candle_validations_by_status(
     pool: &PgPool,
     status: ValidationStatus,
