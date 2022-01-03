@@ -1,7 +1,8 @@
-use crate::candles::Candle;
 use crate::candles::{
-    insert_candle, select_candles_gte_datetime, select_last_candle, select_previous_candle,
+    insert_candle, resample_candles, select_candles_gte_datetime, select_last_candle,
+    select_previous_candle,
 };
+use crate::candles::{Candle, TimeFrame};
 use crate::configuration::{get_configuration, Settings};
 use crate::exchanges::{ftx::Trade, select_exchanges, Exchange};
 use crate::markets::{
@@ -24,6 +25,7 @@ pub struct Mita {
     pub restart: bool,
     pub last_restart: DateTime<Utc>,
     pub restart_count: i8,
+    pub hbtf: TimeFrame,
 }
 
 impl Mita {
@@ -59,6 +61,7 @@ impl Mita {
             restart: true,
             last_restart: Utc::now(),
             restart_count: 0,
+            hbtf: TimeFrame::time_frames()[0], // Sets hb to lowest tf
         }
     }
 
@@ -96,7 +99,7 @@ impl Mita {
         println!("Starting MITA loop.");
         loop {
             // Set loop timestamp
-            let timestamp = Utc::now().duration_trunc(Duration::seconds(900)).unwrap();
+            let timestamp = Utc::now().duration_trunc(self.hbtf.as_dur()).unwrap();
             // For each market, check if loop timestamp > heartbeat
             for market in self.markets.iter() {
                 if timestamp > heartbeats[&market.market_name.as_str()] {
@@ -136,12 +139,12 @@ impl Mita {
             )
             .await
             {
-                Ok(c) => c.datetime + Duration::seconds(900),
+                Ok(c) => c.datetime + self.hbtf.as_dur(),
                 Err(_) => panic!("Sqlx Error getting start time in sync."),
             };
             // Get current hb floor for end time of sync
             let now = Utc::now();
-            let end = now.duration_trunc(Duration::seconds(900)).unwrap();
+            let end = now.duration_trunc(self.hbtf.as_dur()).unwrap();
             println!(
                 "Syncing {} from {:?} to {:?}",
                 market.market_name, start, now
@@ -196,7 +199,7 @@ impl Mita {
                 let mut date_range = Vec::new();
                 while dr_start < end {
                     date_range.push(dr_start);
-                    dr_start = dr_start + Duration::seconds(900);
+                    dr_start = dr_start + self.hbtf.as_dur();
                 }
                 // Create vec of candles for date range
                 let mut previous_candle = select_previous_candle(
@@ -210,7 +213,7 @@ impl Mita {
                 let candles = date_range.iter().fold(Vec::new(), |mut v, d| {
                     let mut filtered_trades: Vec<Trade> = sync_trades
                         .iter()
-                        .filter(|t| t.time.duration_trunc(Duration::seconds(900)).unwrap() == *d)
+                        .filter(|t| t.time.duration_trunc(self.hbtf.as_dur()).unwrap() == *d)
                         .cloned()
                         .collect();
                     let new_candle = match filtered_trades.len() {
@@ -306,7 +309,7 @@ impl Mita {
             start
         } else {
             // Get date range
-            let date_range = self.create_date_range(start, end, Duration::seconds(900));
+            let date_range = self.create_date_range(start, end, self.hbtf.as_dur());
             // Make new candles
             let candles = self
                 .create_interval_candles(market, date_range, &trades)
@@ -326,13 +329,32 @@ impl Mita {
             let metrics = MetricAP::new(
                 &market.market_name,
                 &market.exchange_name,
-                crate::candles::TimeFrame::T15,
+                TimeFrame::T15,
                 &candles,
             );
             for metric in metrics.iter() {
                 insert_metric_ap(&self.pool, metric)
                     .await
                     .expect("Failed to insert metric ap.");
+            }
+            // Check remaining timeframes for interval processing
+            for tf in TimeFrame::time_frames().iter().skip(1) {
+                if end <= end.duration_trunc(tf.as_dur()).unwrap() {
+                    // Resample to new time frame
+                    let resampled_candles =
+                        resample_candles(market.market_id, &candles, tf.as_dur());
+                    let metrics = MetricAP::new(
+                        &market.market_name,
+                        &market.exchange_name,
+                        *tf,
+                        &resampled_candles,
+                    );
+                    for metric in metrics.iter() {
+                        insert_metric_ap(&self.pool, metric)
+                            .await
+                            .expect("Failed to insert ap metric.");
+                    }
+                }
             }
             // Process trades TODO: Move to event
             self.process_interval_trades(start, end, market, trades)

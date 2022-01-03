@@ -84,6 +84,27 @@ impl TimeFrame {
             TimeFrame::D01 => 86400,
         }
     }
+
+    pub fn as_dur(&self) -> Duration {
+        match self {
+            TimeFrame::T15 => Duration::minutes(15),
+            TimeFrame::H01 => Duration::hours(1),
+            TimeFrame::H04 => Duration::hours(4),
+            TimeFrame::H12 => Duration::hours(12),
+            TimeFrame::D01 => Duration::days(1),
+        }
+    }
+
+    pub fn time_frames() -> Vec<TimeFrame> {
+        let time_frames = vec![
+            TimeFrame::T15,
+            TimeFrame::H01,
+            TimeFrame::H04,
+            TimeFrame::H12,
+            TimeFrame::D01,
+        ];
+        time_frames
+    }
 }
 
 impl TryFrom<String> for TimeFrame {
