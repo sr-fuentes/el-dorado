@@ -1,5 +1,6 @@
 use crate::candles::{
-    insert_candle, select_candles_gte_datetime, select_last_candle, select_previous_candle,
+    insert_candle, resample_candles, select_candles_gte_datetime, select_last_candle,
+    select_previous_candle,
 };
 use crate::candles::{Candle, TimeFrame};
 use crate::configuration::{get_configuration, Settings};
@@ -335,6 +336,25 @@ impl Mita {
                 insert_metric_ap(&self.pool, metric)
                     .await
                     .expect("Failed to insert metric ap.");
+            }
+            // Check remaining timeframes for interval processing
+            for tf in TimeFrame::time_frames().iter().skip(1) {
+                if end <= end.duration_trunc(tf.as_dur()).unwrap() {
+                    // Resample to new time frame
+                    let resampled_candles =
+                        resample_candles(market.market_id, &candles, tf.as_dur());
+                    let metrics = MetricAP::new(
+                        &market.market_name,
+                        &market.exchange_name,
+                        *tf,
+                        &resampled_candles,
+                    );
+                    for metric in metrics.iter() {
+                        insert_metric_ap(&self.pool, metric)
+                            .await
+                            .expect("Failed to insert ap metric.");
+                    }
+                }
             }
             // Process trades TODO: Move to event
             self.process_interval_trades(start, end, market, trades)
