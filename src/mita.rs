@@ -311,13 +311,13 @@ impl Mita {
             // Get date range
             let date_range = self.create_date_range(start, end, self.hbtf.as_dur());
             // Make new candles
-            let candles = self
+            let mut new_candles = self
                 .create_interval_candles(market, date_range, &trades)
                 .await;
             // Insert candles
-            self.insert_candles(market, candles).await;
+            let n = new_candles.len();
             // Calc new metrics
-            let candles = select_candles_gte_datetime(
+            let mut candles = select_candles_gte_datetime(
                 &self.pool,
                 market.exchange_name.as_str(),
                 &market.market_id,
@@ -325,37 +325,41 @@ impl Mita {
             )
             .await
             .expect("Failed to select candles.");
+            // Append newly created candles
+            candles.append(&mut new_candles);
             // Insert metrics
-            let metrics = MetricAP::new(
+            let mut metrics = MetricAP::new(
                 &market.market_name,
                 &market.exchange_name,
                 TimeFrame::T15,
                 &candles,
             );
-            for metric in metrics.iter() {
-                insert_metric_ap(&self.pool, metric)
-                    .await
-                    .expect("Failed to insert metric ap.");
-            }
             // Check remaining timeframes for interval processing
             for tf in TimeFrame::time_frames().iter().skip(1) {
                 if end <= end.duration_trunc(tf.as_dur()).unwrap() {
                     // Resample to new time frame
                     let resampled_candles =
                         resample_candles(market.market_id, &candles, tf.as_dur());
-                    let metrics = MetricAP::new(
+                    let mut more_metrics = MetricAP::new(
                         &market.market_name,
                         &market.exchange_name,
                         *tf,
                         &resampled_candles,
                     );
-                    for metric in metrics.iter() {
-                        insert_metric_ap(&self.pool, metric)
-                            .await
-                            .expect("Failed to insert ap metric.");
-                    }
+                    metrics.append(&mut more_metrics);
                 }
             }
+            // Insert new candles
+            let new_candles = &candles[candles.len()-n..];
+            self.insert_candles(market, new_candles.to_vec()).await;
+            // Insert new metrics
+            for metric in metrics.iter() {
+                insert_metric_ap(&self.pool, metric)
+                    .await
+                    .expect("Failed to insert metric ap.");
+            }
+            // Insert new processing event
+
             // Process trades TODO: Move to event
             self.process_interval_trades(start, end, market, trades)
                 .await;
