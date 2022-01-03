@@ -1,4 +1,5 @@
 use crate::{
+    candles::TimeFrame,
     configuration::{get_configuration, Settings},
     exchanges::{ftx::RestClient, ExchangeName},
     validation::ValidationStatus,
@@ -12,6 +13,7 @@ pub struct Inquisidor {
     pub settings: Settings,
     pub pool: PgPool,
     pub clients: HashMap<ExchangeName, RestClient>,
+    pub hbtf: TimeFrame,
 }
 
 impl Inquisidor {
@@ -29,6 +31,7 @@ impl Inquisidor {
             settings,
             pool,
             clients,
+            hbtf: TimeFrame::time_frames()[0],
         }
     }
 

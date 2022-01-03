@@ -2,6 +2,7 @@ use crate::candles::*;
 use crate::inquisidor::Inquisidor;
 use crate::markets::select_markets_active;
 use crate::trades::*;
+use crate::validation::insert_candle_count_validation;
 use chrono::Duration;
 use csv::Writer;
 
@@ -51,6 +52,15 @@ impl Inquisidor {
                         candle.trade_count,
                         trades_to_archive.len()
                     );
+                    // Insert count validation
+                    insert_candle_count_validation(
+                        &self.pool,
+                        market.exchange_name.as_str(),
+                        &market.market_id,
+                        &candle.datetime,
+                    )
+                    .await
+                    .expect("Failed to create count validation.");
                     continue;
                 }
                 // Define filename = TICKER_YYYYMMDD.csv
