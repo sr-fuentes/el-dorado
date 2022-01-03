@@ -1,8 +1,8 @@
 use crate::{
+    candles::TimeFrame,
     configuration::{get_configuration, Settings},
     exchanges::{ftx::RestClient, ExchangeName},
     validation::ValidationStatus,
-    candles::TimeFrame,
 };
 use chrono::{Duration, DurationRound, Utc};
 use sqlx::PgPool;
