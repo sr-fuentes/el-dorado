@@ -4,6 +4,7 @@ use crate::candles::{
 };
 use crate::candles::{Candle, TimeFrame};
 use crate::configuration::{get_configuration, Settings};
+use crate::events::insert_event_process_trades;
 use crate::exchanges::{ftx::Trade, select_exchanges, Exchange};
 use crate::markets::{
     select_market_detail_by_exchange_mita, update_market_data_status, MarketDetail, MarketStatus,
@@ -350,7 +351,7 @@ impl Mita {
                 }
             }
             // Insert new candles
-            let new_candles = &candles[candles.len()-n..];
+            let new_candles = &candles[candles.len() - n..];
             self.insert_candles(market, new_candles.to_vec()).await;
             // Insert new metrics
             for metric in metrics.iter() {
@@ -359,7 +360,15 @@ impl Mita {
                     .expect("Failed to insert metric ap.");
             }
             // Insert new processing event
-
+            insert_event_process_trades(
+                &self.pool,
+                &self.settings.application.droplet,
+                start,
+                end,
+                market,
+            )
+            .await
+            .expect("Failed in insert event - proccess interval.");
             // Process trades TODO: Move to event
             self.process_interval_trades(start, end, market, trades)
                 .await;

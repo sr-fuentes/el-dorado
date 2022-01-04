@@ -1,7 +1,9 @@
-use uuid::Uuid;
-use chrono::{DateTime, Utc};
 use crate::exchanges::ExchangeName;
+use crate::markets::MarketDetail;
+use chrono::{DateTime, Utc};
+use sqlx::PgPool;
 use std::convert::TryFrom;
+use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct Event {
@@ -77,4 +79,34 @@ impl TryFrom<String> for EventStatus {
             other => Err(format!("{} is not a supported validation status.", other)),
         }
     }
+}
+
+pub async fn insert_event_process_trades(
+    pool: &PgPool,
+    droplet: &str,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    market: &MarketDetail,
+) -> Result<(), sqlx::Error> {
+    let event_time = Utc::now();
+    let sql = r#"
+        INSERT INTO events (
+            event_id, droplet, exchange_name, market_id, start_ts, end_ts, event_ts, created_ts,
+            event_status, notes)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        "#;
+    sqlx::query(sql)
+        .bind(Uuid::new_v4())
+        .bind(droplet)
+        .bind(market.exchange_name.as_str())
+        .bind(market.market_id)
+        .bind(start)
+        .bind(end)
+        .bind(event_time)
+        .bind(event_time)
+        .bind(EventStatus::New.as_str())
+        .bind("Process trades for new candle.")
+        .execute(pool)
+        .await?;
+    Ok(())
 }
