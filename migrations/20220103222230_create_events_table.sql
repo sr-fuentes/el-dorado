@@ -5,6 +5,7 @@ DROP TABLE IF EXISTS events;
 CREATE TABLE events (
     event_id UUID NOT NULL,
     droplet TEXT NOT NULL,
+    event_type TEXT NULL,
     exchange_name TEXT NOT NULL,
     market_id TEXT NOT NULL,
     start_ts timestamptz,

@@ -1,5 +1,6 @@
 use crate::exchanges::ExchangeName;
 use crate::markets::MarketDetail;
+use crate::mita::Mita;
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use std::convert::TryFrom;
@@ -81,6 +82,24 @@ impl TryFrom<String> for EventStatus {
     }
 }
 
+impl Mita {
+    pub async fn process_events(&self) {
+        // Get any open events for the droplet
+        let open_events =
+            select_open_events_for_droplet(&self.pool, &self.settings.application.droplet)
+                .await
+                .expect("Failed to select open events.");
+        // Process events
+        for event in open_events.iter() {
+            match event.event_type {
+                EventType::ProcessTrades => self.process_event_process_trades(event).await,
+            }
+        }
+    }
+
+    pub async fn process_event_process_trades(&self, event: &Event) {}
+}
+
 pub async fn insert_event_process_trades(
     pool: &PgPool,
     droplet: &str,
@@ -109,4 +128,29 @@ pub async fn insert_event_process_trades(
         .execute(pool)
         .await?;
     Ok(())
+}
+
+pub async fn select_open_events_for_droplet(
+    pool: &PgPool,
+    droplet: &str,
+) -> Result<Vec<Event>, sqlx::Error> {
+    let rows = sqlx::query_as!(
+        Event,
+        r#"
+        SELECT event_id, droplet,
+            event_type as "event_type: EventType",
+            exchange_name as "exchange_name: ExchangeName",
+            market_id, start_ts, end_ts, event_ts, created_ts, processed_ts,
+            event_status as "event_status: EventStatus"
+        FROM events
+        WHERE droplet = $1
+        AND event_ts > $2
+        AND event_status != 'done'
+        "#,
+        droplet,
+        Utc::now(),
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
 }
