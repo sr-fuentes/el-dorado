@@ -55,6 +55,8 @@ impl Inquisidor {
                 heartbeat = timestamp;
                 println!("New heartbeat: {:?}", heartbeat);
             }
+            // Process any events for ig
+            self.process_events().await;
             // Process any validation events
             self.process_candle_validations(ValidationStatus::New).await;
             // Sleep for 200 ms to give control back to tokio scheduler

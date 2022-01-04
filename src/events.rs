@@ -1,6 +1,7 @@
 use crate::exchanges::ExchangeName;
 use crate::markets::{select_market_details, MarketDetail};
 use crate::mita::Mita;
+use crate::inquisidor::Inquisidor;
 use crate::trades::{delete_ftx_trades_by_time, insert_ftx_trades, select_ftx_trades_by_time};
 use chrono::{DateTime, Duration, Utc};
 use sqlx::PgPool;
@@ -82,6 +83,32 @@ impl TryFrom<String> for EventStatus {
             "open" => Ok(Self::Open),
             "done" => Ok(Self::Done),
             other => Err(format!("{} is not a supported validation status.", other)),
+        }
+    }
+}
+
+impl Inquisidor {
+    pub async fn process_events(&self) {
+        // Get any open events for the droplet
+        let open_events =
+            select_open_events_for_droplet(&self.pool, &self.settings.application.droplet)
+                .await
+                .expect("Failed to select open events.");
+        // Get all market details - for market id and strip name fn in event processing
+        let markets = select_market_details(&self.pool)
+            .await
+            .expect("Failed to select all market details.");
+        // Process events
+        for event in open_events.iter() {
+            // Get market detail for event
+            let market = markets
+                .iter()
+                .find(|m| m.market_id == event.market_id)
+                .unwrap();
+            match event.event_type {
+                EventType::ProcessTrades => continue, // All trade processing done by mita
+                EventType::ValidateCandle => self.process_event_validate_candle(event, market).await,
+            }
         }
     }
 }
