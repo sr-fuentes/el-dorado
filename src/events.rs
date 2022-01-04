@@ -52,7 +52,7 @@ impl TryFrom<String> for EventType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone, sqlx::Type)]
 pub enum EventStatus {
     New,
     Open,
@@ -141,7 +141,7 @@ pub async fn select_open_events_for_droplet(
             event_type as "event_type: EventType",
             exchange_name as "exchange_name: ExchangeName",
             market_id, start_ts, end_ts, event_ts, created_ts, processed_ts,
-            event_status as "event_status: EventStatus"
+            event_status as "event_status: EventStatus", notes
         FROM events
         WHERE droplet = $1
         AND event_ts > $2
