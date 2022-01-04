@@ -2,7 +2,7 @@ use crate::exchanges::ExchangeName;
 use crate::markets::{select_market_details, MarketDetail};
 use crate::mita::Mita;
 use crate::trades::{delete_ftx_trades_by_time, insert_ftx_trades, select_ftx_trades_by_time};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use sqlx::PgPool;
 use std::convert::TryFrom;
 use uuid::Uuid;
@@ -163,7 +163,7 @@ pub async fn insert_event_process_trades(
         INSERT INTO events (
             event_id, droplet, exchange_name, market_id, start_ts, end_ts, event_ts, created_ts,
             event_status, notes)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         "#;
     sqlx::query(sql)
         .bind(Uuid::new_v4())
@@ -176,6 +176,34 @@ pub async fn insert_event_process_trades(
         .bind(event_time)
         .bind(EventStatus::New.as_str())
         .bind("Process trades for new candle.")
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn insert_event_validated_candles(
+    pool: &PgPool,
+    droplet: &str,
+    end: DateTime<Utc>,
+    market: &MarketDetail,
+) -> Result<(), sqlx::Error> {
+    let event_time = Utc::now();
+    let sql = r#"
+        INSERT INTO events (
+            event_id, droplet, exchange_name, market_id, end_ts, event_ts, created_ts,
+            event_status, notes)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        "#;
+    sqlx::query(sql)
+        .bind(Uuid::new_v4())
+        .bind(droplet)
+        .bind(market.exchange_name.as_str())
+        .bind(market.market_id)
+        .bind(end)
+        .bind(event_time)
+        .bind(event_time + Duration::seconds(15))
+        .bind(EventStatus::New.as_str())
+        .bind("Validated candles.")
         .execute(pool)
         .await?;
     Ok(())
@@ -196,10 +224,11 @@ pub async fn select_open_events_for_droplet(
         FROM events
         WHERE droplet = $1
         AND event_ts > $2
-        AND event_status != 'done'
+        AND event_status != $3
         "#,
         droplet,
         Utc::now(),
+        EventStatus::Done.as_str(),
     )
     .fetch_all(pool)
     .await?;
