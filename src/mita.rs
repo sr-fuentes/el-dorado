@@ -114,6 +114,8 @@ impl Mita {
                     println!("New heartbeats: {:?}", heartbeats);
                 }
             }
+            // Process any events for the droplet mita
+            self.process_events().await;
             // Sleep for 200 ms to give control back to tokio scheduler
             tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
         }
