@@ -398,15 +398,12 @@ pub fn resample_candles(market_id: Uuid, candles: &[Candle], duration: Duration)
     match candles.len() {
         0 => Vec::<Candle>::new(),
         _ => {
-            println!("Getting f/l candles: {:?}", Utc::now());
             // Get first and last candles
             let first_candle = candles.first().expect("There is no first candle.");
             let last_candle = candles.last().expect("There is no last candle.");
-            println!("Getting floors of f/l candles: {:?}", Utc::now());
             // Get floor of first and last candles
             let floor_start = first_candle.datetime.duration_trunc(duration).unwrap();
             let floor_end = last_candle.datetime.duration_trunc(duration).unwrap();
-            println!("Creating daterange: {:?}", Utc::now());
             // Create Daterange for resample period
             let mut dr_start = floor_start;
             let mut date_range = Vec::new();
@@ -414,7 +411,6 @@ pub fn resample_candles(market_id: Uuid, candles: &[Candle], duration: Duration)
                 date_range.push(dr_start);
                 dr_start = dr_start + duration
             }
-            println!("Resampling candles: {:?}", Utc::now());
             // Create candle for each date in daterange
             let resampled_candles = date_range.iter().fold(Vec::new(), |mut v, d| {
                 let filtered_candles: Vec<Candle> = candles
@@ -426,7 +422,6 @@ pub fn resample_candles(market_id: Uuid, candles: &[Candle], duration: Duration)
                 v.push(resampled_candle);
                 v
             });
-            println!("Resample finish: {:?}", Utc::now());
             resampled_candles
         }
     }
