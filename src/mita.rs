@@ -296,6 +296,7 @@ impl Mita {
         end: DateTime<Utc>,
         market: &MarketDetail,
     ) -> DateTime<Utc> {
+        println!("Process interval start: {:?}", Utc::now());
         // Get trades
         let trades = select_ftx_trades_by_time(
             &self.pool,
@@ -307,6 +308,7 @@ impl Mita {
         )
         .await
         .expect("Could not get ftx trades.");
+        println!("Got trades, making candles: {:?}", Utc::now());
         // If no trades return without updating hashmap
         if trades.is_empty() {
             start
@@ -330,6 +332,7 @@ impl Mita {
             .expect("Failed to select candles.");
             // Append newly created candles
             candles.append(&mut new_candles);
+            println!("Got candles, calc metrics: {:?}", Utc::now());
             // Insert metrics
             let mut metrics = MetricAP::new(
                 &market.market_name,
@@ -337,12 +340,16 @@ impl Mita {
                 TimeFrame::T15,
                 &candles,
             );
+            
+            println!("Calc'd hb metric, resample and calc remaining: {:?}", Utc::now());
             // Check remaining timeframes for interval processing
             for tf in TimeFrame::time_frames().iter().skip(1) {
                 if end <= end.duration_trunc(tf.as_dur()).unwrap() {
+                    println!("Process tf {:?} resample candle: {:?}", tf, Utc::now());
                     // Resample to new time frame
                     let resampled_candles =
                         resample_candles(market.market_id, &candles, tf.as_dur());
+                    println!("Process tf {:?} calc metrics: {:?}", tf, Utc::now());
                     let mut more_metrics = MetricAP::new(
                         &market.market_name,
                         &market.exchange_name,
@@ -352,10 +359,12 @@ impl Mita {
                     metrics.append(&mut more_metrics);
                 }
             }
+            println!("Insert candles: {:?}",Utc::now());
             // Insert new candles
             let new_candles = &candles[candles.len() - n..];
             self.insert_candles(market, new_candles.to_vec()).await;
             // Insert new metrics
+            println!("Insert metrics: {:?}",Utc::now());
             for metric in metrics.iter() {
                 insert_metric_ap(&self.pool, metric)
                     .await
@@ -370,7 +379,7 @@ impl Mita {
                 market,
             )
             .await
-            .expect("Failed in insert event - proccess interval.");
+            .expect("Failed in insert event - process interval.");
             // Return new heartbeat
             end
         }
