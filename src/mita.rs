@@ -371,9 +371,6 @@ impl Mita {
             )
             .await
             .expect("Failed in insert event - proccess interval.");
-            // Process trades TODO: Move to event
-            self.process_interval_trades(start, end, market, trades)
-                .await;
             // Return new heartbeat
             end
         }

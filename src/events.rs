@@ -1,6 +1,7 @@
 use crate::exchanges::ExchangeName;
-use crate::markets::MarketDetail;
+use crate::markets::{select_market_details, MarketDetail};
 use crate::mita::Mita;
+use crate::trades::{delete_ftx_trades_by_time, insert_ftx_trades, select_ftx_trades_by_time};
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use std::convert::TryFrom;
@@ -17,7 +18,7 @@ pub struct Event {
     pub end_ts: Option<DateTime<Utc>>,
     pub event_ts: DateTime<Utc>,
     pub created_ts: DateTime<Utc>,
-    pub processed_ts: Option<Utc>,
+    pub processed_ts: Option<DateTime<Utc>>,
     pub event_status: EventStatus,
     pub notes: Option<String>,
 }
@@ -89,15 +90,57 @@ impl Mita {
             select_open_events_for_droplet(&self.pool, &self.settings.application.droplet)
                 .await
                 .expect("Failed to select open events.");
+        // Get all market details - for market id and strip name fn in event processing
+        let markets = select_market_details(&self.pool)
+            .await
+            .expect("Failed to select all market details.");
         // Process events
         for event in open_events.iter() {
+            // Get market detail for event
+            let market = markets
+                .iter()
+                .find(|m| m.market_id == event.market_id)
+                .unwrap();
             match event.event_type {
-                EventType::ProcessTrades => self.process_event_process_trades(event).await,
+                EventType::ProcessTrades => self.process_event_process_trades(event, market).await,
             }
         }
     }
 
-    pub async fn process_event_process_trades(&self, event: &Event) {}
+    pub async fn process_event_process_trades(&self, event: &Event, market: &MarketDetail) {
+        // Select trades from the _ws table
+        let trades = select_ftx_trades_by_time(
+            &self.pool,
+            self.exchange.name.as_str(),
+            market.strip_name().as_str(),
+            "ws",
+            event.start_ts.unwrap(),
+            event.end_ts.unwrap(),
+        )
+        .await
+        .expect("Could not get ftx trades.");
+        // Insert trades into processed table and delete from the ws table
+        insert_ftx_trades(
+            &self.pool,
+            &market.market_id,
+            self.exchange.name.as_str(),
+            market.strip_name().as_str(),
+            "processed",
+            trades,
+        )
+        .await
+        .expect("Could not insert procesed trades.");
+        delete_ftx_trades_by_time(
+            &self.pool,
+            self.exchange.name.as_str(),
+            market.strip_name().as_str(),
+            "ws",
+            event.start_ts.unwrap(),
+            event.end_ts.unwrap(),
+        )
+        .await
+        .expect("Could not delete trades form db.");
+    }
 }
 
 pub async fn insert_event_process_trades(
