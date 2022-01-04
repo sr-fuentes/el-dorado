@@ -27,7 +27,7 @@ pub struct Event {
 #[sqlx(rename_all = "lowercase")]
 pub enum EventType {
     ProcessTrades,
-    // ValidateCandle,
+    ValidateCandle,
     // CreateDailyCandles,
     // ValidateDailyCandles,
     // ArchiveDailyCandles,
@@ -38,6 +38,7 @@ impl EventType {
     pub fn as_str(&self) -> &'static str {
         match self {
             EventType::ProcessTrades => "processtrades",
+            EventType::ValidateCandle => "validatecandle",
         }
     }
 }
@@ -48,12 +49,14 @@ impl TryFrom<String> for EventType {
     fn try_from(s: String) -> Result<Self, Self::Error> {
         match s.to_lowercase().as_str() {
             "processtrades" => Ok(Self::ProcessTrades),
+            "validatecandle" => Ok(Self::ValidateCandle),
             other => Err(format!("{} is not a supported validation type.", other)),
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, sqlx::Type)]
+#[sqlx(rename_all = "lowercase")]
 pub enum EventStatus {
     New,
     Open,
@@ -103,6 +106,7 @@ impl Mita {
                 .unwrap();
             match event.event_type {
                 EventType::ProcessTrades => self.process_event_process_trades(event, market).await,
+                EventType::ValidateCandle => continue, // All validations will be for IG
             }
         }
     }
@@ -198,6 +202,7 @@ pub async fn insert_event_validated_candles(
     sqlx::query(sql)
         .bind(Uuid::new_v4())
         .bind(droplet)
+        .bind(EventType::ValidateCandle.as_str())
         .bind(market.exchange_name.as_str())
         .bind(market.market_id)
         .bind(end)
@@ -221,10 +226,11 @@ pub async fn select_open_events_for_droplet(
             event_type as "event_type: EventType",
             exchange_name as "exchange_name: ExchangeName",
             market_id, start_ts, end_ts, event_ts, created_ts, processed_ts,
-            event_status as "event_status: EventStatus", notes
+            event_status as "event_status: EventStatus", 
+            notes
         FROM events
         WHERE droplet = $1
-        AND event_ts > $2
+        AND event_ts < $2
         AND event_status != $3
         "#,
         droplet,
