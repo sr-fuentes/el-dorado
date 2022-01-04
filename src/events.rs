@@ -140,6 +140,14 @@ impl Mita {
         )
         .await
         .expect("Could not delete trades form db.");
+        // Update event status to done
+        update_event_status_processed(&self.pool, event)
+            .await
+            .expect("Failed to update event status to done.");
+        // Add validation event
+        insert_event_validated_candles(&self.pool, "ig", event.start_ts.unwrap(), market)
+            .await
+            .expect("Failed in insert event - validate candle.");
     }
 }
 
@@ -196,4 +204,22 @@ pub async fn select_open_events_for_droplet(
     .fetch_all(pool)
     .await?;
     Ok(rows)
+}
+
+pub async fn update_event_status_processed(
+    pool: &PgPool,
+    event: &Event,
+) -> Result<(), sqlx::Error> {
+    let sql = r#"
+        UPDATE events
+        SET (processed_ts, event_status) = ($1, $2)
+        WHERE event_id = $3
+        "#;
+    sqlx::query(sql)
+        .bind(Utc::now())
+        .bind(EventStatus::Done.as_str())
+        .bind(event.event_id)
+        .execute(pool)
+        .await?;
+    Ok(())
 }
