@@ -161,13 +161,14 @@ pub async fn insert_event_process_trades(
     let event_time = Utc::now();
     let sql = r#"
         INSERT INTO events (
-            event_id, droplet, exchange_name, market_id, start_ts, end_ts, event_ts, created_ts,
+            event_id, droplet, event_type, exchange_name, market_id, start_ts, end_ts, event_ts, created_ts,
             event_status, notes)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         "#;
     sqlx::query(sql)
         .bind(Uuid::new_v4())
         .bind(droplet)
+        .bind(EventType::ProcessTrades.as_str())
         .bind(market.exchange_name.as_str())
         .bind(market.market_id)
         .bind(start)
@@ -190,9 +191,9 @@ pub async fn insert_event_validated_candles(
     let event_time = Utc::now();
     let sql = r#"
         INSERT INTO events (
-            event_id, droplet, exchange_name, market_id, end_ts, event_ts, created_ts,
+            event_id, droplet, event_type, exchange_name, market_id, end_ts, event_ts, created_ts,
             event_status, notes)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         "#;
     sqlx::query(sql)
         .bind(Uuid::new_v4())
