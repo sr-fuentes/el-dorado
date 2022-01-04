@@ -398,14 +398,15 @@ pub fn resample_candles(market_id: Uuid, candles: &[Candle], duration: Duration)
     match candles.len() {
         0 => Vec::<Candle>::new(),
         _ => {
+            println!("Getting f/l candles: {:?}", Utc::now());
             // Get first and last candles
             let first_candle = candles.first().expect("There is no first candle.");
             let last_candle = candles.last().expect("There is no last candle.");
-
+            println!("Getting floors of f/l candles: {:?}", Utc::now());
             // Get floor of first and last candles
             let floor_start = first_candle.datetime.duration_trunc(duration).unwrap();
             let floor_end = last_candle.datetime.duration_trunc(duration).unwrap();
-
+            println!("Creating daterange: {:?}", Utc::now());
             // Create Daterange for resample period
             let mut dr_start = floor_start;
             let mut date_range = Vec::new();
@@ -413,7 +414,7 @@ pub fn resample_candles(market_id: Uuid, candles: &[Candle], duration: Duration)
                 date_range.push(dr_start);
                 dr_start = dr_start + duration
             }
-
+            println!("Resampling candles: {:?}", Utc::now());
             // Create candle for each date in daterange
             let resampled_candles = date_range.iter().fold(Vec::new(), |mut v, d| {
                 let filtered_candles: Vec<Candle> = candles
@@ -425,6 +426,7 @@ pub fn resample_candles(market_id: Uuid, candles: &[Candle], duration: Duration)
                 v.push(resampled_candle);
                 v
             });
+            println!("Resample finish: {:?}", Utc::now());
             resampled_candles
         }
     }
@@ -1541,5 +1543,50 @@ mod tests {
             .await;
             println!("Revalidate success? {:?}", is_success);
         }
+    }
+
+    #[tokio::test]
+    pub async fn resample_tests() {
+        // Load configuration
+        let configuration = get_configuration().expect("Failed to read configuration.");
+        println!("Configuration: {:?}", configuration);
+        // Create db connection
+        let pool = PgPool::connect_with(configuration.database.with_db())
+            .await
+            .expect("Failed to connect to Postgres.");
+        // Get exchanges from database
+        let exchanges = select_exchanges(&pool)
+            .await
+            .expect("Could not fetch exchanges.");
+        // Match exchange to exchanges in database
+        let exchange = exchanges.iter().find(|e| e.name.as_str() == "ftxus").unwrap();
+        // Get market ids
+        let market_ids = select_market_ids_by_exchange(&pool, &exchange.name)
+            .await
+            .expect("Could not fetch exchanges.");
+        let market = market_ids
+            .iter()
+            .find(|m| m.market_name == "BTC/USD")
+            .unwrap();
+        let _market_detail = select_market_detail(&pool, &market)
+            .await
+            .expect("Could not fetch market detail.");
+        println!("Select last 91 days of hb candles: {:?}", Utc::now());
+        let candles = select_candles_gte_datetime(
+            &pool,
+            exchange.name.as_str(),
+            &market.market_id,
+            Utc::now() - Duration::days(91),
+        )
+        .await
+        .expect("Failed to select candles.");
+        println!("Start resample through tfs: {:?}", Utc::now());
+        for tf in TimeFrame::time_frames().iter().skip(1) {
+            println!("Process tf {:?} resample candle: {:?}", tf, Utc::now());
+            // Resample to new time frame
+            let _resampled_candles =
+                resample_candles(market.market_id, &candles, tf.as_dur());
+        }
+        println!("All candles resampled: {:?}", Utc::now());
     }
 }
