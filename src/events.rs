@@ -1,7 +1,7 @@
 use crate::exchanges::ExchangeName;
+use crate::inquisidor::Inquisidor;
 use crate::markets::{select_market_details, MarketDetail};
 use crate::mita::Mita;
-use crate::inquisidor::Inquisidor;
 use crate::trades::{delete_ftx_trades_by_time, insert_ftx_trades, select_ftx_trades_by_time};
 use chrono::{DateTime, Duration, Utc};
 use sqlx::PgPool;
@@ -107,9 +107,25 @@ impl Inquisidor {
                 .unwrap();
             match event.event_type {
                 EventType::ProcessTrades => continue, // All trade processing done by mita
-                EventType::ValidateCandle => self.process_event_validate_candle(event, market).await,
+                EventType::ValidateCandle => {
+                    self.process_event_validate_candle(event, market).await
+                }
             }
         }
+    }
+
+    pub async fn process_event_validate_candle(&self, event: &Event, market: &MarketDetail) {
+        // Get candles to validate based on event end date
+        let unvalidated_candles = select_candles_unvalidated_lt_datetime()
+            .await
+            .expect("Failed to select candles.");
+        if !unvalidated_candles.is_empty() {
+            // Validate
+        }
+        // Close event
+        update_event_status_processed(&self.pool, event)
+            .await
+            .expect("Failed to update event status to done.");
     }
 }
 
