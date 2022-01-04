@@ -12,3 +12,4 @@ pub mod stream;
 pub mod trades;
 pub mod utilities;
 pub mod validation;
+pub mod events;
