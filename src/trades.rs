@@ -79,6 +79,23 @@ pub async fn select_insert_drop_trades(
     Ok(())
 }
 
+pub async fn insert_delete_ftx_trades(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+    market: &MarketDetail,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    source: &str,
+    destination: &str,
+    trades: Vec<Trade>,
+) -> Result<(), sqlx::Error> {
+    // Insert ftx trades into destination table
+    insert_ftx_trades(pool, exchange_name, market, destination, trades).await?;
+    // Delete trades form source table
+    delete_trades_by_time(pool, exchange_name, market, source, start, end).await?;
+    Ok(())
+}
+
 pub async fn drop_create_trade_table(
     pool: &PgPool,
     exchange_name: &ExchangeName,
