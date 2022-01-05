@@ -238,7 +238,6 @@ mod tests {
             .expect("Failed to grab BTC/USD market.");
 
         // Set table name variables
-        let market_table_name = market.market_name.replace(&['/', '-'][..], "");
         let test_trade_table = "dynamic_test";
 
         // Create db tables

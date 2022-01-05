@@ -136,7 +136,7 @@ impl Inquisidor {
         // trades, validate and insert into processed.
         let hb_candles = select_candles_by_daterange(
             &self.pool,
-            validation.exchange_name.as_str(),
+            &validation.exchange_name,
             &validation.market_id,
             validation.datetime,
             validation.datetime + Duration::days(1),
@@ -193,7 +193,7 @@ impl Inquisidor {
                             insert_ftx_trades(
                                 &self.pool,
                                 &validation.exchange_name,
-                                &market,
+                                market,
                                 "validated",
                                 validated_trades,
                             )
@@ -319,7 +319,7 @@ impl Inquisidor {
         // validated then re-create the daily candle from the heartbeat candles and re-validate.
         let hb_candles = select_candles_by_daterange(
             &self.pool,
-            validation.exchange_name.as_str(),
+            &validation.exchange_name,
             &validation.market_id,
             validation.datetime,
             validation.datetime + Duration::days(1),
@@ -488,7 +488,7 @@ impl Inquisidor {
         // Get hb candles and resample to daily candle
         let hb_candles = select_candles_by_daterange(
             &self.pool,
-            validation.exchange_name.as_str(),
+            &validation.exchange_name,
             &validation.market_id,
             validation.datetime,
             validation.datetime + Duration::days(1),
@@ -674,7 +674,7 @@ impl Inquisidor {
         // If it gets to this point the validaion failed. Return false and the original candle
         let original_candle = select_candles_by_daterange(
             &self.pool,
-            validation.exchange_name.as_str(),
+            &validation.exchange_name,
             &market.market_id,
             candle_start,
             candle_start + self.hbtf.as_dur(),
@@ -776,7 +776,7 @@ impl Inquisidor {
 
 pub async fn insert_candle_validation(
     pool: &PgPool,
-    exchange: &str,
+    exchange: &ExchangeName,
     market_id: &Uuid,
     datetime: &DateTime<Utc>,
     duration: i64,
@@ -1016,7 +1016,7 @@ mod tests {
         // Insert bad candle validation that can be fixed automatically
         insert_candle_validation(
             &pool,
-            validation.exchange_name.as_str(),
+            &validation.exchange_name,
             &validation.market_id,
             &validation.datetime,
             validation.duration,

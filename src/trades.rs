@@ -78,6 +78,7 @@ pub async fn select_insert_drop_trades(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn insert_delete_ftx_trades(
     pool: &PgPool,
     exchange_name: &ExchangeName,
@@ -133,7 +134,7 @@ pub async fn alter_create_migrate_drop_trade_table(
                 market,
                 format!("{}_temp", trade_table).as_str(),
             )
-            .await;
+            .await?;
         }
     }
     // Migrate trades fromm temp

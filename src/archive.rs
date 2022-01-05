@@ -218,10 +218,10 @@ mod test {
             if hb_is_validated && vol_is_validated {
                 update_candle_validation(
                     &pool,
-                    &exchange.name.as_str(),
+                    &exchange.name,
                     &market.market_id,
                     &candle,
-                    86400,
+                    TimeFrame::D01,
                 )
                 .await
                 .expect("Could not update candle validation status.");

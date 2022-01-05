@@ -43,14 +43,14 @@ pub struct MarketDetail {
 }
 
 impl MarketId {
-    pub fn as_strip(&self) -> &'static str {
-        &self.market_name.replace(&['/', '-'][..], "")
+    pub fn as_strip(&self) -> String {
+        self.market_name.replace(&['/', '-'][..], "")
     }
 }
 
 impl MarketDetail {
-    pub fn as_strip(&self) -> &'static str {
-        &self.market_name.replace(&['/', '-'][..], "")
+    pub fn as_strip(&self) -> String {
+        self.market_name.replace(&['/', '-'][..], "")
     }
 }
 

@@ -1,7 +1,5 @@
-use crate::candles::{
-    resample_candles, select_candles_gte_datetime, select_last_candle,
-};
-use crate::candles::{TimeFrame};
+use crate::candles::TimeFrame;
+use crate::candles::{resample_candles, select_candles_gte_datetime, select_last_candle};
 use crate::configuration::{get_configuration, Settings};
 use crate::events::insert_event_process_trades;
 use crate::exchanges::{select_exchanges, Exchange};
@@ -9,7 +7,9 @@ use crate::markets::{
     select_market_detail_by_exchange_mita, update_market_data_status, MarketDetail, MarketStatus,
 };
 use crate::metrics::{insert_metric_ap, MetricAP};
-use crate::trades::{select_ftx_trades_by_time, select_insert_drop_trades, insert_delete_ftx_trades};
+use crate::trades::{
+    insert_delete_ftx_trades, select_ftx_trades_by_time, select_insert_drop_trades,
+};
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use sqlx::PgPool;
 use std::collections::HashMap;
