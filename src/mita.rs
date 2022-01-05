@@ -1,18 +1,15 @@
 use crate::candles::{
-    insert_candle, resample_candles, select_candles_gte_datetime, select_last_candle,
-    select_previous_candle,
+    resample_candles, select_candles_gte_datetime, select_last_candle,
 };
-use crate::candles::{Candle, TimeFrame};
+use crate::candles::{TimeFrame};
 use crate::configuration::{get_configuration, Settings};
 use crate::events::insert_event_process_trades;
-use crate::exchanges::{ftx::Trade, select_exchanges, Exchange};
+use crate::exchanges::{select_exchanges, Exchange};
 use crate::markets::{
     select_market_detail_by_exchange_mita, update_market_data_status, MarketDetail, MarketStatus,
 };
 use crate::metrics::{insert_metric_ap, MetricAP};
-use crate::trades::{
-    delete_ftx_trades_by_time, drop_ftx_trade_table, insert_ftx_trades, select_ftx_trades_by_time,
-};
+use crate::trades::{select_ftx_trades_by_time, select_insert_drop_trades, insert_delete_ftx_trades};
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use sqlx::PgPool;
 use std::collections::HashMap;
@@ -153,35 +150,17 @@ impl Mita {
                 market.market_name, start, now
             );
             // Migrate rest trades to ws
-            let rest_trades = select_ftx_trades_by_time(
+            select_insert_drop_trades(
                 &self.pool,
-                self.exchange.name.as_str(),
-                market.strip_name().as_str(),
-                "rest",
+                &self.exchange.name,
+                market,
                 start,
                 now,
-            )
-            .await
-            .expect("Could not select ftx trades.");
-            insert_ftx_trades(
-                &self.pool,
-                &market.market_id,
-                self.exchange.name.as_str(),
-                market.strip_name().as_str(),
-                "ws",
-                rest_trades,
-            )
-            .await
-            .expect("Could not insert into ws trades.");
-            // Drop rest table
-            drop_ftx_trade_table(
-                &self.pool,
-                self.exchange.name.as_str(),
-                market.strip_name().as_str(),
                 "rest",
+                "ws",
             )
             .await
-            .expect("Could not drop rest table.");
+            .expect("Failed to select insert drop ftx trades.");
             // Create and save any candles necessary
             if start != end {
                 // Create candles from ws table
@@ -189,91 +168,36 @@ impl Mita {
                 // fill needs a ws trade to start the backfill function.
                 let sync_trades = select_ftx_trades_by_time(
                     &self.pool,
-                    self.exchange.name.as_str(),
-                    market.strip_name().as_str(),
+                    &self.exchange.name,
+                    market,
                     "ws",
                     start,
                     end,
                 )
                 .await
-                .expect("Could not select ws trades.");
+                .expect("Failed to select ws trades.");
                 // Get date range
-                let mut dr_start = start;
-                let mut date_range = Vec::new();
-                while dr_start < end {
-                    date_range.push(dr_start);
-                    dr_start = dr_start + self.hbtf.as_dur();
-                }
-                // Create vec of candles for date range
-                let mut previous_candle = select_previous_candle(
-                    &self.pool,
-                    self.exchange.name.as_str(),
-                    &market.market_id,
-                    start,
-                )
-                .await
-                .expect("No previous candle.");
-                let candles = date_range.iter().fold(Vec::new(), |mut v, d| {
-                    let mut filtered_trades: Vec<Trade> = sync_trades
-                        .iter()
-                        .filter(|t| t.time.duration_trunc(self.hbtf.as_dur()).unwrap() == *d)
-                        .cloned()
-                        .collect();
-                    let new_candle = match filtered_trades.len() {
-                        0 => {
-                            // Get previous candle and forward fill from close
-                            Candle::new_from_last(
-                                market.market_id,
-                                *d,
-                                previous_candle.close,
-                                previous_candle.last_trade_ts,
-                                &previous_candle.last_trade_id.to_string(),
-                            )
-                        }
-                        _ => {
-                            filtered_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
-                            filtered_trades.dedup_by(|t1, t2| t1.id == t2.id);
-                            Candle::new_from_trades(market.market_id, *d, &filtered_trades)
-                        }
-                    };
-                    previous_candle = new_candle.clone();
-                    v.push(new_candle);
-                    v
-                });
+                let date_range = self.create_date_range(start, end, self.hbtf.as_dur());
+                // Make new candles
+                let candles = self
+                    .create_interval_candles(market, date_range, &sync_trades)
+                    .await;
                 println!("Created {} candles to insert into db.", candles.len());
                 // Insert candles to db
-                for candle in candles.into_iter() {
-                    insert_candle(
-                        &self.pool,
-                        self.exchange.name.as_str(),
-                        &market.market_id,
-                        candle,
-                        false,
-                    )
-                    .await
-                    .expect("Could not insert new candle.");
-                }
+                self.insert_candles(market, candles).await;
                 // Move trades from ws to processed and delete from ws
-                delete_ftx_trades_by_time(
+                insert_delete_ftx_trades(
                     &self.pool,
-                    self.exchange.name.as_str(),
-                    market.strip_name().as_str(),
-                    "ws",
+                    &self.exchange.name,
+                    market,
                     start,
                     end,
-                )
-                .await
-                .expect("Could not delete trades from db.");
-                insert_ftx_trades(
-                    &self.pool,
-                    &market.market_id,
-                    self.exchange.name.as_str(),
-                    market.strip_name().as_str(),
+                    "ws",
                     "processed",
                     sync_trades,
                 )
                 .await
-                .expect("Could not insert processed trades.");
+                .expect("Failed to insert delete ftx trades.");
             }
             // Update mita heartbeat interval
             heartbeats.insert(market.market_name.as_str(), end);
@@ -298,16 +222,10 @@ impl Mita {
     ) -> DateTime<Utc> {
         println!("Process interval start: {:?}", Utc::now());
         // Get trades
-        let trades = select_ftx_trades_by_time(
-            &self.pool,
-            self.exchange.name.as_str(),
-            market.strip_name().as_str(),
-            "ws",
-            start,
-            end,
-        )
-        .await
-        .expect("Could not get ftx trades.");
+        let trades =
+            select_ftx_trades_by_time(&self.pool, &self.exchange.name, market, "ws", start, end)
+                .await
+                .expect("Failed to select ftx ws trades.");
         // If no trades return without updating hashmap
         if trades.is_empty() {
             start
@@ -318,7 +236,6 @@ impl Mita {
             let mut new_candles = self
                 .create_interval_candles(market, date_range, &trades)
                 .await;
-            // Insert candles
             let n = new_candles.len();
             // Calc new metrics
             let mut candles = select_candles_gte_datetime(
