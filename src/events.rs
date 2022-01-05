@@ -245,10 +245,10 @@ pub async fn insert_event_validated_candles(
         .bind(market.exchange_name.as_str())
         .bind(market.market_id)
         .bind(end)
-        .bind(event_time)
         .bind(event_time + Duration::seconds(15))
+        .bind(event_time)
         .bind(EventStatus::New.as_str())
-        .bind("Validated candles.")
+        .bind("Validate candles.")
         .execute(pool)
         .await?;
     Ok(())
