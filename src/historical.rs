@@ -8,6 +8,7 @@ use sqlx::PgPool;
 
 impl Mita {
     pub async fn historical(&self, end_source: &str) {
+        // TODO - MAKE EXCHANGE SPECIFIC - NOT FTX ONLY
         // Get REST client for exchange
         let client = match self.exchange.name {
             ExchangeName::FtxUs => RestClient::new_us(),
@@ -38,12 +39,8 @@ impl Mita {
                         market.market_name
                     );
                     loop {
-                        match select_ftx_trade_first_stream(
-                            &self.pool,
-                            self.exchange.name.as_str(),
-                            market.strip_name().as_str(),
-                        )
-                        .await
+                        match select_ftx_trade_first_stream(&self.pool, &self.exchange.name, market)
+                            .await
                         {
                             Ok(t) => break t.time + Duration::microseconds(1), // set trade time + 1 micro
                             Err(sqlx::Error::RowNotFound) => {
@@ -167,16 +164,9 @@ pub async fn backfill_ftx(
                     );
                 }
                 // Save trades to db
-                insert_ftx_trades(
-                    pool,
-                    &market.market_id,
-                    exchange.name.as_str(),
-                    market.strip_name().as_str(),
-                    "rest",
-                    new_trades,
-                )
-                .await
-                .expect("Failed to insert ftx trades.");
+                insert_ftx_trades(pool, &exchange.name, market, "rest", new_trades)
+                    .await
+                    .expect("Failed to insert ftx trades.");
             };
             // If new trades returns less than 100 trades then there are no more trades
             // for that interval, create the candle and process the trades for that period
@@ -189,8 +179,8 @@ pub async fn backfill_ftx(
                     // Select trades for market between start and end interval
                     let mut interval_trades = select_ftx_trades_by_time(
                         pool,
-                        exchange.name.as_str(),
-                        market.strip_name().as_str(),
+                        &exchange.name,
+                        market,
                         "rest",
                         interval_start,
                         interval_end,
@@ -244,27 +234,18 @@ pub async fn backfill_ftx(
                     .expect("Could not insert new candle.");
                     println!("Candle {:?} inserted", interval_start);
                     // Delete trades for market between start and end interval
-                    delete_ftx_trades_by_time(
+                    insert_delete_ftx_trades(
                         pool,
-                        exchange.name.as_str(),
-                        market.strip_name().as_str(),
-                        "rest",
+                        &exchange.name,
+                        market,
                         interval_start,
                         interval_end,
-                    )
-                    .await
-                    .expect("Could not delete trades from db.");
-                    // Insert into processed trades
-                    insert_ftx_trades(
-                        pool,
-                        &market.market_id,
-                        exchange.name.as_str(),
-                        market.strip_name().as_str(),
+                        "rest",
                         "processed",
                         interval_trades,
                     )
                     .await
-                    .expect("Could not insert processed trades.");
+                    .expect("Failed to insert and delete ftx trades.");
                 };
                 // Move to next interval start
                 interval_start = interval_start + Duration::seconds(900); // TODO! set to market heartbeat

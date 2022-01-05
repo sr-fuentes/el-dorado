@@ -15,7 +15,7 @@ impl Inquisidor {
         // Check for trades to archive in each active market
         for market in markets.iter() {
             // Get market table for table and file
-            let market_table_name = market.strip_name();
+            // let market_table_name = market.strip_name();
             // Check directory for exchange csv is created
             let p = format!(
                 "{}/csv/{}",
@@ -37,8 +37,8 @@ impl Inquisidor {
                 // Select trades associated with candle
                 let trades_to_archive = select_ftx_trades_by_time(
                     &self.pool,
-                    market.exchange_name.as_str(),
-                    market_table_name.as_str(),
+                    &market.exchange_name,
+                    market,
                     "validated",
                     candle.datetime,
                     candle.datetime + Duration::days(1),
@@ -64,7 +64,7 @@ impl Inquisidor {
                     continue;
                 }
                 // Define filename = TICKER_YYYYMMDD.csv
-                let f = format!("{}_{}.csv", market_table_name, candle.datetime.format("%F"));
+                let f = format!("{}_{}.csv", market.as_strip(), candle.datetime.format("%F"));
                 // Set filepath and file name
                 let fp = std::path::Path::new(&p).join(f);
                 // Write trades to file
@@ -74,10 +74,10 @@ impl Inquisidor {
                 }
                 wtr.flush().expect("Failed to flush wtr.");
                 // Delete trades from validate table
-                delete_ftx_trades_by_time(
+                delete_trades_by_time(
                     &self.pool,
-                    market.exchange_name.as_str(),
-                    market_table_name.as_str(),
+                    &market.exchange_name,
+                    market,
                     "validated",
                     candle.datetime,
                     candle.datetime + Duration::days(1),
@@ -108,6 +108,7 @@ mod test {
 
     #[tokio::test]
     async fn fetch_trades_and_write_to_csv() {
+        // TODO - Make for all exchanges - NOT JUST FTX
         // Load configuration
         let configuration = get_configuration().expect("Failed to read configuration.");
         println!("Configuration: {:?}", configuration);
@@ -212,15 +213,15 @@ mod test {
             // Check if all hb candles are valid
             let hb_is_validated = hb_candles.iter().all(|c| c.is_validated == true);
             // Check if volume matches value
-            let vol_is_validated = validate_candle(&candle, &mut exchange_candles);
+            let vol_is_validated = validate_ftx_candle(&candle, &mut exchange_candles);
             // Update candle validation status
             if hb_is_validated && vol_is_validated {
                 update_candle_validation(
                     &pool,
-                    &exchange.name.as_str(),
+                    &exchange.name,
                     &market.market_id,
                     &candle,
-                    86400,
+                    TimeFrame::D01,
                 )
                 .await
                 .expect("Could not update candle validation status.");
@@ -237,8 +238,8 @@ mod test {
             // Select trades associated w/ candle
             let _trades_to_archive = select_ftx_trades_by_time(
                 &pool,
-                &exchange.name.as_str(),
-                market.strip_name().as_str(),
+                &exchange.name,
+                &market_detail,
                 "validated",
                 candle.datetime,
                 candle.datetime + Duration::days(1),

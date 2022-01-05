@@ -43,13 +43,13 @@ pub struct MarketDetail {
 }
 
 impl MarketId {
-    pub fn strip_name(&self) -> String {
+    pub fn as_strip(&self) -> String {
         self.market_name.replace(&['/', '-'][..], "")
     }
 }
 
 impl MarketDetail {
-    pub fn strip_name(&self) -> String {
+    pub fn as_strip(&self) -> String {
         self.market_name.replace(&['/', '-'][..], "")
     }
 }
@@ -459,7 +459,7 @@ mod tests {
 
         // Print market and strip market
         println!("Market: {:?}", market);
-        let stripped_market = market.strip_name();
+        let stripped_market = market.as_strip();
         println!("Stripped Market: {}", stripped_market);
     }
 

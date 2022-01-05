@@ -361,6 +361,94 @@
       ]
     }
   },
+  "781f274a2222ca3595b121c7ffd9d9ef8ceefffa603423a603a3becf1dac8c2a": {
+    "query": "\n        SELECT event_id, droplet,\n            event_type as \"event_type: EventType\",\n            exchange_name as \"exchange_name: ExchangeName\",\n            market_id, start_ts, end_ts, event_ts, created_ts, processed_ts,\n            event_status as \"event_status: EventStatus\", \n            notes\n        FROM events\n        WHERE droplet = $1\n        AND event_ts < $2\n        AND event_status != $3\n        ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "event_id",
+          "type_info": "Uuid"
+        },
+        {
+          "ordinal": 1,
+          "name": "droplet",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 2,
+          "name": "event_type: EventType",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 3,
+          "name": "exchange_name: ExchangeName",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "market_id",
+          "type_info": "Uuid"
+        },
+        {
+          "ordinal": 5,
+          "name": "start_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 6,
+          "name": "end_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 7,
+          "name": "event_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 8,
+          "name": "created_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 9,
+          "name": "processed_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 10,
+          "name": "event_status: EventStatus",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 11,
+          "name": "notes",
+          "type_info": "Text"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Timestamptz",
+          "Text"
+        ]
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        false,
+        false,
+        true,
+        false,
+        true
+      ]
+    }
+  },
   "7a9382499b95b031c53f560ec101e517927921fadcce1e97ad9c851684dc6248": {
     "query": "\n        SELECT market_id,\n            exchange_name as \"exchange_name: ExchangeName\",\n            market_name, market_type, base_currency, quote_currency, underlying,\n            market_status as \"market_status: MarketStatus\",\n            market_data_status as \"market_data_status: MarketStatus\",\n            first_validated_trade_id, first_validated_trade_ts,\n            last_validated_trade_id, last_validated_trade_ts,\n            candle_base_interval, candle_base_in_seconds,\n            first_validated_candle, last_validated_candle,\n            last_update_ts, last_update_ip_address,\n            first_candle, last_candle, mita\n        FROM markets\n        ",
     "describe": {
