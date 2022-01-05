@@ -789,7 +789,7 @@ pub async fn insert_candle_validation(
         ON CONFLICT (exchange_name, market_id, datetime, duration) DO NOTHING
         "#;
     sqlx::query(sql)
-        .bind(exchange)
+        .bind(exchange.as_str())
         .bind(market_id)
         .bind(datetime)
         .bind(duration)
