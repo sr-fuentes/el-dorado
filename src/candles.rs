@@ -1,5 +1,5 @@
 use crate::configuration::*;
-use crate::exchanges::{ftx::Candle as CandleFtx, ftx::RestClient, ftx::RestError, ftx::Trade};
+use crate::exchanges::{ftx::Candle as CandleFtx, ftx::RestClient, ftx::Trade, ExchangeName};
 use crate::markets::{update_market_last_validated, MarketDetail};
 use crate::mita::Mita;
 use crate::trades::*;
@@ -288,19 +288,28 @@ impl Candle {
 
 impl Mita {
     pub async fn validate_candles(&self, client: &RestClient, market: &MarketDetail) {
+        let unvalidated_candles = select_unvalidated_candles(
+            &self.pool,
+            &market.exchange_name,
+            &market.market_id,
+            TimeFrame::T15,
+        )
+        .await
+        .expect("Could not fetch unvalidated candles.");
         // Validate heartbeat candles
         validate_hb_candles(
             &self.pool,
             client,
-            self.exchange.name.as_str(),
+            &self.exchange.name,
             market,
             &self.settings,
+            &unvalidated_candles,
         )
         .await;
         // Create 01d candles
         create_01d_candles(&self.pool, self.exchange.name.as_str(), &market.market_id).await;
         // Validate 01d candles
-        validate_01d_candles(&self.pool, client, self.exchange.name.as_str(), market).await;
+        validate_01d_candles(&self.pool, client, &self.exchange.name, market).await;
     }
 
     pub async fn create_interval_candles(
@@ -475,122 +484,112 @@ pub async fn create_01d_candles(pool: &PgPool, exchange_name: &str, market_id: &
 pub async fn validate_hb_candles(
     pool: &PgPool,
     client: &RestClient,
-    exchange_name: &str,
+    exchange_name: &ExchangeName,
     market: &MarketDetail,
     config: &Settings,
+    unvalidated_candles: &[Candle],
 ) {
-    let unvalidated_candles =
-        select_unvalidated_candles(pool, exchange_name, &market.market_id, 900)
-            .await
-            .expect("Could not fetch unvalidated candles.");
-    if !unvalidated_candles.is_empty() {
-        let first_candle = unvalidated_candles.first().unwrap().datetime;
-        let last_candle = unvalidated_candles.last().unwrap().datetime;
-        // // println!(
-        //     "Getting exchange candles from {:?} to {:?}",
-        //     first_candle, last_candle
-        // );
-        let mut exchange_candles =
-            get_ftx_candles(client, market, first_candle, last_candle, 900).await;
-        // println!("Pulled {} candles from exchange.", exchange_candles.len());
-        // println!(
-        //     "First returned candle is: {:?}",
-        //     exchange_candles.first().unwrap().time
-        // );
-        // println!(
-        //     "Last returned candle is: {:?}",
-        //     exchange_candles.last().unwrap().time
-        // );
-        for unvalidated_candle in unvalidated_candles {
-            // validate candle - get candle from exchange, comp volume. if volume matches
-            // consider it validated - if not - pull trades
-            println!(
-                "Validating {} candle {}.",
-                &market.market_name, unvalidated_candle.datetime
-            );
-            let is_valid = validate_candle(&unvalidated_candle, &mut exchange_candles);
-            if is_valid {
-                // Update market details and candle with validated data
-                update_market_last_validated(
-                    pool,
-                    &market.market_id,
-                    &unvalidated_candle,
-                    config.application.ip_addr.as_str(),
-                )
-                .await
-                .expect("Could not update market details.");
-                update_candle_validation(
-                    pool,
-                    exchange_name,
-                    &market.market_id,
-                    &unvalidated_candle,
-                    900,
-                )
-                .await
-                .expect("Could not update candle validation status.");
-                // If there are trades (volume > 0) then move from processed to validated
-                if unvalidated_candle.volume > dec!(0) {
-                    // Update validated trades and move from processed to validated
-                    let validated_trades = select_ftx_trades_by_time(
-                        pool,
-                        exchange_name,
-                        market.strip_name().as_str(),
-                        "processed",
-                        unvalidated_candle.datetime,
-                        unvalidated_candle.datetime + Duration::seconds(900),
-                    )
-                    .await
-                    .expect("Could not fetch validated trades.");
-                    insert_ftx_trades(
-                        pool,
-                        &market.market_id,
-                        exchange_name,
-                        market.strip_name().as_str(),
-                        "validated",
-                        validated_trades,
-                    )
-                    .await
-                    .expect("Could not insert validated trades.");
-                    delete_ftx_trades_by_time(
-                        pool,
-                        exchange_name,
-                        market.strip_name().as_str(),
-                        "processed",
-                        unvalidated_candle.datetime,
-                        unvalidated_candle.datetime + Duration::seconds(900),
-                    )
-                    .await
-                    .expect("Could not delete processed trades.");
-                }
-            } else {
-                // Add to candle validation table
+    if unvalidated_candles.is_empty() {
+        return;
+    };
+    let first_candle = unvalidated_candles.first().unwrap().datetime;
+    let last_candle = unvalidated_candles.last().unwrap().datetime;
+    // Match exchange because the exchange candles will be in different formats
+    match exchange_name {
+        ExchangeName::Ftx | ExchangeName::FtxUs => {
+            let mut exchange_candles =
+                get_ftx_candles(client, market, first_candle, last_candle, 900).await;
+            for unvalidated_candle in unvalidated_candles.iter() {
                 println!(
-                    "Candle not validated adding to validation table: {} \t {}",
+                    "Validating {} candle {}.",
                     &market.market_name, unvalidated_candle.datetime
                 );
-                insert_candle_validation(
+                let is_valid = validate_ftx_candle(unvalidated_candle, &mut exchange_candles);
+                process_validation_result(
                     pool,
                     exchange_name,
-                    &market.market_id,
-                    &unvalidated_candle.datetime,
-                    900,
+                    market,
+                    config,
+                    unvalidated_candle,
+                    is_valid,
                 )
-                .await
-                .expect("Failed to insert candle validation.");
-            };
+                .await;
+            }
         }
     }
+}
+
+pub async fn process_validation_result(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+    market: &MarketDetail,
+    config: &Settings,
+    unvalidated_candle: &Candle,
+    is_valid: bool,
+) {
+    if is_valid {
+        // Update market details and candle with validated data
+        update_market_last_validated(
+            pool,
+            &market.market_id,
+            unvalidated_candle,
+            config.application.ip_addr.as_str(),
+        )
+        .await
+        .expect("Could not update market details.");
+        update_candle_validation(
+            pool,
+            exchange_name,
+            &market.market_id,
+            unvalidated_candle,
+            TimeFrame::T15,
+        )
+        .await
+        .expect("Could not update candle validation status.");
+        // If there are trades (volume > 0) then move from processed to validated
+        if unvalidated_candle.volume > dec!(0) {
+            // Update validated trades and move from processed to validated
+            select_insert_delete_trades(
+                pool,
+                exchange_name,
+                market,
+                unvalidated_candle.datetime,
+                unvalidated_candle.datetime + TimeFrame::T15.as_dur(),
+                "processed",
+                "validated",
+            )
+            .await
+            .expect("Failed to select insert delete trades.");
+        }
+    } else {
+        // Add to candle validation table
+        println!(
+            "Candle not validated adding to validation table: {} \t {}",
+            &market.market_name, unvalidated_candle.datetime
+        );
+        insert_candle_validation(
+            pool,
+            exchange_name,
+            &market.market_id,
+            &unvalidated_candle.datetime,
+            900,
+        )
+        .await
+        .expect("Failed to insert candle validation.");
+    };
 }
 
 pub async fn validate_01d_candles(
     pool: &PgPool,
     client: &RestClient,
-    exchange_name: &str,
+    exchange_name: &ExchangeName,
     market: &MarketDetail,
 ) {
     // Get unvalidated 01d candles
     let unvalidated_candles =
-        match select_unvalidated_candles(pool, exchange_name, &market.market_id, 86400).await {
+        match select_unvalidated_candles(pool, exchange_name, &market.market_id, TimeFrame::D01)
+            .await
+        {
             Ok(c) => c,
             Err(sqlx::Error::RowNotFound) => return,
             Err(e) => panic!("Sqlx Error: {:?}", e),
@@ -633,12 +632,18 @@ pub async fn validate_01d_candles(
         // Check if all hb candles are valid
         let hb_is_validated = filtered_candles.iter().all(|c| c.is_validated);
         // Check if volume matches value
-        let vol_is_validated = validate_candle(candle, &mut exchange_candles);
+        let vol_is_validated = validate_ftx_candle(candle, &mut exchange_candles);
         // Updated candle validation status
         if hb_is_validated && vol_is_validated {
-            update_candle_validation(pool, exchange_name, &market.market_id, candle, 86400)
-                .await
-                .expect("Could not update candle validation status.");
+            update_candle_validation(
+                pool,
+                exchange_name,
+                &market.market_id,
+                candle,
+                TimeFrame::D01,
+            )
+            .await
+            .expect("Could not update candle validation status.");
         } else {
             println!(
                 "{:?} 01d not validated adding to validation table. HB={}, VOL={}",
@@ -657,7 +662,7 @@ pub async fn validate_01d_candles(
     }
 }
 
-pub fn validate_candle(candle: &Candle, exchange_candles: &mut Vec<CandleFtx>) -> bool {
+pub fn validate_ftx_candle(candle: &Candle, exchange_candles: &mut Vec<CandleFtx>) -> bool {
     // FTX candle validation on FTX Volume = ED Value, FTX sets open = last trade event if the
     // last trades was in the prior time period.
     // Consider valid if candle.value == exchange_candle.volume.
@@ -686,181 +691,6 @@ pub fn validate_candle(candle: &Candle, exchange_candles: &mut Vec<CandleFtx>) -
             }
         }
     }
-}
-
-pub async fn qc_unvalidated_candle(
-    client: &RestClient,
-    pool: &PgPool,
-    exchange_name: &str,
-    market: &MarketDetail,
-    candle: &Candle,
-) -> bool {
-    // Create temp trade table and re-download trades for candle time period then
-    // compare to exchange candle, track any 100 trades in a micro instances
-    let candle_start = candle.datetime;
-    let candle_end = candle_start + Duration::seconds(900);
-    // Get markets
-    let mut exchange_candles =
-        get_ftx_candles(client, market, candle_start, candle_start, 900).await;
-    println!("Exchange candle: {:?}", exchange_candles);
-    // Create temp trades table
-    drop_ftx_trade_table(pool, exchange_name, market.strip_name().as_str(), "qc")
-        .await
-        .expect("Could not drop qc table.");
-    create_ftx_trade_table(pool, exchange_name, market.strip_name().as_str(), "qc")
-        .await
-        .expect("Could not create temp trade table.");
-    // Get trades for candle period
-    let mut _counter = 0;
-    let mut candle_end_or_last_trade = candle_end;
-    while candle_start < candle_end_or_last_trade {
-        // Prevent 429 errors by only requesting 4 per second
-        tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
-        let mut new_trades = match client
-            .get_trades(
-                market.market_name.as_str(),
-                Some(5000),
-                Some(candle_start),
-                Some(candle_end_or_last_trade),
-            )
-            .await
-        {
-            Err(RestError::Reqwest(e)) => {
-                if e.is_timeout() {
-                    println!("Request timed out. Waiting 30 seconds before retrying.");
-                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                    continue;
-                } else if e.is_connect() {
-                    println!(
-                        "Connect error with reqwest. Waiting 30 seconds before retry. {:?}",
-                        e
-                    );
-                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                    continue;
-                } else if e.status() == Some(reqwest::StatusCode::BAD_GATEWAY) {
-                    println!("502 Bad Gateway. Waiting 30 seconds before retry. {:?}", e);
-                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                    continue;
-                } else if e.status() == Some(reqwest::StatusCode::SERVICE_UNAVAILABLE) {
-                    println!(
-                        "503 Service Unavailable. Waiting 60 seconds before retry. {:?}",
-                        e
-                    );
-                    tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
-                    continue;
-                } else {
-                    panic!("Error (not timeout or connect): {:?}", e)
-                }
-            }
-            Err(e) => panic!("Other RestError: {:?}", e),
-            Ok(result) => result,
-        };
-        let num_trades = new_trades.len();
-        if num_trades > 0 {
-            new_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
-            candle_end_or_last_trade = new_trades.first().unwrap().time;
-            let first_trade = new_trades.last().unwrap().time;
-            println!(
-                "{} trades returned. First: {}, Last: {}",
-                num_trades, candle_end_or_last_trade, first_trade
-            );
-            if candle_end_or_last_trade == first_trade {
-                candle_end_or_last_trade = candle_end_or_last_trade - Duration::microseconds(1);
-                _counter += 1;
-                println!(
-                    "More than 100 trades in microsecond. Resetting to: {}",
-                    candle_end_or_last_trade
-                );
-            };
-            println!("Inserting trades in temp table.");
-            // Temp table name can be used instead of exhcange name as logic for table name is
-            // located in the insert function
-            insert_ftx_trades(
-                pool,
-                &market.market_id,
-                exchange_name,
-                market.strip_name().as_str(),
-                "qc",
-                new_trades,
-            )
-            .await
-            .expect("Failed to insert tmp ftx trades.");
-        };
-        if num_trades < 5000 {
-            // Trades returned are less than 100, end trade getting and make candle
-            let qc_table = format!("trades_{}_{}_qc", exchange_name, market.strip_name());
-            let interval_trades = select_ftx_trades_by_table(pool, qc_table.as_str())
-                .await
-                .expect("Could not fetch trades from temp table.");
-            // Create candle from interval trades
-            if !interval_trades.is_empty() {
-                let new_candle =
-                    Candle::new_from_trades(market.market_id, candle_start, &interval_trades);
-                println!("New candle to re-validate: {:?}", new_candle);
-                // Validate new candle
-                let is_valid = validate_candle(&new_candle, &mut exchange_candles);
-                if is_valid {
-                    // Delete all trades from _rest _ws and _processed
-                    println!("New candle is validated. Deleting old trades.");
-                    delete_ftx_trades_by_time(
-                        pool,
-                        exchange_name,
-                        market.strip_name().as_str(),
-                        "rest",
-                        new_candle.datetime,
-                        new_candle.datetime + Duration::seconds(900),
-                    )
-                    .await
-                    .expect("Could not delete rest and ws trades.");
-                    delete_ftx_trades_by_time(
-                        pool,
-                        exchange_name,
-                        market.strip_name().as_str(),
-                        "processed",
-                        new_candle.datetime,
-                        new_candle.datetime + Duration::seconds(900),
-                    )
-                    .await
-                    .expect("Could not delete processed trades.");
-                    // Delete existing candle
-                    println!("Deleting old candle.");
-                    delete_candle(pool, exchange_name, &market.market_id, &new_candle.datetime)
-                        .await
-                        .expect("Could not delete old candle.");
-                    // Insert trades into _validated
-                    println!("Inserting validated trades.");
-                    insert_ftx_trades(
-                        pool,
-                        &market.market_id,
-                        exchange_name,
-                        market.strip_name().as_str(),
-                        "validated",
-                        interval_trades,
-                    )
-                    .await
-                    .expect("Could not insert validated trades.");
-                    // Insert candle with validated status
-                    println!("Inserting validated candle.");
-                    insert_candle(pool, exchange_name, &market.market_id, new_candle, true)
-                        .await
-                        .expect("Could not insert validated candle.");
-                    // Drop temp table
-                    println!("Dropping temp table.");
-                    drop_ftx_trade_table(pool, exchange_name, market.strip_name().as_str(), "qc")
-                        .await
-                        .expect("Could not drop qc table.");
-                    return true;
-                };
-            };
-            break;
-        };
-    }
-    // Return false if you get to this point. Valid candle would have been inserted and updated
-    println!("Dropping temp table.");
-    drop_ftx_trade_table(pool, exchange_name, market.strip_name().as_str(), "qc")
-        .await
-        .expect("Could not drop qc table.");
-    false
 }
 
 pub async fn get_ftx_candles(
@@ -1028,20 +858,20 @@ pub async fn delete_candle_01d(
 
 pub async fn select_unvalidated_candles(
     pool: &PgPool,
-    exchange_name: &str,
+    exchange_name: &ExchangeName,
     market_id: &Uuid,
-    seconds: u32,
+    tf: TimeFrame,
 ) -> Result<Vec<Candle>, sqlx::Error> {
-    let sql = match seconds {
-        900 => format!(
+    let sql = match tf {
+        TimeFrame::T15 => format!(
             r#"
             SELECT * FROM candles_15t_{}
             WHERE market_id = $1 and not is_validated
             ORDER BY datetime
             "#,
-            exchange_name
+            exchange_name.as_str()
         ),
-        86400 => r#"
+        TimeFrame::D01 => r#"
             SELECT * FROM candles_01d
             WHERE market_id = $1 and not is_validated
             ORDER BY datetime
@@ -1056,6 +886,39 @@ pub async fn select_unvalidated_candles(
     Ok(rows)
 }
 
+pub async fn select_candles_unvalidated_lt_datetime(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+    market_id: &Uuid,
+    datetime: DateTime<Utc>,
+    tf: TimeFrame,
+) -> Result<Vec<Candle>, sqlx::Error> {
+    let sql = match tf {
+        TimeFrame::T15 => format!(
+            r#"
+            SELECT * FROM candles_15t_{}
+            WHERE market_id = $1 AND not is_validated
+            AND datetime < $2
+            ORDER BY datetime
+            "#,
+            exchange_name.as_str()
+        ),
+        TimeFrame::D01 => r#"
+            SELECT * FROM candles_01d
+            WHERE market_id = $1 AND not is_validated
+            AND datetime < $2
+            ORDER BY datetime
+            "#
+        .to_string(),
+        _ => panic!("Candle resolution not supported."),
+    };
+    let rows = sqlx::query_as::<_, Candle>(&sql)
+        .bind(market_id)
+        .bind(datetime)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows)
+}
 pub async fn select_candles(
     pool: &PgPool,
     exchange_name: &str,
@@ -1111,7 +974,7 @@ pub async fn select_candles_gte_datetime(
 
 pub async fn select_candles_by_daterange(
     pool: &PgPool,
-    exchange_name: &str,
+    exchange_name: &ExchangeName,
     market_id: &Uuid,
     start_time: DateTime<Utc>,
     end_time: DateTime<Utc>,
@@ -1123,7 +986,7 @@ pub async fn select_candles_by_daterange(
         AND datetime >= $2 AND datetime < $3
         ORDER BY datetime
         "#,
-        exchange_name
+        exchange_name.as_str()
     );
     let rows = sqlx::query_as::<_, Candle>(&sql)
         .bind(market_id)
@@ -1213,22 +1076,22 @@ pub async fn select_previous_candle(
 
 pub async fn update_candle_validation(
     pool: &PgPool,
-    exchange_name: &str,
+    exchange_name: &ExchangeName,
     market_id: &Uuid,
     candle: &Candle,
-    seconds: u32,
+    tf: TimeFrame,
 ) -> Result<(), sqlx::Error> {
-    let sql = match seconds {
-        900 => format!(
+    let sql = match tf {
+        TimeFrame::T15 => format!(
             r#"
             UPDATE candles_15t_{}
             SET is_validated = True
             WHERE datetime = $1
             AND market_id = $2
         "#,
-            exchange_name
+            exchange_name.as_str()
         ),
-        86400 => r#"
+        TimeFrame::D01 => r#"
             UPDATE candles_01d
             SET is_validated = True
             WHERE datetime = $1
@@ -1431,7 +1294,7 @@ mod tests {
         let exchange = exchanges.iter().find(|e| e.name.as_str() == "ftx").unwrap();
 
         // Set client = FTX for hardcoded candle tests
-        let client = RestClient::new_intl();
+        let _client = RestClient::new_intl();
 
         // Get market ids
         let market_ids = select_market_ids_by_exchange(&pool, &exchange.name)
@@ -1441,7 +1304,7 @@ mod tests {
             .iter()
             .find(|m| m.market_name == "BTC-PERP")
             .unwrap();
-        let market_detail = select_market_detail(&pool, &market)
+        let _market_detail = select_market_detail(&pool, &market)
             .await
             .expect("Could not fetch market detail.");
 
@@ -1514,30 +1377,6 @@ mod tests {
             .execute(&pool)
             .await
             .expect("Could not insert bad candle.");
-
-        // Select invalid candles from the test table and revalidate
-        let sql = format!(
-            r#"
-            SELECT * FROM {}
-            "#,
-            table
-        );
-        let candles = sqlx::query_as::<_, Candle>(&sql)
-            .fetch_all(&pool)
-            .await
-            .expect("Could not fetch invalidated candles.");
-        for candle in candles.iter() {
-            println!("Attempting to revalidate: {:?}", candle);
-            let is_success = qc_unvalidated_candle(
-                &client,
-                &pool,
-                &exchange.name.as_str(),
-                &market_detail,
-                &candle,
-            )
-            .await;
-            println!("Revalidate success? {:?}", is_success);
-        }
     }
 
     #[tokio::test]
@@ -1554,7 +1393,10 @@ mod tests {
             .await
             .expect("Could not fetch exchanges.");
         // Match exchange to exchanges in database
-        let exchange = exchanges.iter().find(|e| e.name.as_str() == "ftxus").unwrap();
+        let exchange = exchanges
+            .iter()
+            .find(|e| e.name.as_str() == "ftxus")
+            .unwrap();
         // Get market ids
         let market_ids = select_market_ids_by_exchange(&pool, &exchange.name)
             .await
@@ -1579,8 +1421,7 @@ mod tests {
         for tf in TimeFrame::time_frames().iter().skip(1) {
             println!("Process tf {:?} resample candle: {:?}", tf, Utc::now());
             // Resample to new time frame
-            let _resampled_candles =
-                resample_candles(market.market_id, &candles, tf.as_dur());
+            let _resampled_candles = resample_candles(market.market_id, &candles, tf.as_dur());
         }
         println!("All candles resampled: {:?}", Utc::now());
     }
