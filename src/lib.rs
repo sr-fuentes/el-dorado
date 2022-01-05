@@ -1,6 +1,5 @@
 pub mod archive;
 pub mod candles;
-pub mod cleanup;
 pub mod configuration;
 pub mod events;
 pub mod exchanges;
