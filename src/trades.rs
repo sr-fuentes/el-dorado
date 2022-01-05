@@ -33,7 +33,7 @@ impl Mita {
 // ALTER, DROP, MIGRATE actions are the same regardless of exchange
 // CREATE, INSERT, SELECT actions are unique to each exchange trades struct
 
-pub async fn select_insert_delete_ftx_trades(
+pub async fn select_insert_delete_trades(
     pool: &PgPool,
     exchange_name: &ExchangeName,
     market: &MarketDetail,
@@ -42,12 +42,40 @@ pub async fn select_insert_delete_ftx_trades(
     source: &str,
     destination: &str,
 ) -> Result<(), sqlx::Error> {
-    // Select ftx trades according to params
-    let trades = select_ftx_trades_by_time(pool, exchange_name, market, source, start, end).await?;
-    // Insert ftx trades into destination table
-    insert_ftx_trades(pool, exchange_name, market, destination, trades).await?;
-    // Delete ftx trades form source table
+    match exchange_name {
+        ExchangeName::Ftx | ExchangeName::FtxUs => {
+            // Select ftx trades according to params
+            let trades =
+                select_ftx_trades_by_time(pool, exchange_name, market, source, start, end).await?;
+            // Insert ftx trades into destination table
+            insert_ftx_trades(pool, exchange_name, market, destination, trades).await?;
+        }
+    }
+    // Delete trades form source table
     delete_trades_by_time(pool, exchange_name, market, source, start, end).await?;
+    Ok(())
+}
+
+pub async fn select_insert_drop_trades(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+    market: &MarketDetail,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    source: &str,
+    destination: &str,
+) -> Result<(), sqlx::Error> {
+    match exchange_name {
+        ExchangeName::Ftx | ExchangeName::FtxUs => {
+            // Select ftx trades according to params
+            let trades =
+                select_ftx_trades_by_time(pool, exchange_name, market, source, start, end).await?;
+            // Insert ftx trades into destination table
+            insert_ftx_trades(pool, exchange_name, market, destination, trades).await?;
+        }
+    }
+    // Drop source table
+    drop_trade_table(pool, exchange_name, market, source).await?;
     Ok(())
 }
 
