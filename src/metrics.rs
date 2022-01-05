@@ -415,7 +415,7 @@ mod tests {
         let start = Utc.ymd(2021, 09, 25).and_hms(0, 0, 0);
         let candles = select_candles_gte_datetime(
             &pool,
-            "ftxus",
+            &ExchangeName::FtxUs,
             &Uuid::parse_str("2246c870-769f-44a4-b989-ffa2de37f8b1").unwrap(),
             start,
         )

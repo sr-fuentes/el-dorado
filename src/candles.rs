@@ -307,7 +307,7 @@ impl Mita {
         )
         .await;
         // Create 01d candles
-        create_01d_candles(&self.pool, self.exchange.name.as_str(), &market.market_id).await;
+        create_01d_candles(&self.pool, &self.exchange.name, &market.market_id).await;
         // Validate 01d candles
         validate_01d_candles(&self.pool, client, &self.exchange.name, market).await;
     }
@@ -436,7 +436,7 @@ pub fn resample_candles(market_id: Uuid, candles: &[Candle], duration: Duration)
     }
 }
 
-pub async fn create_01d_candles(pool: &PgPool, exchange_name: &str, market_id: &Uuid) {
+pub async fn create_01d_candles(pool: &PgPool, exchange_name: &ExchangeName, market_id: &Uuid) {
     // Gets 15t candles for market newer than last 01d candle
     let candles = match select_last_01d_candle(pool, market_id).await {
         Ok(c) => select_candles_gte_datetime(
@@ -919,9 +919,10 @@ pub async fn select_candles_unvalidated_lt_datetime(
         .await?;
     Ok(rows)
 }
+
 pub async fn select_candles(
     pool: &PgPool,
-    exchange_name: &str,
+    exchange_name: &ExchangeName,
     market_id: &Uuid,
     seconds: u32,
 ) -> Result<Vec<Candle>, sqlx::Error> {
@@ -932,7 +933,7 @@ pub async fn select_candles(
             WHERE market_id = $1
             ORDER BY datetime
             "#,
-            exchange_name
+            exchange_name.as_str()
         ),
         86400 => r#"
             SELECT * FROM candles_01d
@@ -951,7 +952,7 @@ pub async fn select_candles(
 
 pub async fn select_candles_gte_datetime(
     pool: &PgPool,
-    exchange_name: &str,
+    exchange_name: &ExchangeName,
     market_id: &Uuid,
     datetime: DateTime<Utc>,
 ) -> Result<Vec<Candle>, sqlx::Error> {
@@ -962,7 +963,7 @@ pub async fn select_candles_gte_datetime(
         AND datetime >= $2
         ORDER BY datetime
         "#,
-        exchange_name
+        exchange_name.as_str()
     );
     let rows = sqlx::query_as::<_, Candle>(&sql)
         .bind(market_id)
@@ -1411,7 +1412,7 @@ mod tests {
         println!("Select last 91 days of hb candles: {:?}", Utc::now());
         let candles = select_candles_gte_datetime(
             &pool,
-            exchange.name.as_str(),
+            &exchange.name,
             &market.market_id,
             Utc::now() - Duration::days(91),
         )

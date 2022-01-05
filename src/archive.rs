@@ -151,14 +151,14 @@ mod test {
         let candles = match select_last_01d_candle(&pool, &market.market_id).await {
             Ok(c) => select_candles_gte_datetime(
                 &pool,
-                &exchange.name.as_str(),
+                &exchange.name,
                 &market.market_id,
                 c.datetime + Duration::days(1),
             )
             .await
             .expect("Could not fetch candles."),
             Err(sqlx::Error::RowNotFound) => {
-                select_candles(&pool, &exchange.name.as_str(), &market.market_id, 900)
+                select_candles(&pool, &exchange.name, &market.market_id, 900)
                     .await
                     .expect("Could not fetch candles.")
             }
