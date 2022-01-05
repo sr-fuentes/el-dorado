@@ -3,7 +3,6 @@ use crate::markets::MarketDetail;
 use crate::mita::Mita;
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
-use uuid::Uuid;
 
 impl Mita {
     pub async fn reset_trade_tables(&self, tables: &[&str]) {
@@ -296,7 +295,6 @@ pub async fn insert_ftx_trades(
 
 pub async fn insert_ftx_trade(
     pool: &PgPool,
-    market_id: &Uuid,
     exchange_name: &ExchangeName,
     market: &MarketDetail,
     trade_table: &str,
@@ -316,7 +314,7 @@ pub async fn insert_ftx_trade(
         trade_table
     );
     sqlx::query(&sql)
-        .bind(market_id)
+        .bind(market.market_id)
         .bind(trade.id)
         .bind(trade.price)
         .bind(trade.size)
