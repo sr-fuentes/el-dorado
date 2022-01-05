@@ -43,18 +43,6 @@ impl Inquisidor {
             Utc::now().duration_trunc(Duration::seconds(900)).unwrap() + Duration::seconds(30);
         println!("Starting INQUI loop.");
         loop {
-            // Set loop timestamp
-            let timestamp =
-                Utc::now().duration_trunc(Duration::seconds(900)).unwrap() + Duration::seconds(30);
-            if timestamp > heartbeat {
-                // Current time is greater than heartbeat which means we are in a new interval.
-                // Check for candles to validated
-                println!("New heartbeat interval. Validate candles.");
-                self.validate_candles().await;
-                // Set heartbeat to new interval
-                heartbeat = timestamp;
-                println!("New heartbeat: {:?}", heartbeat);
-            }
             // Process any events for ig
             self.process_events().await;
             // Process any validation events
