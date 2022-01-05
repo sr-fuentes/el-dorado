@@ -1,19 +1,13 @@
 use crate::candles::{
-    create_01d_candles, delete_candle, delete_candle_01d, get_ftx_candles, insert_candle,
-    insert_candles_01d, resample_candles, select_candles_by_daterange, validate_01d_candles,
-    validate_candle, validate_hb_candles, Candle,
+    delete_candle, delete_candle_01d, get_ftx_candles, insert_candle, insert_candles_01d,
+    resample_candles, select_candles_by_daterange, validate_ftx_candle, Candle,
 };
-use crate::exchanges::{
-    ftx::RestClient, ftx::RestError, ftx::Trade, select_exchanges_by_status, ExchangeName,
-    ExchangeStatus,
-};
+use crate::exchanges::{ftx::RestError, ftx::Trade, ExchangeName};
 use crate::inquisidor::Inquisidor;
-use crate::markets::{
-    select_market_details, select_market_details_by_status_exchange, MarketDetail, MarketStatus,
-};
+use crate::markets::{select_market_details, MarketDetail};
 use crate::trades::{
-    create_ftx_trade_table, delete_ftx_trades_by_time, drop_ftx_trade_table, drop_table,
-    insert_ftx_trades, select_ftx_trades_by_table, select_ftx_trades_by_time,
+    create_ftx_trade_table, delete_trades_by_time, drop_table, drop_trade_table, insert_ftx_trades,
+    select_ftx_trades_by_table, select_ftx_trades_by_time,
 };
 use crate::utilities::get_input;
 use chrono::{DateTime, Duration, DurationRound, Utc};
@@ -98,43 +92,6 @@ impl TryFrom<String> for ValidationStatus {
 }
 
 impl Inquisidor {
-    pub async fn validate_candles(&self) {
-        // Validate heartbeat candles for each exchange and market that is active
-        let exchanges = select_exchanges_by_status(&self.pool, ExchangeStatus::Active)
-            .await
-            .expect("Failed to select exchanges.");
-        for exchange in exchanges.iter() {
-            // Get REST client
-            let client = match exchange.name {
-                ExchangeName::FtxUs => RestClient::new_us(),
-                ExchangeName::Ftx => RestClient::new_intl(),
-            };
-            // Get active markets for exchange
-            let markets = select_market_details_by_status_exchange(
-                &self.pool,
-                &exchange.name,
-                &MarketStatus::Active,
-            )
-            .await
-            .expect("Failed to select active markets for exchange.");
-            for market in markets.iter() {
-                // For each active market, validated heartbeat candles
-                validate_hb_candles(
-                    &self.pool,
-                    &client,
-                    exchange.name.as_str(),
-                    market,
-                    &self.settings,
-                )
-                .await;
-                // Create any 01d candles
-                create_01d_candles(&self.pool, exchange.name.as_str(), &market.market_id).await;
-                // Validated 01d candles
-                validate_01d_candles(&self.pool, &client, exchange.name.as_str(), market).await;
-            }
-        }
-    }
-
     pub async fn process_candle_validations(&self, status: ValidationStatus) {
         // Get all candle validations from the table
         let validations = select_candle_validations_by_status(&self.pool, status)
@@ -188,8 +145,8 @@ impl Inquisidor {
         .expect("Failed to select hb candles.");
         let trades = select_ftx_trades_by_time(
             &self.pool,
-            validation.exchange_name.as_str(),
-            &market.strip_name(),
+            &validation.exchange_name,
+            market,
             "validated",
             validation.datetime,
             validation.datetime + Duration::days(1),
@@ -224,7 +181,7 @@ impl Inquisidor {
                     let qc_table = format!(
                         "trades_{}_{}_qc_{}",
                         validation.exchange_name.as_str(),
-                        market.strip_name(),
+                        market.as_strip(),
                         validation.validation_type.as_str(),
                     );
                     match validation.exchange_name {
@@ -235,9 +192,8 @@ impl Inquisidor {
                                     .expect("Failed to select qc trades.");
                             insert_ftx_trades(
                                 &self.pool,
-                                &market.market_id,
-                                validation.exchange_name.as_str(),
-                                market.strip_name().as_str(),
+                                &validation.exchange_name,
+                                &market,
                                 "validated",
                                 validated_trades,
                             )
@@ -260,7 +216,7 @@ impl Inquisidor {
         let qc_table = format!(
             "trades_{}_{}_qc_{}",
             validation.exchange_name.as_str(),
-            market.strip_name(),
+            market.as_strip(),
             validation.validation_type.as_str(),
         );
         drop_table(&self.pool, &qc_table)
@@ -320,7 +276,7 @@ impl Inquisidor {
         )
         .await;
         // Validate new candle an d return validation status
-        let is_valid = validate_candle(&candle, &mut exchange_candles);
+        let is_valid = validate_ftx_candle(&candle, &mut exchange_candles);
         if is_valid {
             let message = "Re-validation successful.".to_string();
             // New candle was validated, save trades if heartbeat and replace unvalidated candle
@@ -346,7 +302,7 @@ impl Inquisidor {
         let qc_table = format!(
             "trades_{}_{}_qc_{}",
             validation.exchange_name.as_str(),
-            market.strip_name(),
+            market.as_strip(),
             validation.validation_type.as_str(),
         );
         drop_table(&self.pool, &qc_table)
@@ -393,7 +349,7 @@ impl Inquisidor {
         )
         .await;
         // Validate new candle volume
-        let is_valid = validate_candle(&candle, &mut exchange_candles);
+        let is_valid = validate_ftx_candle(&candle, &mut exchange_candles);
         if is_valid {
             let message = "Re-validation successful.".to_string();
             // New candle was validated, update new candle
@@ -516,7 +472,7 @@ impl Inquisidor {
         let qc_table = format!(
             "trades_{}_{}_qc_{}",
             validation.exchange_name.as_str(),
-            market.strip_name(),
+            market.as_strip(),
             validation.validation_type.as_str(),
         );
         drop_table(&self.pool, &qc_table)
@@ -613,22 +569,12 @@ impl Inquisidor {
         // Create temp tables to store new trades. Re-download trades for candle timeperiod
         // Return new candle to be evaluated
         let trade_table = format!("qc_{}", validation.validation_type.as_str());
-        drop_ftx_trade_table(
-            &self.pool,
-            validation.exchange_name.as_str(),
-            market.strip_name().as_str(),
-            &trade_table,
-        )
-        .await
-        .expect("Failed to drop qc table.");
-        create_ftx_trade_table(
-            &self.pool,
-            validation.exchange_name.as_str(),
-            market.strip_name().as_str(),
-            &trade_table,
-        )
-        .await
-        .expect("Failed to create qc table.");
+        drop_trade_table(&self.pool, &validation.exchange_name, market, &trade_table)
+            .await
+            .expect("Failed to drop qc table.");
+        create_ftx_trade_table(&self.pool, &validation.exchange_name, market, &trade_table)
+            .await
+            .expect("Failed to create qc table.");
         // Set start and end for candle period
         let candle_end = candle_start + self.hbtf.as_dur();
         let mut candle_end_or_last_trade = candle_end;
@@ -696,9 +642,8 @@ impl Inquisidor {
                 // located in the insert function
                 insert_ftx_trades(
                     &self.pool,
-                    &market.market_id,
-                    validation.exchange_name.as_str(),
-                    market.strip_name().as_str(),
+                    &validation.exchange_name,
+                    market,
                     &trade_table,
                     new_trades,
                 )
@@ -710,7 +655,7 @@ impl Inquisidor {
                 let qc_table = format!(
                     "trades_{}_{}_qc_{}",
                     validation.exchange_name.as_str(),
-                    market.strip_name(),
+                    market.as_strip(),
                     validation.validation_type.as_str(),
                 );
                 let interval_trades = select_ftx_trades_by_table(&self.pool, qc_table.as_str())
@@ -751,10 +696,10 @@ impl Inquisidor {
         println!("New candle is validated. Deleting old trades.");
         match validation.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
-                delete_ftx_trades_by_time(
+                delete_trades_by_time(
                     &self.pool,
-                    validation.exchange_name.as_str(),
-                    market.strip_name().as_str(),
+                    &validation.exchange_name,
+                    market,
                     "processed",
                     validation.datetime,
                     validation.datetime + Duration::seconds(900),
@@ -791,7 +736,7 @@ impl Inquisidor {
         let qc_table = format!(
             "trades_{}_{}_qc_{}",
             validation.exchange_name.as_str(),
-            market.strip_name(),
+            market.as_strip(),
             validation.validation_type.as_str(),
         );
         match validation.exchange_name {
@@ -802,9 +747,8 @@ impl Inquisidor {
                 // Insert trades into _validated
                 insert_ftx_trades(
                     &self.pool,
-                    &market.market_id,
-                    validation.exchange_name.as_str(),
-                    market.strip_name().as_str(),
+                    &validation.exchange_name,
+                    market,
                     "validated",
                     validated_trades,
                 )
@@ -993,7 +937,8 @@ mod tests {
     use crate::configuration::get_configuration;
     use crate::exchanges::ExchangeName;
     use crate::inquisidor::Inquisidor;
-    use crate::trades::{create_ftx_trade_table, drop_ftx_trade_table};
+    use crate::markets::select_market_details;
+    use crate::trades::{create_ftx_trade_table, drop_trade_table};
     use crate::validation::{
         insert_candle_validation, CandleValidation, ValidationStatus, ValidationType,
     };
@@ -1035,17 +980,26 @@ mod tests {
             .await
             .expect("Failed to create table.");
 
+        // Get markets to extract BTC-PERP market
+        let market_details = select_market_details(&pool)
+            .await
+            .expect("Could not fetch market detail.");
+        let market = market_details
+            .iter()
+            .find(|m| m.market_name == "BTC-PERP")
+            .unwrap();
+
         // Create trades table if it does not exist
-        drop_ftx_trade_table(&pool, "ftx", "btcperp", "processed")
+        drop_trade_table(&pool, &ExchangeName::Ftx, market, "processed")
             .await
             .expect("Failed to drop table.");
-        create_ftx_trade_table(&pool, "ftx", "btcperp", "processed")
+        create_ftx_trade_table(&pool, &ExchangeName::Ftx, market, "processed")
             .await
             .expect("Failed to create trade table.");
-        drop_ftx_trade_table(&pool, "ftx", "btcperp", "validated")
+        drop_trade_table(&pool, &ExchangeName::Ftx, market, "validated")
             .await
             .expect("Failed to drop table.");
-        create_ftx_trade_table(&pool, "ftx", "btcperp", "validated")
+        create_ftx_trade_table(&pool, &ExchangeName::Ftx, market, "validated")
             .await
             .expect("Failed to create trade table.");
 

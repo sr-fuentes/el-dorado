@@ -11,13 +11,11 @@ impl Mita {
         // may not exist that the streamed trades write to.
         // Initiate channel and map data structures
         let mut channels = Vec::new();
-        let mut map_ids = HashMap::new();
-        let mut map_strip_names = HashMap::new();
+        let mut market_details = HashMap::new();
         // Drop and re-create _ws table for markets and populate data structures
         for market in self.markets.iter() {
             channels.push(Channel::Trades(market.market_name.to_owned()));
-            map_ids.insert(market.market_name.as_str(), market.market_id);
-            map_strip_names.insert(market.market_name.as_str(), market.strip_name());
+            market_details.insert(market.market_name.as_str(), market);
         }
         // Create ws client
         let mut ws = match self.exchange.name {
@@ -39,9 +37,8 @@ impl Mita {
                 Ok((Some(market), Data::Trade(trade))) => {
                     insert_ftx_trade(
                         &self.pool,
-                        &map_ids[market.as_str()],
-                        self.exchange.name.as_str(),
-                        map_strip_names[market.as_str()].as_str(),
+                        &self.exchange.name,
+                        market_details[market.as_str()],
                         "ws",
                         trade,
                     )
@@ -93,7 +90,7 @@ mod tests {
         ExchangeName,
     };
     use crate::markets::{select_market_detail, select_market_ids_by_exchange};
-    use crate::trades::{create_ftx_trade_table, drop_ftx_trade_table, insert_ftx_trade};
+    use crate::trades::{create_ftx_trade_table, drop_trade_table, insert_ftx_trade};
     use futures::StreamExt;
     use sqlx::PgPool;
 
@@ -118,25 +115,15 @@ mod tests {
             .iter()
             .find(|m| m.market_name == configuration.application.market)
             .unwrap();
-        let _market_detail = select_market_detail(&pool, market_id)
+        let market_detail = select_market_detail(&pool, market_id)
             .await
             .expect("Could not fetch market detail.");
-        drop_ftx_trade_table(
-            &pool,
-            &exchange.name.as_str(),
-            market_id.strip_name().as_str(),
-            "ws_test",
-        )
-        .await
-        .expect("Could not drop test ws table.");
-        create_ftx_trade_table(
-            &pool,
-            &exchange.name.as_str(),
-            market_id.strip_name().as_str(),
-            "ws_test",
-        )
-        .await
-        .expect("Could not create test ws table.");
+        drop_trade_table(&pool, &exchange.name, &market_detail, "ws_test")
+            .await
+            .expect("Could not drop test ws table.");
+        create_ftx_trade_table(&pool, &exchange.name, &market_detail, "ws_test")
+            .await
+            .expect("Could not create test ws table.");
         let mut ws = match exchange.name {
             ExchangeName::FtxUs => WsClient::connect_us().await.expect("Could not connect ws."),
             ExchangeName::Ftx => WsClient::connect_intl()
@@ -150,16 +137,9 @@ mod tests {
             let data = ws.next().await.expect("No data received.");
             match data {
                 Ok((_, Data::Trade(trade))) => {
-                    insert_ftx_trade(
-                        &pool,
-                        &market_id.market_id,
-                        &exchange.name.as_str(),
-                        market_id.strip_name().as_str(),
-                        "ws_test",
-                        trade,
-                    )
-                    .await
-                    .expect("Could not insert trade into db.");
+                    insert_ftx_trade(&pool, &exchange.name, &market_detail, "ws_test", trade)
+                        .await
+                        .expect("Could not insert trade into db.");
                 }
                 _ => panic!("Unexpected data type."),
             }

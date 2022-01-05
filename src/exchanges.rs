@@ -166,7 +166,7 @@ mod tests {
     use super::*;
     use crate::configuration::get_configuration;
     use crate::exchanges::ftx::*;
-    use crate::markets::select_market_ids_by_exchange;
+    use crate::markets::select_market_details;
     use crate::trades::{create_ftx_trade_table, insert_ftx_trades};
 
     #[tokio::test]
@@ -229,7 +229,7 @@ mod tests {
         };
 
         // Set market for test
-        let markets = select_market_ids_by_exchange(&connection_pool, &exchange.name)
+        let markets = select_market_details(&connection_pool)
             .await
             .expect("Failed to fetch markets.");
         let market = markets
@@ -242,14 +242,9 @@ mod tests {
         let test_trade_table = "dynamic_test";
 
         // Create db tables
-        create_ftx_trade_table(
-            &connection_pool,
-            &exchange.name.as_str(),
-            &market_table_name,
-            &test_trade_table,
-        )
-        .await
-        .expect("Failed to create tables.");
+        create_ftx_trade_table(&connection_pool, &exchange.name, market, &test_trade_table)
+            .await
+            .expect("Failed to create tables.");
 
         // Create rest client
         let client = RestClient::new_us();
@@ -262,9 +257,8 @@ mod tests {
 
         insert_ftx_trades(
             &connection_pool,
-            &market.market_id,
-            &exchange.name.as_str(),
-            &market_table_name,
+            &exchange.name,
+            market,
             &test_trade_table,
             trades,
         )
