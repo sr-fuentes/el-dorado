@@ -16,6 +16,26 @@ impl TimeFrame {
             TimeFrame::D01 => [7, 30, 90],
         }
     }
+
+    pub fn max_len(&self) -> i64 {
+        match self {
+            TimeFrame::T15 => 9312,
+            TimeFrame::H01 => 2328,
+            TimeFrame::H04 => 582,
+            TimeFrame::H12 => 194,
+            TimeFrame::D01 => 97,
+        }
+    }
+
+    pub fn prev(&self) -> TimeFrame {
+        match self {
+            TimeFrame::T15 => TimeFrame::T15,
+            TimeFrame::H01 => TimeFrame::T15,
+            TimeFrame::H04 => TimeFrame::H01,
+            TimeFrame::H12 => TimeFrame::H04,
+            TimeFrame::D01 => TimeFrame::H12,        
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -246,12 +266,12 @@ impl MetricAP {
         let ema1 = Metric::ewma(&vecs.1, 7).round_dp(8);
         let ema2 = Metric::ewma(&vecs.1, 30).round_dp(8);
         let ema3 = Metric::ewma(&vecs.1, 90).round_dp(8);
-        let mv1: Decimal =
-            vecs.5[n - 7..].iter().sum::<Decimal>() / vecs.4[n - 7..].iter().sum::<Decimal>().round_dp(8);
-        let mv2: Decimal =
-            vecs.5[n - 30..].iter().sum::<Decimal>() / vecs.4[n - 30..].iter().sum::<Decimal>().round_dp(8);
-        let mv3: Decimal =
-            vecs.5[n - 90..].iter().sum::<Decimal>() / vecs.4[n - 90..].iter().sum::<Decimal>().round_dp(8);
+        let mv1: Decimal = vecs.5[n - 7..].iter().sum::<Decimal>()
+            / vecs.4[n - 7..].iter().sum::<Decimal>().round_dp(8);
+        let mv2: Decimal = vecs.5[n - 30..].iter().sum::<Decimal>()
+            / vecs.4[n - 30..].iter().sum::<Decimal>().round_dp(8);
+        let mv3: Decimal = vecs.5[n - 90..].iter().sum::<Decimal>()
+            / vecs.4[n - 90..].iter().sum::<Decimal>().round_dp(8);
         // For each look back period, calc period specific metrics
         for lbp in lbps.iter() {
             // Set slice ranges
@@ -262,7 +282,8 @@ impl MetricAP {
             // Calc metrics
             let atr = Metric::ewma(&vecs.8, *lbp);
             let vw = (vecs.5[range_start..].iter().sum::<Decimal>()
-                / vecs.4[range_start..].iter().sum::<Decimal>()).round_dp(8);
+                / vecs.4[range_start..].iter().sum::<Decimal>())
+            .round_dp(8);
             let ma = Metric::ewma(&vecs.1[..range_shift_end], *lbp).round_dp(8);
             let ofz = Metric::z(&vecs.6, range_shift_start, range_shift_end).round_dp(2);
             let vz = Metric::z(&vecs.4, range_shift_start, range_shift_end).round_dp(2);

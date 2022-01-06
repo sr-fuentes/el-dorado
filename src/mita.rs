@@ -1,5 +1,5 @@
 use crate::candles::TimeFrame;
-use crate::candles::{Candle, resample_candles, select_candles_gte_datetime, select_last_candle};
+use crate::candles::{resample_candles, select_candles_gte_datetime, select_last_candle, Candle};
 use crate::configuration::{get_configuration, Settings};
 use crate::events::insert_event_process_trades;
 use crate::exchanges::{select_exchanges, Exchange};
@@ -12,7 +12,8 @@ use crate::trades::{
 };
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use sqlx::PgPool;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
+use rust_decimal::Decimal;
 
 #[derive(Debug)]
 pub struct Mita {
@@ -26,9 +27,11 @@ pub struct Mita {
     pub hbtf: TimeFrame,
 }
 
+#[derive(Debug)]
 pub struct Heartbeat {
     pub ts: DateTime<Utc>,
-    pub candles: HashMap<TimeFrame, VecDeque<Candle>>,
+    pub last: Decimal,
+    pub candles: HashMap<TimeFrame, Vec<Candle>>,
 }
 
 impl Mita {
@@ -205,6 +208,8 @@ impl Mita {
                 .await
                 .expect("Failed to insert delete ftx trades.");
             }
+            // Create heartbeat
+            let heartbeat = self.create_heartbeat(market).await;
             // Update mita heartbeat interval
             heartbeats.insert(market.market_name.as_str(), end);
             // Update status to sync
@@ -298,6 +303,34 @@ impl Mita {
             .expect("Failed in insert event - process interval.");
             // Return new heartbeat
             end
+        }
+    }
+
+    pub async fn create_heartbeat(&self, market: &MarketDetail) -> Heartbeat {
+        // Get candles from the past 97 days. Metrics are calculated with a DON lbp of 192 max for
+        // timeframes of 12H. 192 / 12H = 96 days. Add one to get clean calcs.
+        let candles = select_candles_gte_datetime(
+            &self.pool,
+            &market.exchange_name,
+            &market.market_id,
+            Utc::now() - Duration::days(97),
+        )
+        .await
+        .expect("Failed to select candles.");
+        // Set last and heartbeat time
+        let last = candles.last().unwrap().close;
+        let ts = candles.last().unwrap().datetime;
+        // Create dequeue for each time frame
+        let mut map_candles = HashMap::new();
+        map_candles.insert(TimeFrame::T15, candles);
+        for tf in TimeFrame::time_frames().iter().skip(1) {
+            // Resample candles to timeframe
+            let resampled_candles =
+                resample_candles(market.market_id, &map_candles[&tf.prev()], tf.as_dur());
+            map_candles.insert(*tf, resampled_candles);
+        }
+        Heartbeat {
+            ts, last, candles: map_candles,
         }
     }
 
