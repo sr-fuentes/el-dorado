@@ -113,15 +113,24 @@ impl Metric {
         // For each of the ranges below, calc the higheset and lowest value
         let mut dons = Vec::new();
         let ranges = [4, 8, 12, 24, 48, 96, 192];
-        // Set min and max to last elexment of vecs (first item to check)
-        let mut i = 1;
+        // Set min and max to last element of vecs (first item to check)
+        let mut i = 2; // Set to 2 to skip the last element in DON calc
         let mut min_c = Decimal::MAX;
         let mut min_l = Decimal::MAX;
         let mut max_c = Decimal::MIN;
         let mut max_h = Decimal::MIN;
-        // For each item in range (don window), check min and max until next range
+        // For each item in range (don window), check min and max until next range skipping the last
+        // item which is the current c/h/l price
         for range in ranges.iter() {
-            while i <= *range as usize && i <= c.len() {
+            // For range = 4, check the last 4 elements of vec skipping the last item
+            // i = 2, range = 4
+            // 2 <= (4 + 1)     2 <= 5 = True, i += 1
+            // 3 <= (4 + 1)     3 <= 5 = True, i += 1
+            // 4 <= (4 + 1)     4 <= 5 = True, i += 1
+            // 5 <= (4 + 1)     5 <= 5 = True, i += 1
+            // 6 <= (4 + 1)     6 <= 5 = False, push dons for range
+            // 6 <= (8 + 1)     6 <= 9 = True, i += 1...
+            while i <= (*range as usize + 1) && i <= c.len() {
                 // Compare current min/max to len()-i value
                 min_c = min_c.min(c[c.len() - i]);
                 min_l = min_l.min(l[l.len() - i]);
