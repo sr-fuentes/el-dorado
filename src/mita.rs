@@ -324,9 +324,15 @@ impl Mita {
         let mut map_candles = HashMap::new();
         map_candles.insert(TimeFrame::T15, candles);
         for tf in TimeFrame::time_frames().iter().skip(1) {
+            // Filter candles from floor of new timeframe
+            let filtered_candles: Vec<Candle> = map_candles[&tf.prev()]
+                .iter()
+                .filter(|c| c.datetime < ts.duration_trunc(tf.as_dur()).unwrap())
+                .cloned()
+                .collect();
             // Resample candles to timeframe
             let resampled_candles =
-                resample_candles(market.market_id, &map_candles[&tf.prev()], tf.as_dur());
+                resample_candles(market.market_id, &filtered_candles, tf.as_dur());
             map_candles.insert(*tf, resampled_candles);
         }
         Heartbeat {
@@ -361,5 +367,19 @@ mod tests {
     async fn create_new_mita() {
         let mita = Mita::new().await;
         println!("Mita: {:?}", mita);
+    }
+
+    #[tokio::test]
+    async fn create_heartbeat_returns_resampled_candles() {
+        let mita = Mita::new().await;
+        for market in mita.markets.iter() {
+            let heartbeat = mita.create_heartbeat(market).await;
+            println!("Heartbeat for {:?}", market.market_name);
+            println!("TS {:?}", heartbeat.ts);
+            println!("Last {:?}", heartbeat.last);
+            for (k, v) in heartbeat.candles.iter() {
+                println!("K: {:?} L: {:?}", k, v.last().unwrap());
+            }
+        }
     }
 }
