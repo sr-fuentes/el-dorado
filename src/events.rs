@@ -1,10 +1,15 @@
-use crate::candles::{select_candles_unvalidated_lt_datetime, validate_hb_candles, TimeFrame};
-use crate::exchanges::ExchangeName;
+use crate::candles::{
+    create_01d_candles, select_candles_unvalidated_lt_datetime, validate_01d_candles,
+    validate_hb_candles, TimeFrame,
+};
+use crate::exchanges::{select_exchanges_by_status, ExchangeName, ExchangeStatus};
 use crate::inquisidor::Inquisidor;
-use crate::markets::{select_market_details, MarketDetail};
+use crate::markets::{
+    select_market_details, select_market_details_by_status_exchange, MarketDetail, MarketStatus,
+};
 use crate::mita::Mita;
 use crate::trades::select_insert_delete_trades;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, DurationRound, Utc};
 use sqlx::PgPool;
 use std::convert::TryFrom;
 use uuid::Uuid;
@@ -30,9 +35,9 @@ pub struct Event {
 pub enum EventType {
     ProcessTrades,
     ValidateCandle,
-    // CreateDailyCandles,
-    // ValidateDailyCandles,
-    // ArchiveDailyCandles,
+    CreateDailyCandles,
+    ValidateDailyCandles,
+    ArchiveDailyCandles,
     // PurgeMetrics,
 }
 
@@ -41,6 +46,9 @@ impl EventType {
         match self {
             EventType::ProcessTrades => "processtrades",
             EventType::ValidateCandle => "validatecandle",
+            EventType::CreateDailyCandles => "createdailycandles",
+            EventType::ValidateDailyCandles => "validatedailycandles",
+            EventType::ArchiveDailyCandles => "archivedailycandles",
         }
     }
 }
@@ -52,6 +60,9 @@ impl TryFrom<String> for EventType {
         match s.to_lowercase().as_str() {
             "processtrades" => Ok(Self::ProcessTrades),
             "validatecandle" => Ok(Self::ValidateCandle),
+            "createdailycandles" => Ok(Self::CreateDailyCandles),
+            "validatedailycandles" => Ok(Self::ValidateDailyCandles),
+            "archivedailycandles" => Ok(Self::ArchiveDailyCandles),
             other => Err(format!("{} is not a supported validation type.", other)),
         }
     }
@@ -89,6 +100,28 @@ impl TryFrom<String> for EventStatus {
 }
 
 impl Inquisidor {
+    pub async fn set_initial_event(&self) {
+        // Get all active exchanges
+        let exchanges = select_exchanges_by_status(&self.pool, ExchangeStatus::Active)
+            .await
+            .expect("Failed to select active exchanges.");
+        // Get all open events
+        let events = select_open_events_for_droplet(&self.pool, "ig")
+            .await
+            .expect("Failed to select events.");
+        // For each exchange, check to see if there is a create daily candle event
+        for exchange in exchanges.iter() {
+            match events.iter().find(|e| {
+                e.event_type == EventType::CreateDailyCandles && e.exchange_name == exchange.name
+            }) {
+                Some(_) => continue, // Event exists, nothing to do
+                None => insert_event_create_daily_candles(&self.pool, &exchange.name, Utc::now())
+                    .await
+                    .expect("Failed to insert create daily candles event."),
+            }
+        }
+    }
+
     pub async fn process_events(&self) {
         // Get any open events for the droplet
         let open_events =
@@ -102,14 +135,21 @@ impl Inquisidor {
         // Process events
         for event in open_events.iter() {
             // Get market detail for event
-            let market = markets
-                .iter()
-                .find(|m| m.market_id == event.market_id)
-                .unwrap();
+            let market = markets.iter().find(|m| m.market_id == event.market_id);
             match event.event_type {
                 EventType::ProcessTrades => continue, // All trade processing done by mita
                 EventType::ValidateCandle => {
-                    self.process_event_validate_candle(event, market).await
+                    self.process_event_validate_candle(event, market.unwrap())
+                        .await
+                }
+                EventType::CreateDailyCandles => {
+                    self.process_event_create_daily_candles(event).await
+                }
+                EventType::ValidateDailyCandles => {
+                    self.process_event_validate_daily_candles(event).await
+                }
+                EventType::ArchiveDailyCandles => {
+                    self.process_event_archive_daily_candles(event).await
                 }
             }
         }
@@ -143,6 +183,82 @@ impl Inquisidor {
             .await
             .expect("Failed to update event status to done.");
     }
+
+    pub async fn process_event_create_daily_candles(&self, event: &Event) {
+        // Select active market from each exchange
+        let markets = select_market_details_by_status_exchange(
+            &self.pool,
+            &event.exchange_name,
+            &MarketStatus::Active,
+        )
+        .await
+        .expect("Failed to select markets.");
+        for market in markets.iter() {
+            // Create 01d candles if needed
+            create_01d_candles(&self.pool, &event.exchange_name, &market.market_id).await;
+        }
+        // Create event for next day
+        let next_event_ts =
+            Utc::now().duration_trunc(TimeFrame::D01.as_dur()).unwrap() + Duration::minutes(2);
+        insert_event_create_daily_candles(&self.pool, &event.exchange_name, next_event_ts)
+            .await
+            .expect("Failed insert create daily candle event.");
+        // Create validation event
+        insert_event_validate_daily_candles(&self.pool, &event.exchange_name)
+            .await
+            .expect("Frailed to insert validated daily candles.");
+        // Close event
+        update_event_status_processed(&self.pool, event)
+            .await
+            .expect("Failed to update event status to done.");
+    }
+
+    pub async fn process_event_validate_daily_candles(&self, event: &Event) {
+        // Select active market from each exchange
+        let markets = select_market_details_by_status_exchange(
+            &self.pool,
+            &event.exchange_name,
+            &MarketStatus::Active,
+        )
+        .await
+        .expect("Failed to select markets.");
+        for market in markets.iter() {
+            // Create 01d candles if needed
+            validate_01d_candles(
+                &self.pool,
+                &self.clients[&event.exchange_name],
+                &event.exchange_name,
+                market,
+            )
+            .await;
+        }
+        // Close event
+        update_event_status_processed(&self.pool, event)
+            .await
+            .expect("Failed to update event status to done.");
+        // Create archive event
+        insert_event_archive_daily_candles(&self.pool, &event.exchange_name)
+            .await
+            .expect("Failed to insert archive daily candles event.");
+    }
+
+    pub async fn process_event_archive_daily_candles(&self, event: &Event) {
+        // Select active market from each exchange
+        let markets = select_market_details_by_status_exchange(
+            &self.pool,
+            &event.exchange_name,
+            &MarketStatus::Active,
+        )
+        .await
+        .expect("Failed to select markets.");
+        for market in markets.iter() {
+            self.archive_validated_trades_for_market(market).await;
+        }
+        // Close event
+        update_event_status_processed(&self.pool, event)
+            .await
+            .expect("Failed to update event status to done.");
+    }
 }
 
 impl Mita {
@@ -166,6 +282,9 @@ impl Mita {
             match event.event_type {
                 EventType::ProcessTrades => self.process_event_process_trades(event, market).await,
                 EventType::ValidateCandle => continue, // All validations will be for IG
+                EventType::CreateDailyCandles => continue, // All daily creation events will be IG
+                EventType::ValidateDailyCandles => continue, // IG only
+                EventType::ArchiveDailyCandles => continue, // IG only
             }
         }
     }
@@ -249,6 +368,82 @@ pub async fn insert_event_validated_candles(
         .bind(event_time)
         .bind(EventStatus::New.as_str())
         .bind("Validate candles.")
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn insert_event_create_daily_candles(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+    event_ts: DateTime<Utc>,
+) -> Result<(), sqlx::Error> {
+    let event_time = Utc::now();
+    let sql = r#"
+        INSERT INTO events (
+            event_id, droplet, event_type, exchange_name, market_id, event_ts, created_ts,
+            event_status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        "#;
+    sqlx::query(sql)
+        .bind(Uuid::new_v4())
+        .bind("ig")
+        .bind(EventType::CreateDailyCandles.as_str())
+        .bind(exchange_name.as_str())
+        .bind(Uuid::new_v4())
+        .bind(event_ts)
+        .bind(event_time)
+        .bind(EventStatus::New.as_str())
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn insert_event_validate_daily_candles(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+) -> Result<(), sqlx::Error> {
+    let event_time = Utc::now();
+    let sql = r#"
+        INSERT INTO events (
+            event_id, droplet, event_type, exchange_name, market_id, event_ts, created_ts,
+            event_status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        "#;
+    sqlx::query(sql)
+        .bind(Uuid::new_v4())
+        .bind("ig")
+        .bind(EventType::ValidateDailyCandles.as_str())
+        .bind(exchange_name.as_str())
+        .bind(Uuid::new_v4())
+        .bind(event_time)
+        .bind(event_time)
+        .bind(EventStatus::New.as_str())
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn insert_event_archive_daily_candles(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+) -> Result<(), sqlx::Error> {
+    let event_time = Utc::now();
+    let sql = r#"
+        INSERT INTO events (
+            event_id, droplet, event_type, exchange_name, market_id, event_ts, created_ts,
+            event_status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        "#;
+    sqlx::query(sql)
+        .bind(Uuid::new_v4())
+        .bind("ig")
+        .bind(EventType::ArchiveDailyCandles.as_str())
+        .bind(exchange_name.as_str())
+        .bind(Uuid::new_v4())
+        .bind(event_time)
+        .bind(event_time)
+        .bind(EventStatus::New.as_str())
         .execute(pool)
         .await?;
     Ok(())

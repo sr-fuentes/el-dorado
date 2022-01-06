@@ -240,7 +240,7 @@ impl Mita {
             // Calc new metrics
             let mut candles = select_candles_gte_datetime(
                 &self.pool,
-                market.exchange_name.as_str(),
+                &market.exchange_name,
                 &market.market_id,
                 start - Duration::days(91),
             )
