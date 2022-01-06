@@ -206,7 +206,7 @@ impl Inquisidor {
                 &self.pool,
                 &self.clients[&event.exchange_name],
                 &event.exchange_name,
-                &market,
+                market,
             )
             .await;
         }
