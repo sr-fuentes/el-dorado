@@ -199,7 +199,7 @@ impl Inquisidor {
         }
         // Create event for next day
         let next_event_ts =
-            Utc::now().duration_trunc(TimeFrame::D01.as_dur()).unwrap() + Duration::minutes(2);
+            Utc::now().duration_trunc(TimeFrame::D01.as_dur()).unwrap() + Duration::days(1) + Duration::minutes(2);
         insert_event_create_daily_candles(&self.pool, &event.exchange_name, next_event_ts)
             .await
             .expect("Failed insert create daily candle event.");
