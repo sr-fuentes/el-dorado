@@ -1,5 +1,5 @@
 use crate::candles::TimeFrame;
-use crate::candles::{resample_candles, select_candles_gte_datetime, select_last_candle};
+use crate::candles::{Candle, resample_candles, select_candles_gte_datetime, select_last_candle};
 use crate::configuration::{get_configuration, Settings};
 use crate::events::insert_event_process_trades;
 use crate::exchanges::{select_exchanges, Exchange};
@@ -12,7 +12,7 @@ use crate::trades::{
 };
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use sqlx::PgPool;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 #[derive(Debug)]
 pub struct Mita {
@@ -24,6 +24,11 @@ pub struct Mita {
     pub last_restart: DateTime<Utc>,
     pub restart_count: i8,
     pub hbtf: TimeFrame,
+}
+
+pub struct Heartbeat {
+    pub ts: DateTime<Utc>,
+    pub candles: HashMap<TimeFrame, VecDeque<Candle>>,
 }
 
 impl Mita {
@@ -113,6 +118,7 @@ impl Mita {
             }
             // Process any events for the droplet mita
             self.process_events().await;
+            // Reload heartbeats if needed (ie when a candle validation is updated)
             // Sleep for 200 ms to give control back to tokio scheduler
             tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
         }
