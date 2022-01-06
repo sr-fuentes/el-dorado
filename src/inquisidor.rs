@@ -35,9 +35,9 @@ impl Inquisidor {
     }
 
     pub async fn run(&self) {
-        // Create heartbeat set to current 15 minute floor + 30 seconds. The 30 seconds is to allow
-        // for candles to be created on the interval and for them to settle, then to start
-        // validations without straining the database.
+        // Check that a daily event to create candles for each exchange exists and create one if it
+        // does not then start loop to process events and validations.
+        self.set_initial_event().await;
         println!("Starting INQUI loop.");
         loop {
             // Process any events for ig

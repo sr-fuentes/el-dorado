@@ -2,7 +2,7 @@ use crate::candles::{
     create_01d_candles, select_candles_unvalidated_lt_datetime, validate_01d_candles,
     validate_hb_candles, TimeFrame,
 };
-use crate::exchanges::ExchangeName;
+use crate::exchanges::{select_exchanges_by_status, ExchangeName, ExchangeStatus};
 use crate::inquisidor::Inquisidor;
 use crate::markets::{
     select_market_details, select_market_details_by_status_exchange, MarketDetail, MarketStatus,
@@ -100,6 +100,28 @@ impl TryFrom<String> for EventStatus {
 }
 
 impl Inquisidor {
+    pub async fn set_initial_event(&self) {
+        // Get all active exchanges
+        let exchanges = select_exchanges_by_status(&self.pool, ExchangeStatus::Active)
+            .await
+            .expect("Failed to select active exchanges.");
+        // Get all open events
+        let events = select_open_events_for_droplet(&self.pool, "ig")
+            .await
+            .expect("Failed to select events.");
+        // For each exchange, check to see if there is a create daily candle event
+        for exchange in exchanges.iter() {
+            match events.iter().find(|e| {
+                e.event_type == EventType::CreateDailyCandles && e.exchange_name == exchange.name
+            }) {
+                Some(_) => continue, // Event exists, nothing to do
+                None => insert_event_create_daily_candles(&self.pool, &exchange.name, Utc::now())
+                    .await
+                    .expect("Failed to insert create daily candles event."),
+            }
+        }
+    }
+
     pub async fn process_events(&self) {
         // Get any open events for the droplet
         let open_events =
