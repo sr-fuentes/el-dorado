@@ -11,9 +11,9 @@ use crate::trades::{
     insert_delete_ftx_trades, select_ftx_trades_by_time, select_insert_drop_trades,
 };
 use chrono::{DateTime, Duration, DurationRound, Utc};
+use rust_decimal::Decimal;
 use sqlx::PgPool;
 use std::collections::HashMap;
-use rust_decimal::Decimal;
 
 #[derive(Debug)]
 pub struct Mita {
@@ -330,7 +330,9 @@ impl Mita {
             map_candles.insert(*tf, resampled_candles);
         }
         Heartbeat {
-            ts, last, candles: map_candles,
+            ts,
+            last,
+            candles: map_candles,
         }
     }
 

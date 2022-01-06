@@ -33,7 +33,7 @@ impl TimeFrame {
             TimeFrame::H01 => TimeFrame::T15,
             TimeFrame::H04 => TimeFrame::H01,
             TimeFrame::H12 => TimeFrame::H04,
-            TimeFrame::D01 => TimeFrame::H12,        
+            TimeFrame::D01 => TimeFrame::H12,
         }
     }
 }
