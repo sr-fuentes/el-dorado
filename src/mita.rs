@@ -303,7 +303,11 @@ impl Mita {
                         .collect();
                     let mut resampled_candles =
                         resample_candles(market.market_id, &new_candles, tf.as_dur());
-                    println!("New {} tf resampled candles: {:?}", tf.as_str(), resampled_candles);
+                    println!(
+                        "New {} tf resampled candles: {:?}",
+                        tf.as_str(),
+                        resampled_candles
+                    );
                     let mut candles = heartbeat.candles[tf].clone();
                     candles.append(&mut resampled_candles);
                     // Calc metrics on new candle vec

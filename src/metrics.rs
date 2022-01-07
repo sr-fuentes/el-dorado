@@ -266,12 +266,15 @@ impl MetricAP {
         let ema1 = Metric::ewma(&vecs.1, 7).round_dp(8);
         let ema2 = Metric::ewma(&vecs.1, 30).round_dp(8);
         let ema3 = Metric::ewma(&vecs.1, 90).round_dp(8);
-        let mv1: Decimal = vecs.5[n - 7..].iter().sum::<Decimal>()
-            / vecs.4[n - 7..].iter().sum::<Decimal>().round_dp(8);
-        let mv2: Decimal = vecs.5[n - 30..].iter().sum::<Decimal>()
-            / vecs.4[n - 30..].iter().sum::<Decimal>().round_dp(8);
-        let mv3: Decimal = vecs.5[n - 90..].iter().sum::<Decimal>()
-            / vecs.4[n - 90..].iter().sum::<Decimal>().round_dp(8);
+        let mv1: Decimal = (vecs.5[n - 7..].iter().sum::<Decimal>()
+            / vecs.4[n - 7..].iter().sum::<Decimal>())
+        .round_dp(8);
+        let mv2: Decimal = (vecs.5[n - 30..].iter().sum::<Decimal>()
+            / vecs.4[n - 30..].iter().sum::<Decimal>())
+        .round_dp(8);
+        let mv3: Decimal = (vecs.5[n - 90..].iter().sum::<Decimal>()
+            / vecs.4[n - 90..].iter().sum::<Decimal>())
+        .round_dp(8);
         // For each look back period, calc period specific metrics
         for lbp in lbps.iter() {
             // Set slice ranges
