@@ -262,7 +262,7 @@ impl Mita {
         } else {
             // Get date range
             let date_range =
-                self.create_date_range(start, end - self.hbtf.as_dur(), self.hbtf.as_dur());
+                self.create_date_range(start + self.hbtf.as_dur(), end, self.hbtf.as_dur());
             println!("Date Range: {:?}", date_range);
             // Make new candles
             let mut new_candles = self
