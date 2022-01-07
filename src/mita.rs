@@ -307,7 +307,7 @@ impl Mita {
                 }
             }
             // Insert new candles
-            let new_candles = &map_candles[&self.hbtf][&map_candles[&self.hbtf].len() - n..];
+            let new_candles = &map_candles[&self.hbtf][map_candles[&self.hbtf].len() - n..];
             self.insert_candles(market, new_candles.to_vec()).await;
             // Insert new metrics
             for metric in metrics.iter() {
