@@ -126,7 +126,12 @@ impl Mita {
                         Some(h) => heartbeats.insert(market.market_name.as_str(), h),
                         None => continue,
                     };
-                    println!("New heartbeats: {:?}", heartbeats);
+                    println!(
+                        "New heartbeats for {}:  {:?} {:?}",
+                        market.market_name,
+                        heartbeats[market.market_name.as_str()].ts,
+                        heartbeats[market.market_name.as_str()].last
+                    );
                 }
             }
             // Process any events for the droplet mita
@@ -254,7 +259,7 @@ impl Mita {
             None
         } else {
             // Get date range
-            let date_range = self.create_date_range(start, end, self.hbtf.as_dur());
+            let date_range = self.create_date_range(start, end - self.hbtf.as_dur(), self.hbtf.as_dur());
             // Make new candles
             let mut new_candles = self
                 .create_interval_candles(market, date_range, &trades)
