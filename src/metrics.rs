@@ -1,5 +1,6 @@
 use crate::candles::{Candle, TimeFrame};
 use crate::exchanges::ExchangeName;
+use crate::markets::MarketDetail;
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
@@ -419,6 +420,24 @@ pub async fn insert_metric_ap(pool: &PgPool, metric: &MetricAP) -> Result<(), sq
         .bind(metric.lwz)
         .bind(metric.ma)
         .bind(metric.vw)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn delete_metrics_ap_by_exchange_market(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+    market: &MarketDetail,
+) -> Result<(), sqlx::Error> {
+    let sql = r#"
+        DELETE FROM metrics_ap
+        WHERE exchange_name = $1
+        AND market_name = $2
+        "#;
+    sqlx::query(sql)
+        .bind(exchange_name.as_str())
+        .bind(&market.market_name)
         .execute(pool)
         .await?;
     Ok(())

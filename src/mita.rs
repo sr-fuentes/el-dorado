@@ -6,7 +6,7 @@ use crate::exchanges::{select_exchanges, Exchange};
 use crate::markets::{
     select_market_detail_by_exchange_mita, update_market_data_status, MarketDetail, MarketStatus,
 };
-use crate::metrics::{insert_metric_ap, MetricAP};
+use crate::metrics::{delete_metrics_ap_by_exchange_market, insert_metric_ap, MetricAP};
 use crate::trades::{
     insert_delete_ftx_trades, select_ftx_trades_by_time, select_insert_drop_trades,
 };
@@ -140,7 +140,7 @@ impl Mita {
             self.process_events().await;
             // Reload heartbeats if needed (ie when a candle validation is updated)
             // Sleep for 200 ms to give control back to tokio scheduler
-            tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
         }
     }
 
@@ -229,6 +229,26 @@ impl Mita {
             let heartbeat = self.create_heartbeat(market).await;
             // Update mita heartbeat interval
             heartbeats.insert(market.market_name.as_str(), heartbeat);
+            // Delete metrics for market from table
+            delete_metrics_ap_by_exchange_market(&self.pool, &self.exchange.name, market)
+                .await
+                .expect("Failed to delete metrics.");
+            // Create metrics for all time frames
+            let mut metrics: Vec<MetricAP> = Vec::new();
+            for tf in TimeFrame::time_frames().iter() {
+                let mut new_metrics = MetricAP::new(
+                    &market.market_name,
+                    &self.exchange.name,
+                    *tf,
+                    &heartbeats[market.market_name.as_str()].candles[tf],
+                );
+                metrics.append(&mut new_metrics);
+            }
+            for metric in metrics.iter() {
+                insert_metric_ap(&self.pool, metric)
+                    .await
+                    .expect("Failed to insert metric.");
+            }
             // Update status to sync
             update_market_data_status(
                 &self.pool,
@@ -306,7 +326,7 @@ impl Mita {
                     println!(
                         "New {} tf resampled candles: {:?}",
                         tf.as_str(),
-                        resampled_candles
+                        resampled_candles.len()
                     );
                     let mut candles = heartbeat.candles[tf].clone();
                     candles.append(&mut resampled_candles);
