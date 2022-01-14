@@ -341,7 +341,7 @@ dependencies = [
 
 [[package]]
 name = "el-dorado"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "chrono",
  "clap",

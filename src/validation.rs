@@ -819,7 +819,7 @@ pub async fn insert_candle_count_validation(
         .bind(exchange)
         .bind(market_id)
         .bind(datetime)
-        .bind(0)
+        .bind(0 as i64)
         .bind(ValidationType::Count.as_str())
         .bind(Utc::now())
         .bind(ValidationStatus::New.as_str())

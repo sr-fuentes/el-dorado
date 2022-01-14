@@ -1,5 +1,6 @@
 use crate::candles::{Candle, TimeFrame};
 use crate::exchanges::ExchangeName;
+use crate::markets::MarketDetail;
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
@@ -14,6 +15,26 @@ impl TimeFrame {
             TimeFrame::H04 => [42, 180, 540],
             TimeFrame::H12 => [14, 60, 180],
             TimeFrame::D01 => [7, 30, 90],
+        }
+    }
+
+    pub fn max_len(&self) -> i64 {
+        match self {
+            TimeFrame::T15 => 9312,
+            TimeFrame::H01 => 2328,
+            TimeFrame::H04 => 582,
+            TimeFrame::H12 => 194,
+            TimeFrame::D01 => 97,
+        }
+    }
+
+    pub fn prev(&self) -> TimeFrame {
+        match self {
+            TimeFrame::T15 => TimeFrame::T15,
+            TimeFrame::H01 => TimeFrame::T15,
+            TimeFrame::H04 => TimeFrame::H01,
+            TimeFrame::H12 => TimeFrame::H04,
+            TimeFrame::D01 => TimeFrame::H12,
         }
     }
 }
@@ -113,15 +134,24 @@ impl Metric {
         // For each of the ranges below, calc the higheset and lowest value
         let mut dons = Vec::new();
         let ranges = [4, 8, 12, 24, 48, 96, 192];
-        // Set min and max to last elexment of vecs (first item to check)
-        let mut i = 1;
+        // Set min and max to last element of vecs (first item to check)
+        let mut i = 2; // Set to 2 to skip the last element in DON calc
         let mut min_c = Decimal::MAX;
         let mut min_l = Decimal::MAX;
         let mut max_c = Decimal::MIN;
         let mut max_h = Decimal::MIN;
-        // For each item in range (don window), check min and max until next range
+        // For each item in range (don window), check min and max until next range skipping the last
+        // item which is the current c/h/l price
         for range in ranges.iter() {
-            while i <= *range as usize && i <= c.len() {
+            // For range = 4, check the last 4 elements of vec skipping the last item
+            // i = 2, range = 4
+            // 2 <= (4 + 1)     2 <= 5 = True, i += 1
+            // 3 <= (4 + 1)     3 <= 5 = True, i += 1
+            // 4 <= (4 + 1)     4 <= 5 = True, i += 1
+            // 5 <= (4 + 1)     5 <= 5 = True, i += 1
+            // 6 <= (4 + 1)     6 <= 5 = False, push dons for range
+            // 6 <= (8 + 1)     6 <= 9 = True, i += 1...
+            while i <= (*range as usize + 1) && i <= c.len() {
                 // Compare current min/max to len()-i value
                 min_c = min_c.min(c[c.len() - i]);
                 min_l = min_l.min(l[l.len() - i]);
@@ -234,15 +264,18 @@ impl MetricAP {
         let mut metrics = Vec::new();
         // Calculate the metrics
         let dons = Metric::dons(&vecs.1, &vecs.2, &vecs.3);
-        let ema1 = Metric::ewma(&vecs.1, 7);
-        let ema2 = Metric::ewma(&vecs.1, 30);
-        let ema3 = Metric::ewma(&vecs.1, 90);
-        let mv1: Decimal =
-            vecs.5[n - 7..].iter().sum::<Decimal>() / vecs.4[n - 7..].iter().sum::<Decimal>();
-        let mv2: Decimal =
-            vecs.5[n - 30..].iter().sum::<Decimal>() / vecs.4[n - 30..].iter().sum::<Decimal>();
-        let mv3: Decimal =
-            vecs.5[n - 90..].iter().sum::<Decimal>() / vecs.4[n - 90..].iter().sum::<Decimal>();
+        let ema1 = Metric::ewma(&vecs.1, 7).round_dp(8);
+        let ema2 = Metric::ewma(&vecs.1, 30).round_dp(8);
+        let ema3 = Metric::ewma(&vecs.1, 90).round_dp(8);
+        let mv1: Decimal = (vecs.5[n - 7..].iter().sum::<Decimal>()
+            / vecs.4[n - 7..].iter().sum::<Decimal>())
+        .round_dp(8);
+        let mv2: Decimal = (vecs.5[n - 30..].iter().sum::<Decimal>()
+            / vecs.4[n - 30..].iter().sum::<Decimal>())
+        .round_dp(8);
+        let mv3: Decimal = (vecs.5[n - 90..].iter().sum::<Decimal>()
+            / vecs.4[n - 90..].iter().sum::<Decimal>())
+        .round_dp(8);
         // For each look back period, calc period specific metrics
         for lbp in lbps.iter() {
             // Set slice ranges
@@ -252,16 +285,17 @@ impl MetricAP {
             println!("Look Back Period: {}", lbp);
             // Calc metrics
             let atr = Metric::ewma(&vecs.8, *lbp);
-            let vw = vecs.5[range_start..].iter().sum::<Decimal>()
-                / vecs.4[range_start..].iter().sum::<Decimal>();
-            let ma = Metric::ewma(&vecs.1[..range_shift_end], *lbp);
-            let ofz = Metric::z(&vecs.6, range_shift_start, range_shift_end);
-            let vz = Metric::z(&vecs.4, range_shift_start, range_shift_end);
-            let rz = Metric::z(&vecs.7, range_shift_start, range_shift_end);
-            let trz = Metric::z(&vecs.8, range_shift_start, range_shift_end);
-            let uwz = Metric::z(&vecs.9, range_shift_start, range_shift_end);
-            let bz = Metric::z(&vecs.10, range_shift_start, range_shift_end);
-            let lwz = Metric::z(&vecs.11, range_shift_start, range_shift_end);
+            let vw = (vecs.5[range_start..].iter().sum::<Decimal>()
+                / vecs.4[range_start..].iter().sum::<Decimal>())
+            .round_dp(8);
+            let ma = Metric::ewma(&vecs.1[..range_shift_end], *lbp).round_dp(8);
+            let ofz = Metric::z(&vecs.6, range_shift_start, range_shift_end).round_dp(2);
+            let vz = Metric::z(&vecs.4, range_shift_start, range_shift_end).round_dp(2);
+            let rz = Metric::z(&vecs.7, range_shift_start, range_shift_end).round_dp(2);
+            let trz = Metric::z(&vecs.8, range_shift_start, range_shift_end).round_dp(2);
+            let uwz = Metric::z(&vecs.9, range_shift_start, range_shift_end).round_dp(2);
+            let bz = Metric::z(&vecs.10, range_shift_start, range_shift_end).round_dp(2);
+            let lwz = Metric::z(&vecs.11, range_shift_start, range_shift_end).round_dp(2);
             let new_metric = MetricAP {
                 market_name: market.to_string(),
                 exchange_name: *exchange,
@@ -269,7 +303,7 @@ impl MetricAP {
                 time_frame: tf,
                 lbp: *lbp,
                 close: vecs.0,
-                r: vecs.7[n - 1],
+                r: vecs.7[n - 1].round_dp(8),
                 h004c: dons[0],
                 l004c: dons[1],
                 h004h: dons[2],
@@ -304,7 +338,7 @@ impl MetricAP {
                 mv1,
                 mv2,
                 mv3,
-                atr,
+                atr: atr.round_dp(8),
                 vw,
                 ma,
                 ofz,
@@ -386,6 +420,24 @@ pub async fn insert_metric_ap(pool: &PgPool, metric: &MetricAP) -> Result<(), sq
         .bind(metric.lwz)
         .bind(metric.ma)
         .bind(metric.vw)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn delete_metrics_ap_by_exchange_market(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+    market: &MarketDetail,
+) -> Result<(), sqlx::Error> {
+    let sql = r#"
+        DELETE FROM metrics_ap
+        WHERE exchange_name = $1
+        AND market_name = $2
+        "#;
+    sqlx::query(sql)
+        .bind(exchange_name.as_str())
+        .bind(&market.market_name)
         .execute(pool)
         .await?;
     Ok(())
