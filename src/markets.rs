@@ -146,6 +146,45 @@ impl Inquisidor {
             }
         }
     }
+
+    pub async fn update_market_ranks(&self) {
+        // Get user input for exchange to add
+        let exchange: String = get_input("Enter Exchange to Add:");
+        // Parse input to see if there is a valid exchange
+        let exchange: ExchangeName = exchange.try_into().unwrap();
+        // Get current exchanges from db
+        let exchanges = select_exchanges(&self.pool)
+            .await
+            .expect("Failed to fetch exchanges.");
+        // Compare input to existing exchanges
+        if !exchanges.iter().any(|e| e.name == exchange) {
+            // Exchange not added
+            println!("{:?} has not been added to El-Dorado.", exchange);
+            return;
+        }
+        // Get terminated markets from database
+        let markets_terminated = select_market_details_by_status_exchange(
+            &self.pool,
+            &exchange,
+            &MarketStatus::Terminated,
+        )
+        .await
+        .expect("Failed to select terminated markets.");
+        // Get USD markets from exchange
+        let markets_exch = get_usd_markets(&exchange).await;
+        // Filter out non-terminated markets and non-perp markets
+        let mut filtered_markets: Vec<Market> = markets_exch
+            .iter()
+            .filter(|m| {
+                m.market_type == "future"
+                    && !markets_terminated.iter().any(|tm| tm.market_name == m.name)
+                    && m.name.split('-').last() == Some("perp")
+            })
+            .cloned()
+            .collect();
+        // Sort by 24h volume
+        filtered_markets.sort_by(|m1, m2| m1.volume_usd24h.cmp(&m2.volume_usd24h));
+    }
 }
 
 pub async fn get_usd_markets(exchange: &ExchangeName) -> Vec<Market> {
