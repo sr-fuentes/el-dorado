@@ -34,8 +34,8 @@ async fn main() {
         Some("rank") => {
             // Create new admin instance and refresh exchange
             let ig = Inquisidor::new().await;
-            ig.update_market_ranks().await;      
-        },
+            ig.update_market_ranks().await;
+        }
         Some("run") => {
             // Create new mita instance and run stream and backfill until no restart
             let mut mita = Mita::new().await;
