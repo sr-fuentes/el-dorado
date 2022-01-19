@@ -184,6 +184,9 @@ impl Inquisidor {
             .collect();
         // Sort by 24h volume
         filtered_markets.sort_by(|m1, m2| m1.volume_usd24h.cmp(&m2.volume_usd24h));
+        for market in filtered_markets.iter() {
+            println!("{}: {:?}", market.name, market.volume_usd24h);
+        }
     }
 }
 
