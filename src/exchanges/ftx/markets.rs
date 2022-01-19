@@ -28,7 +28,7 @@ pub struct Market {
     pub change24h: f64,
     pub change_bod: f64,
     pub quote_volume24h: f64,
-    pub volume_usd24h: f64,
+    pub volume_usd24h: Decimal,
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
