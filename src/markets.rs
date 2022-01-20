@@ -149,7 +149,7 @@ impl Inquisidor {
 
     pub async fn update_market_ranks(&self) {
         // Get user input for exchange to add
-        let exchange: String = get_input("Enter Exchange to Add:");
+        let exchange: String = get_input("Enter Exchange to Rank:");
         // Parse input to see if there is a valid exchange
         let exchange: ExchangeName = exchange.try_into().unwrap();
         // Get current exchanges from db
@@ -170,20 +170,23 @@ impl Inquisidor {
         )
         .await
         .expect("Failed to select terminated markets.");
+        // println!("Terminated markets: {:?}", markets_terminated);
         // Get USD markets from exchange
         let markets_exch = get_usd_markets(&exchange).await;
+        println!("# exchange markets: {}", markets_exch.len());
         // Filter out non-terminated markets and non-perp markets
         let mut filtered_markets: Vec<Market> = markets_exch
             .iter()
             .filter(|m| {
                 m.market_type == "future"
                     && !markets_terminated.iter().any(|tm| tm.market_name == m.name)
-                    && m.name.split('-').last() == Some("perp")
+                    && m.name.split('-').last() == Some("PERP")
             })
             .cloned()
             .collect();
+        // println!("Filtered markets: {:?}", filtered_markets);
         // Sort by 24h volume
-        filtered_markets.sort_by(|m1, m2| m1.volume_usd24h.cmp(&m2.volume_usd24h));
+        filtered_markets.sort_by(|m1, m2| m2.volume_usd24h.cmp(&m1.volume_usd24h));
         for market in filtered_markets.iter() {
             println!("{}: {:?}", market.name, market.volume_usd24h);
         }
