@@ -218,6 +218,37 @@ pub async fn get_ftx_usd_markets(client: &RestClient) -> Result<Vec<Market>, Res
     Ok(markets)
 }
 
+
+pub async fn create_market_ranks_table(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+) -> Result<(), sqlx::Error> {
+    let sql = format!(
+        r#"
+        CREATE TABLE IF NOT EXISTS market_ranks_{} (
+            market_id UUID NOT NULL,
+            market_name TEXT NOT NULL,
+            rank BIGINT NOT NULL,
+            rank_prev BIGINT,
+            mita_current TEXT,
+            mita_proposed TEXT,
+            usd_volume_24h NUMERIC NOT NULL,
+            usd_volume_15t NUMERIC NOT NULL,
+            ats_v1 NUMERIC NOT NULL,
+            ats_v2 NUMERIC NOT NULL,
+            mps NUMERIC NOT NULL,
+            dp_quantity INT NOT NULL,
+            dp_price INT NOT NULL,
+            min_quantity NUMERIC NOT NULL,
+            PRIMARY KEY (market_id)
+        )
+        "#,
+        exchange_name.as_str(),
+    );
+    sqlx::query(&sql).execute(pool).await?;
+    Ok(())
+}
+
 pub async fn select_market_ids_by_exchange(
     pool: &PgPool,
     exchange: &ExchangeName,
