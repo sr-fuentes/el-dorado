@@ -9,6 +9,7 @@ use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use std::convert::{TryFrom, TryInto};
 use uuid::Uuid;
+use rust_decimal::Decimal;
 
 #[derive(Debug, PartialEq, Eq, sqlx::FromRow)]
 pub struct MarketId {
@@ -40,6 +41,24 @@ pub struct MarketDetail {
     pub first_candle: Option<DateTime<Utc>>,
     pub last_candle: Option<DateTime<Utc>>,
     pub mita: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Eq, sqlx::FromRow)]
+pub struct MarketRank {
+    pub market_id: Uuid,
+    pub market_name: String,
+    pub rank: i64,
+    pub rank_prev: Option<i64>,
+    pub mita_current: Option<String>,
+    pub mita_proposed: Option<String>,
+    pub usd_volume_24h: Decimal,
+    pub usd_volume_15t: Decimal,
+    pub ats_v1: Decimal,
+    pub ats_v2: Decimal,
+    pub mps: Decimal,
+    pub dp_quantity: i32,
+    pub dp_price: i32,
+    pub min_quantity: Decimal,
 }
 
 impl MarketId {
@@ -187,6 +206,9 @@ impl Inquisidor {
         // println!("Filtered markets: {:?}", filtered_markets);
         // Sort by 24h volume
         filtered_markets.sort_by(|m1, m2| m2.volume_usd24h.cmp(&m1.volume_usd24h));
+        // Create ranks table and select current contents
+        create_market_ranks_table(&self.pool, &exchange).await.expect("Failed to create market ranks table.");
+        let current_ranks = select_market_ranks(&self.pool, &exchange).await.expect("Failed to select market ranks.");
         for market in filtered_markets.iter() {
             println!("{}: {:?}", market.name, market.volume_usd24h);
         }
@@ -247,6 +269,21 @@ pub async fn create_market_ranks_table(
     );
     sqlx::query(&sql).execute(pool).await?;
     Ok(())
+}
+
+pub async fn select_market_ranks(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+) -> Result<Vec<MarketRank>, sqlx::Error> {
+    let sql = format!(
+        r#"
+        SELECT *
+        FROM market_ranks_{}
+        "#,
+        exchange_name.as_str(),
+    );
+    let rows = sqlx::query_as::<_, MarketRank>(&sql).fetch_all(pool).await?;
+    Ok(rows)
 }
 
 pub async fn select_market_ids_by_exchange(
