@@ -190,7 +190,10 @@ impl Inquisidor {
         )
         .await
         .expect("Failed to select terminated markets.");
-        // println!("Terminated markets: {:?}", markets_terminated);
+        // Get market details from db TODO: derive market term from this list to reduce db calls
+        let market_details = select_market_details(&self.pool)
+            .await
+            .expect("Failed to select market details.");
         // Get USD markets from exchange
         let markets_exch = get_usd_markets(&exchange).await;
         println!("# exchange markets: {}", markets_exch.len());
@@ -223,12 +226,18 @@ impl Inquisidor {
             let previous_rank = previous_ranks
                 .iter()
                 .find(|pr| pr.market_name == market.name);
-            let (rank_prev, mita_current) = match previous_rank {
-                Some(pr) => (Some(pr.rank), pr.mita_proposed.clone()),
-                None => (None, None),
+            let rank_prev = match previous_rank {
+                Some(pr) => Some(pr.rank),
+                None => None,
             };
+            // Get MarketDetail for id and current mita fields
+            let market_detail = market_details
+                .iter()
+                .find(|md| md.market_name == market.name)
+                .unwrap();
+            let (market_id, mita_current) = (market_detail.market_id, market_detail.mita.clone());
             let new_rank = MarketRank {
-                market_id: Uuid::new_v4(),
+                market_id,
                 market_name: market.name.clone(),
                 rank,
                 rank_prev,
