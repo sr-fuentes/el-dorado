@@ -240,6 +240,15 @@ impl Inquisidor {
             new_ranks.push(new_rank);
             rank += 1;
         }
+        // Drop market ranks table
+        drop_market_ranks_table(&self.pool, &exchange).await.expect("Failed to drop market ranks.");
+        // Create market ranks table
+        create_market_ranks_table(&self.pool, &exchange).await.expect("Failed to create market ranks table.");
+        // Insert markets
+        for new_rank in new_ranks.iter() {
+            // Insert rank
+            insert_market_rank(&self.pool, &exchange, &new_rank).await.expect("Failed to insert market rank.");
+        }
     }
 }
 
