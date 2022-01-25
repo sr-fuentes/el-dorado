@@ -6,11 +6,11 @@ use crate::exchanges::{
 use crate::inquisidor::Inquisidor;
 use crate::utilities::get_input;
 use chrono::{DateTime, Utc};
+use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use sqlx::PgPool;
 use std::convert::{TryFrom, TryInto};
 use uuid::Uuid;
-use rust_decimal::Decimal;
-use rust_decimal_macros::dec;
 
 #[derive(Debug, PartialEq, Eq, sqlx::FromRow)]
 pub struct MarketId {
@@ -208,15 +208,21 @@ impl Inquisidor {
         // Sort by 24h volume
         filtered_markets.sort_by(|m1, m2| m2.volume_usd24h.cmp(&m1.volume_usd24h));
         // Create ranks table and select current contents
-        create_market_ranks_table(&self.pool, &exchange).await.expect("Failed to create market ranks table.");
-        let previous_ranks = select_market_ranks(&self.pool, &exchange).await.expect("Failed to select market ranks.");
+        create_market_ranks_table(&self.pool, &exchange)
+            .await
+            .expect("Failed to create market ranks table.");
+        let previous_ranks = select_market_ranks(&self.pool, &exchange)
+            .await
+            .expect("Failed to select market ranks.");
         // Create empty vec to hold new ranks
         let mut new_ranks = Vec::new();
         // Set rank counter = 1
         let mut rank: i64 = 1;
         for market in filtered_markets.iter() {
             // Check if there is a previous record for market
-            let previous_rank = previous_ranks.iter().find(|pr| pr.market_name == market.name);
+            let previous_rank = previous_ranks
+                .iter()
+                .find(|pr| pr.market_name == market.name);
             let (rank_prev, mita_current) = match previous_rank {
                 Some(pr) => (Some(pr.rank), pr.mita_proposed.clone()),
                 None => (None, None),
@@ -241,13 +247,19 @@ impl Inquisidor {
             rank += 1;
         }
         // Drop market ranks table
-        drop_market_ranks_table(&self.pool, &exchange).await.expect("Failed to drop market ranks.");
+        drop_market_ranks_table(&self.pool, &exchange)
+            .await
+            .expect("Failed to drop market ranks.");
         // Create market ranks table
-        create_market_ranks_table(&self.pool, &exchange).await.expect("Failed to create market ranks table.");
+        create_market_ranks_table(&self.pool, &exchange)
+            .await
+            .expect("Failed to create market ranks table.");
         // Insert markets
         for new_rank in new_ranks.iter() {
             // Insert rank
-            insert_market_rank(&self.pool, &exchange, &new_rank).await.expect("Failed to insert market rank.");
+            insert_market_rank(&self.pool, &exchange, &new_rank)
+                .await
+                .expect("Failed to insert market rank.");
         }
     }
 }
@@ -276,7 +288,6 @@ pub async fn get_ftx_usd_markets(client: &RestClient) -> Result<Vec<Market>, Res
     markets.retain(|m| m.quote_currency == Some("USD".to_string()) || m.market_type == *"future");
     Ok(markets)
 }
-
 
 pub async fn create_market_ranks_table(
     pool: &PgPool,
@@ -308,6 +319,20 @@ pub async fn create_market_ranks_table(
     Ok(())
 }
 
+pub async fn drop_market_ranks_table(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+) -> Result<(), sqlx::Error> {
+    let sql = format!(
+        r#"
+        DROP TABLE IF EXISTS market_ranks_{}
+        "#,
+        exchange_name.as_str(),
+    );
+    sqlx::query(&sql).execute(pool).await?;
+    Ok(())
+}
+
 pub async fn select_market_ranks(
     pool: &PgPool,
     exchange_name: &ExchangeName,
@@ -319,7 +344,9 @@ pub async fn select_market_ranks(
         "#,
         exchange_name.as_str(),
     );
-    let rows = sqlx::query_as::<_, MarketRank>(&sql).fetch_all(pool).await?;
+    let rows = sqlx::query_as::<_, MarketRank>(&sql)
+        .fetch_all(pool)
+        .await?;
     Ok(rows)
 }
 
