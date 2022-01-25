@@ -350,6 +350,42 @@ pub async fn select_market_ranks(
     Ok(rows)
 }
 
+pub async fn insert_market_rank(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+    rank: &MarketRank,
+) -> Result<(), sqlx::Error> {
+    // Cannot use sqlx query! macro because table is dynamic and may not be created
+    let sql = format!(
+        r#"
+        INSERT INTO market_ranks_{} (
+            market_id, market_name, rank, rank_prev, mita_current, mita_proposed, usd_volume_24h,
+            usd_volume_15t, ats_v1, ats_v2, mps, dp_quantity, dp_price, min_quantity)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        ON CONFLICT (market_id) DO NOTHING
+        "#,
+        exchange_name.as_str(),
+    );
+    sqlx::query(&sql)
+        .bind(rank.market_id)
+        .bind(&rank.market_name)
+        .bind(rank.rank)
+        .bind(rank.rank_prev)
+        .bind(&rank.mita_current)
+        .bind(&rank.mita_proposed)
+        .bind(rank.usd_volume_24h)
+        .bind(rank.usd_volume_15t)
+        .bind(rank.ats_v1)
+        .bind(rank.ats_v2)
+        .bind(rank.mps)
+        .bind(rank.dp_quantity)
+        .bind(rank.dp_price)
+        .bind(rank.min_quantity)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 pub async fn select_market_ids_by_exchange(
     pool: &PgPool,
     exchange: &ExchangeName,
