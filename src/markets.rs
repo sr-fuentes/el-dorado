@@ -6,7 +6,7 @@ use crate::exchanges::{
 use crate::inquisidor::Inquisidor;
 use crate::utilities::get_input;
 use chrono::{DateTime, Utc};
-use rust_decimal::Decimal;
+use rust_decimal::{Decimal, MathematicalOps};
 use rust_decimal_macros::dec;
 use sqlx::PgPool;
 use std::convert::{TryFrom, TryInto};
@@ -245,12 +245,12 @@ impl Inquisidor {
                 mita_proposed: None,
                 usd_volume_24h: market.volume_usd24h.round(),
                 usd_volume_15t: (market.volume_usd24h / dec!(96)).round(),
-                ats_v1: dec!(0),
+                ats_v1: market.price_increment,
                 ats_v2: dec!(0),
                 mps: dec!(1),
-                dp_quantity: 1,
-                dp_price: 1,
-                min_quantity: dec!(0),
+                dp_quantity: self.min_to_dp(market.size_increment),
+                dp_price: self.min_to_dp(market.price_increment),
+                min_quantity: market.min_provide_size,
             };
             new_ranks.push(new_rank);
             rank += 1;
@@ -270,6 +270,27 @@ impl Inquisidor {
                 .await
                 .expect("Failed to insert market rank.");
         }
+    }
+
+    fn min_to_dp(&self, increment: Decimal) -> i32 {
+        let dp = if increment < dec!(1) {
+            let dp = increment.scale() as i32;
+            if dec!(10).powi(dp as i64) * increment == dec!(1) {
+                dp
+            } else if dec!(10).powi(dp as i64) * increment == dec!(5) {
+                dp - 1
+            } else {
+                dp - 2
+            }
+        } else {
+            let log10 = increment.log10();
+            if log10.scale() == 0 {
+                log10.trunc().mantissa() as i32 * -1
+            } else {
+                log10.trunc().mantissa() as i32 * -1 - 1
+            }
+        };
+        dp
     }
 }
 
