@@ -10,9 +10,9 @@ pub struct Market {
     pub name: String,
     pub enabled: bool,
     pub post_only: bool,
-    pub price_increment: f64,
-    pub size_increment: f64,
-    pub min_provide_size: f64,
+    pub price_increment: Decimal,
+    pub size_increment: Decimal,
+    pub min_provide_size: Decimal,
     pub last: Option<f64>,
     pub bid: Option<f64>,
     pub ask: Option<f64>,
@@ -28,7 +28,7 @@ pub struct Market {
     pub change24h: f64,
     pub change_bod: f64,
     pub quote_volume24h: f64,
-    pub volume_usd24h: f64,
+    pub volume_usd24h: Decimal,
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug)]

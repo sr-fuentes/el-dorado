@@ -6,6 +6,8 @@ use crate::exchanges::{
 use crate::inquisidor::Inquisidor;
 use crate::utilities::get_input;
 use chrono::{DateTime, Utc};
+use rust_decimal::{Decimal, MathematicalOps};
+use rust_decimal_macros::dec;
 use sqlx::PgPool;
 use std::convert::{TryFrom, TryInto};
 use uuid::Uuid;
@@ -40,6 +42,24 @@ pub struct MarketDetail {
     pub first_candle: Option<DateTime<Utc>>,
     pub last_candle: Option<DateTime<Utc>>,
     pub mita: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Eq, sqlx::FromRow)]
+pub struct MarketRank {
+    pub market_id: Uuid,
+    pub market_name: String,
+    pub rank: i64,
+    pub rank_prev: Option<i64>,
+    pub mita_current: Option<String>,
+    pub mita_proposed: Option<String>,
+    pub usd_volume_24h: Decimal,
+    pub usd_volume_15t: Decimal,
+    pub ats_v1: Decimal,
+    pub ats_v2: Decimal,
+    pub mps: Decimal,
+    pub dp_quantity: i32,
+    pub dp_price: i32,
+    pub min_quantity: Decimal,
 }
 
 impl MarketId {
@@ -146,6 +166,128 @@ impl Inquisidor {
             }
         }
     }
+
+    pub async fn update_market_ranks(&self) {
+        // Get user input for exchange to add
+        let exchange: String = get_input("Enter Exchange to Rank:");
+        // Parse input to see if there is a valid exchange
+        let exchange: ExchangeName = exchange.try_into().unwrap();
+        // Get current exchanges from db
+        let exchanges = select_exchanges(&self.pool)
+            .await
+            .expect("Failed to fetch exchanges.");
+        // Compare input to existing exchanges
+        if !exchanges.iter().any(|e| e.name == exchange) {
+            // Exchange not added
+            println!("{:?} has not been added to El-Dorado.", exchange);
+            return;
+        }
+        // Get terminated markets from database
+        let markets_terminated = select_market_details_by_status_exchange(
+            &self.pool,
+            &exchange,
+            &MarketStatus::Terminated,
+        )
+        .await
+        .expect("Failed to select terminated markets.");
+        // Get market details from db TODO: derive market term from this list to reduce db calls
+        let market_details = select_market_details(&self.pool)
+            .await
+            .expect("Failed to select market details.");
+        // Get USD markets from exchange
+        let markets_exch = get_usd_markets(&exchange).await;
+        println!("# exchange markets: {}", markets_exch.len());
+        // Filter out non-terminated markets and non-perp markets
+        let mut filtered_markets: Vec<Market> = markets_exch
+            .iter()
+            .filter(|m| {
+                m.market_type == "future"
+                    && !markets_terminated.iter().any(|tm| tm.market_name == m.name)
+                    && m.name.split('-').last() == Some("PERP")
+            })
+            .cloned()
+            .collect();
+        // println!("Filtered markets: {:?}", filtered_markets);
+        // Sort by 24h volume
+        filtered_markets.sort_by(|m1, m2| m2.volume_usd24h.cmp(&m1.volume_usd24h));
+        // Create ranks table and select current contents
+        create_market_ranks_table(&self.pool, &exchange)
+            .await
+            .expect("Failed to create market ranks table.");
+        let previous_ranks = select_market_ranks(&self.pool, &exchange)
+            .await
+            .expect("Failed to select market ranks.");
+        // Create empty vec to hold new ranks
+        let mut new_ranks = Vec::new();
+        // Set rank counter = 1
+        let mut rank: i64 = 1;
+        for market in filtered_markets.iter() {
+            // Check if there is a previous record for market
+            let previous_rank = previous_ranks
+                .iter()
+                .find(|pr| pr.market_name == market.name);
+            let rank_prev = previous_rank.map(|pr| pr.rank);
+            // Get MarketDetail for id and current mita fields
+            let market_detail = market_details
+                .iter()
+                .find(|md| md.market_name == market.name)
+                .unwrap();
+            let (market_id, mita_current) = (market_detail.market_id, market_detail.mita.clone());
+            let new_rank = MarketRank {
+                market_id,
+                market_name: market.name.clone(),
+                rank,
+                rank_prev,
+                mita_current,
+                mita_proposed: None,
+                usd_volume_24h: market.volume_usd24h.round(),
+                usd_volume_15t: (market.volume_usd24h / dec!(96)).round(),
+                ats_v1: (market.volume_usd24h / dec!(24) * dec!(0.05)).round_dp(2),
+                ats_v2: (market.volume_usd24h / dec!(96) * dec!(0.05)).round_dp(2),
+                mps: (market.volume_usd24h * dec!(0.005)).round_dp(2),
+                dp_quantity: self.min_to_dp(market.size_increment),
+                dp_price: self.min_to_dp(market.price_increment),
+                min_quantity: market.min_provide_size,
+            };
+            new_ranks.push(new_rank);
+            rank += 1;
+        }
+        // Drop market ranks table
+        drop_market_ranks_table(&self.pool, &exchange)
+            .await
+            .expect("Failed to drop market ranks.");
+        // Create market ranks table
+        create_market_ranks_table(&self.pool, &exchange)
+            .await
+            .expect("Failed to create market ranks table.");
+        // Insert markets
+        for new_rank in new_ranks.iter() {
+            // Insert rank
+            insert_market_rank(&self.pool, &exchange, new_rank)
+                .await
+                .expect("Failed to insert market rank.");
+        }
+    }
+
+    fn min_to_dp(&self, increment: Decimal) -> i32 {
+        if increment < dec!(1) {
+            let dp = increment.scale() as i32;
+            if dec!(10).powi(dp as i64) * increment == dec!(1) {
+                dp
+            } else if dec!(10).powi(dp as i64) * increment == dec!(5) {
+                dp - 1
+            } else {
+                dp - 2
+            }
+        } else {
+            let log10 = increment.log10();
+            if log10.scale() == 0 {
+                -log10.trunc().mantissa() as i32
+            } else {
+                -log10.trunc().mantissa() as i32 - 1
+            }
+        }
+    }
 }
 
 pub async fn get_usd_markets(exchange: &ExchangeName) -> Vec<Market> {
@@ -171,6 +313,103 @@ pub async fn get_ftx_usd_markets(client: &RestClient) -> Result<Vec<Market>, Res
     // Filter for USD based markets
     markets.retain(|m| m.quote_currency == Some("USD".to_string()) || m.market_type == *"future");
     Ok(markets)
+}
+
+pub async fn create_market_ranks_table(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+) -> Result<(), sqlx::Error> {
+    let sql = format!(
+        r#"
+        CREATE TABLE IF NOT EXISTS market_ranks_{} (
+            market_id UUID NOT NULL,
+            market_name TEXT NOT NULL,
+            rank BIGINT NOT NULL,
+            rank_prev BIGINT,
+            mita_current TEXT,
+            mita_proposed TEXT,
+            usd_volume_24h NUMERIC NOT NULL,
+            usd_volume_15t NUMERIC NOT NULL,
+            ats_v1 NUMERIC NOT NULL,
+            ats_v2 NUMERIC NOT NULL,
+            mps NUMERIC NOT NULL,
+            dp_quantity INT NOT NULL,
+            dp_price INT NOT NULL,
+            min_quantity NUMERIC NOT NULL,
+            PRIMARY KEY (market_id)
+        )
+        "#,
+        exchange_name.as_str(),
+    );
+    sqlx::query(&sql).execute(pool).await?;
+    Ok(())
+}
+
+pub async fn drop_market_ranks_table(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+) -> Result<(), sqlx::Error> {
+    let sql = format!(
+        r#"
+        DROP TABLE IF EXISTS market_ranks_{}
+        "#,
+        exchange_name.as_str(),
+    );
+    sqlx::query(&sql).execute(pool).await?;
+    Ok(())
+}
+
+pub async fn select_market_ranks(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+) -> Result<Vec<MarketRank>, sqlx::Error> {
+    let sql = format!(
+        r#"
+        SELECT *
+        FROM market_ranks_{}
+        "#,
+        exchange_name.as_str(),
+    );
+    let rows = sqlx::query_as::<_, MarketRank>(&sql)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows)
+}
+
+pub async fn insert_market_rank(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+    rank: &MarketRank,
+) -> Result<(), sqlx::Error> {
+    // Cannot use sqlx query! macro because table is dynamic and may not be created
+    let sql = format!(
+        r#"
+        INSERT INTO market_ranks_{} (
+            market_id, market_name, rank, rank_prev, mita_current, mita_proposed, usd_volume_24h,
+            usd_volume_15t, ats_v1, ats_v2, mps, dp_quantity, dp_price, min_quantity)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        ON CONFLICT (market_id) DO NOTHING
+        "#,
+        exchange_name.as_str(),
+    );
+    sqlx::query(&sql)
+        .bind(rank.market_id)
+        .bind(&rank.market_name)
+        .bind(rank.rank)
+        .bind(rank.rank_prev)
+        .bind(&rank.mita_current)
+        .bind(&rank.mita_proposed)
+        .bind(rank.usd_volume_24h)
+        .bind(rank.usd_volume_15t)
+        .bind(rank.ats_v1)
+        .bind(rank.ats_v2)
+        .bind(rank.mps)
+        .bind(rank.dp_quantity)
+        .bind(rank.dp_price)
+        .bind(rank.min_quantity)
+        .execute(pool)
+        .await?;
+    Ok(())
 }
 
 pub async fn select_market_ids_by_exchange(
