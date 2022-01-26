@@ -226,10 +226,7 @@ impl Inquisidor {
             let previous_rank = previous_ranks
                 .iter()
                 .find(|pr| pr.market_name == market.name);
-            let rank_prev = match previous_rank {
-                Some(pr) => Some(pr.rank),
-                None => None,
-            };
+            let rank_prev = previous_rank.map(|pr| pr.rank);
             // Get MarketDetail for id and current mita fields
             let market_detail = market_details
                 .iter()
@@ -245,9 +242,9 @@ impl Inquisidor {
                 mita_proposed: None,
                 usd_volume_24h: market.volume_usd24h.round(),
                 usd_volume_15t: (market.volume_usd24h / dec!(96)).round(),
-                ats_v1: market.price_increment,
-                ats_v2: dec!(0),
-                mps: dec!(1),
+                ats_v1: (market.volume_usd24h / dec!(24) * dec!(0.05)).round_dp(2),
+                ats_v2: (market.volume_usd24h / dec!(96) * dec!(0.05)).round_dp(2),
+                mps: (market.volume_usd24h * dec!(0.005)).round_dp(2),
                 dp_quantity: self.min_to_dp(market.size_increment),
                 dp_price: self.min_to_dp(market.price_increment),
                 min_quantity: market.min_provide_size,
@@ -266,14 +263,14 @@ impl Inquisidor {
         // Insert markets
         for new_rank in new_ranks.iter() {
             // Insert rank
-            insert_market_rank(&self.pool, &exchange, &new_rank)
+            insert_market_rank(&self.pool, &exchange, new_rank)
                 .await
                 .expect("Failed to insert market rank.");
         }
     }
 
     fn min_to_dp(&self, increment: Decimal) -> i32 {
-        let dp = if increment < dec!(1) {
+        if increment < dec!(1) {
             let dp = increment.scale() as i32;
             if dec!(10).powi(dp as i64) * increment == dec!(1) {
                 dp
@@ -285,12 +282,11 @@ impl Inquisidor {
         } else {
             let log10 = increment.log10();
             if log10.scale() == 0 {
-                log10.trunc().mantissa() as i32 * -1
+                -log10.trunc().mantissa() as i32
             } else {
-                log10.trunc().mantissa() as i32 * -1 - 1
+                -log10.trunc().mantissa() as i32 - 1
             }
-        };
-        dp
+        }
     }
 }
 
