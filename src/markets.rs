@@ -742,4 +742,11 @@ mod tests {
         .expect("Failed to select markets.");
         println!("Acive markets: {:?}", markets);
     }
+
+    #[tokio::test]
+    async fn mita_proposal_creates_map() {
+        let ig = Inquisidor::new().await;
+        let mita_map = ig.mita_proposal();
+        println!("Mita map: {:?}", mita_map);
+    }
 }
