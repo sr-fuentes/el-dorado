@@ -235,13 +235,17 @@ impl Inquisidor {
                 .find(|md| md.market_name == market.name)
                 .unwrap();
             let (market_id, mita_current) = (market_detail.market_id, market_detail.mita.clone());
+            let proposed_mita = match proposal.get(&rank) {
+                Some(m) => Some(m.to_string()),
+                None => None,
+            };
             let new_rank = MarketRank {
                 market_id,
                 market_name: market.name.clone(),
                 rank,
                 rank_prev,
                 mita_current,
-                mita_proposed: None,
+                mita_proposed: proposed_mita,
                 usd_volume_24h: market.volume_usd24h.round(),
                 usd_volume_15t: (market.volume_usd24h / dec!(96)).round(),
                 ats_v1: (market.volume_usd24h / dec!(24) * dec!(0.05)).round_dp(2),
