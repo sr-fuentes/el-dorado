@@ -280,6 +280,7 @@ impl MetricAP {
         for lbp in lbps.iter() {
             // Set slice ranges
             let range_start = (n - *lbp as usize).max(0);
+            println!("N / LBP / range_start: {} {} {}", n, lbp, range_start);
             let range_shift_start = (range_start - 1).max(0);
             let range_shift_end = n - 1;
             // println!("Look Back Period: {}", lbp);
