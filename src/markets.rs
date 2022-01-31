@@ -9,9 +9,9 @@ use chrono::{DateTime, Utc};
 use rust_decimal::{Decimal, MathematicalOps};
 use rust_decimal_macros::dec;
 use sqlx::PgPool;
+use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use uuid::Uuid;
-use std::collections::HashMap;
 
 #[derive(Debug, PartialEq, Eq, sqlx::FromRow)]
 pub struct MarketId {
@@ -298,14 +298,14 @@ impl Inquisidor {
     fn mita_proposal(&self) -> HashMap<i64, String> {
         let mut proposal = HashMap::new();
         // Create map for proposed mitas: 1-48 in streams, 49-75 in daily catchups
-        proposal.insert("mita-01", vec![1,40,41]);
-        proposal.insert("mita-02", vec![2,30,42]);
-        proposal.insert("mita-03",vec![3,14,15,26,27,38,43]);
-        proposal.insert("mita-04",vec![4,13,16,25,28,37,44]);
-        proposal.insert("mita-05",vec![5,12,17,24,29,36,45]);
-        proposal.insert("mita-06",vec![6,11,18,23,30,35,46]);
-        proposal.insert("mita-07",vec![7,10,19,22,31,34,47]);
-        proposal.insert("mita-08",vec![8,9,20,21,32,33,48]);
+        proposal.insert("mita-01", vec![1, 40, 41]);
+        proposal.insert("mita-02", vec![2, 30, 42]);
+        proposal.insert("mita-03", vec![3, 14, 15, 26, 27, 38, 43]);
+        proposal.insert("mita-04", vec![4, 13, 16, 25, 28, 37, 44]);
+        proposal.insert("mita-05", vec![5, 12, 17, 24, 29, 36, 45]);
+        proposal.insert("mita-06", vec![6, 11, 18, 23, 30, 35, 46]);
+        proposal.insert("mita-07", vec![7, 10, 19, 22, 31, 34, 47]);
+        proposal.insert("mita-08", vec![8, 9, 20, 21, 32, 33, 48]);
         let mut mita_09 = Vec::new();
         for i in 49..75 {
             mita_09.push(i);
@@ -313,7 +313,7 @@ impl Inquisidor {
         proposal.insert("mita-09", mita_09);
         // Create map for return proposal (k,v) = (1,"mita-01")
         let mut proposal_map = HashMap::new();
-        for (k,v) in proposal.iter() {
+        for (k, v) in proposal.iter() {
             for i in v.iter() {
                 proposal_map.insert(*i as i64, k.to_string());
             }
