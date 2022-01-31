@@ -279,8 +279,8 @@ impl MetricAP {
         // For each look back period, calc period specific metrics
         for lbp in lbps.iter() {
             // Set slice ranges
-            let range_start = n - *lbp as usize;
-            let range_shift_start = range_start - 1;
+            let range_start = (n - *lbp as usize).max(0);
+            let range_shift_start = (range_start - 1).max(0);
             let range_shift_end = n - 1;
             // println!("Look Back Period: {}", lbp);
             // Calc metrics
