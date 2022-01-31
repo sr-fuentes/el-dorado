@@ -296,7 +296,7 @@ impl Inquisidor {
         let mut proposal = HashMap::new();
         // Create map for proposed mitas: 1-48 in streams, 49-75 in daily catchups
         proposal.insert("mita-01", vec![1, 40, 41]);
-        proposal.insert("mita-02", vec![2, 30, 42]);
+        proposal.insert("mita-02", vec![2, 39, 42]);
         proposal.insert("mita-03", vec![3, 14, 15, 26, 27, 38, 43]);
         proposal.insert("mita-04", vec![4, 13, 16, 25, 28, 37, 44]);
         proposal.insert("mita-05", vec![5, 12, 17, 24, 29, 36, 45]);
