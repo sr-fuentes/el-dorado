@@ -279,6 +279,29 @@ impl Inquisidor {
         }
     }
 
+    pub async fn update_market_mitas_from_ranks(&self) {
+        // Get user input for exchange to add
+        let exchange: String = get_input("Enter Exchange to Rank:");
+        // Parse input to see if there is a valid exchange
+        let exchange: ExchangeName = exchange.try_into().unwrap();
+        // Get current exchanges from db
+        let exchanges = select_exchanges(&self.pool)
+            .await
+            .expect("Failed to fetch exchanges.");
+        // Compare input to existing exchanges
+        if !exchanges.iter().any(|e| e.name == exchange) {
+            // Exchange not added
+            println!("{:?} has not been added to El-Dorado.", exchange);
+            return;
+        }
+        // Get market ranks for exchange
+        let ranks = select_market_ranks(&self.pool, &exchange).await.expect("Failed to select market ranks.");
+        // For each rank - update market mita column, update rank set current = proposed
+        for rank in ranks.iter() {
+            
+        }
+    }
+
     fn min_to_dp(&self, increment: Decimal) -> i32 {
         if increment < dec!(1) {
             let dp = increment.scale() as i32;
