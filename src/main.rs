@@ -11,6 +11,7 @@ async fn main() {
         .subcommand(App::new("add").about("add new exchange to app"))
         .subcommand(App::new("refresh").about("refresh markets for exchange"))
         .subcommand(App::new("rank").about("rank exchange markets"))
+        .subcommand(App::new("set").about("update ranks from proposed to current"))
         .subcommand(App::new("run").about("run el-dorado for a market"))
         .subcommand(App::new("historical").about("backfill to current start of day"))
         .subcommand(App::new("manage").about("run current cleanup script"))
@@ -35,6 +36,11 @@ async fn main() {
             // Create new admin instance and refresh exchange
             let ig = Inquisidor::new().await;
             ig.update_market_ranks().await;
+        }
+        Some("set") => {
+            // Create new admin instance and refresh exchange
+            let ig = Inquisidor::new().await;
+            ig.update_market_mitas_from_ranks().await;
         }
         Some("run") => {
             // Create new mita instance and run stream and backfill until no restart
