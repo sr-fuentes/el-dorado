@@ -279,6 +279,45 @@ impl Inquisidor {
         }
     }
 
+    pub async fn update_market_mitas_from_ranks(&self) {
+        // Get user input for exchange to add
+        let exchange: String = get_input("Enter Exchange to Rank:");
+        // Parse input to see if there is a valid exchange
+        let exchange: ExchangeName = exchange.try_into().unwrap();
+        // Get current exchanges from db
+        let exchanges = select_exchanges(&self.pool)
+            .await
+            .expect("Failed to fetch exchanges.");
+        // Compare input to existing exchanges
+        if !exchanges.iter().any(|e| e.name == exchange) {
+            // Exchange not added
+            println!("{:?} has not been added to El-Dorado.", exchange);
+            return;
+        }
+        // Get market ranks for exchange
+        let ranks = select_market_ranks(&self.pool, &exchange)
+            .await
+            .expect("Failed to select market ranks.");
+        // For each rank - update market mita column, update rank set current = proposed
+        for rank in ranks.iter() {
+            if rank.mita_current != rank.mita_proposed {
+                // Update mita in markets table
+                update_market_mita(&self.pool, &rank.market_id, &rank.mita_proposed)
+                    .await
+                    .expect("Failed to update mita in markets.");
+                // Update mita_current in market_ranks table
+                update_market_ranks_current_mita(
+                    &self.pool,
+                    &exchange,
+                    &rank.mita_proposed,
+                    &rank.market_id,
+                )
+                .await
+                .expect("Failed to update mita in market ranks.");
+            }
+        }
+    }
+
     fn min_to_dp(&self, increment: Decimal) -> i32 {
         if increment < dec!(1) {
             let dp = increment.scale() as i32;
@@ -689,6 +728,47 @@ pub async fn update_market_data_status(
     )
     .execute(pool)
     .await?;
+    Ok(())
+}
+
+pub async fn update_market_mita(
+    pool: &PgPool,
+    market_id: &Uuid,
+    mita: &Option<String>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        UPDATE markets
+        SET mita = $1
+        WHERE market_id = $2
+        "#,
+    )
+    .bind(mita)
+    .bind(market_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn update_market_ranks_current_mita(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+    mita: &Option<String>,
+    market_id: &Uuid,
+) -> Result<(), sqlx::Error> {
+    let sql = format!(
+        r#"
+        UPDATE market_ranks_{}
+        SET mita_current = $1
+        WHERE market_id = $2
+        "#,
+        exchange_name.as_str()
+    );
+    sqlx::query(&sql)
+        .bind(mita)
+        .bind(market_id)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 

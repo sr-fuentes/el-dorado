@@ -282,7 +282,7 @@ impl MetricAP {
             let range_start = n - *lbp as usize;
             let range_shift_start = range_start - 1;
             let range_shift_end = n - 1;
-            println!("Look Back Period: {}", lbp);
+            // println!("Look Back Period: {}", lbp);
             // Calc metrics
             let atr = Metric::ewma(&vecs.8, *lbp);
             let vw = (vecs.5[range_start..].iter().sum::<Decimal>()
