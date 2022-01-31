@@ -298,7 +298,7 @@ impl Inquisidor {
         let ranks = select_market_ranks(&self.pool, &exchange).await.expect("Failed to select market ranks.");
         // For each rank - update market mita column, update rank set current = proposed
         for rank in ranks.iter() {
-            
+
         }
     }
 
@@ -712,6 +712,28 @@ pub async fn update_market_data_status(
     )
     .execute(pool)
     .await?;
+    Ok(())
+}
+
+pub async fn update_market_rank_current_mita(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+    mita: &Option<String>,
+    market_id: &Uuid,
+) -> Result<(), sqlx::Error> {
+    let sql = format!(
+        r#"
+        UPDATE market_ranks_{}
+        SET mita_current = $1
+        WHERE market_id = $2
+        "#,
+        exchange_name.as_str()
+    );
+    sqlx::query(&sql)
+        .bind(mita)
+        .bind(market_id)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
