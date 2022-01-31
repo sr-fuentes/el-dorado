@@ -269,7 +269,7 @@ impl Mita {
         market: &MarketDetail,
         heartbeat: &Heartbeat,
     ) -> Option<Heartbeat> {
-        println!("Process interval start: {:?}", Utc::now());
+        // println!("Process interval start: {:?}", Utc::now());
         // Get trades
         let trades =
             select_ftx_trades_by_time(&self.pool, &self.exchange.name, market, "ws", start, end)
@@ -283,13 +283,13 @@ impl Mita {
             // Get date range
             let date_range =
                 self.create_date_range(start + self.hbtf.as_dur(), end, self.hbtf.as_dur());
-            println!("Date Range: {:?}", date_range);
+            // println!("Date Range: {:?}", date_range);
             // Make new candles
             let mut new_candles = self
                 .create_interval_candles(market, date_range, &trades)
                 .await;
             let n = new_candles.len();
-            println!("{} new candles: {:?}", n, new_candles);
+            // println!("{} new candles: {:?}", n, new_candles);
             // Set last and heartbeat time
             let last = new_candles.last().unwrap().close;
             let ts = new_candles.last().unwrap().datetime;
@@ -323,11 +323,11 @@ impl Mita {
                         .collect();
                     let mut resampled_candles =
                         resample_candles(market.market_id, &new_candles, tf.as_dur());
-                    println!(
-                        "New {} tf resampled candles: {:?}",
-                        tf.as_str(),
-                        resampled_candles.len()
-                    );
+                    // println!(
+                    //     "New {} tf resampled candles: {:?}",
+                    //     tf.as_str(),
+                    //     resampled_candles.len()
+                    // );
                     let mut candles = heartbeat.candles[tf].clone();
                     candles.append(&mut resampled_candles);
                     // Calc metrics on new candle vec
@@ -343,7 +343,7 @@ impl Mita {
             }
             // Insert new candles
             let new_candles = &map_candles[&self.hbtf][map_candles[&self.hbtf].len() - n..];
-            println!("New hb candles to insert: {:?}", new_candles);
+            // println!("New hb candles to insert: {:?}", new_candles);
             self.insert_candles(market, new_candles.to_vec()).await;
             // Insert new metrics
             for metric in metrics.iter() {
