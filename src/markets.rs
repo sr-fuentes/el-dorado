@@ -236,13 +236,20 @@ impl Inquisidor {
                 .unwrap();
             let (market_id, mita_current) = (market_detail.market_id, market_detail.mita.clone());
             let proposed_mita = proposal.get(&rank).map(|m| m.to_string());
+            // If previous mita is none AND the proposal is not none - set proposal to mita-09 as
+            // It will need time to catch up and should not be streamed immediately
+            let mita_proposed = if mita_current == None && proposed_mita != None {
+                Some("mita-09".to_string())
+            } else {
+                proposed_mita
+            };
             let new_rank = MarketRank {
                 market_id,
                 market_name: market.name.clone(),
                 rank,
                 rank_prev,
                 mita_current,
-                mita_proposed: proposed_mita,
+                mita_proposed,
                 usd_volume_24h: market.volume_usd24h.round(),
                 usd_volume_15t: (market.volume_usd24h / dec!(96)).round(),
                 ats_v1: (market.volume_usd24h / dec!(24) * dec!(0.05)).round_dp(2),
