@@ -46,6 +46,8 @@ pub struct MetricAP {
     pub datetime: DateTime<Utc>,
     pub time_frame: TimeFrame,
     pub lbp: i64,
+    pub high: Decimal,
+    pub low: Decimal,
     pub close: Decimal,
     pub r: Decimal,
     pub h004c: Decimal,
@@ -196,6 +198,8 @@ impl MetricAP {
                 Vec::new(), // [upper wick % of candle]
                 Vec::new(), // [body % of candle]
                 Vec::new(), // [lower wick % of candle]
+                dec!(0),    // high
+                dec!(0),    // low
             ),
             |(
                 c,
@@ -210,6 +214,8 @@ impl MetricAP {
                 mut vuw,
                 mut vb,
                 mut vlw,
+                _h,
+                _l,
             ),
              can| {
                 // Map close, high and low to their vecs
@@ -258,7 +264,7 @@ impl MetricAP {
                     false => (can.open.min(can.close) - can.low) / hl,
                 };
                 vlw.push(lwp);
-                (can.close, vc, vh, vl, vv, va, vn, vr, vtr, vuw, vb, vlw)
+                (can.close, vc, vh, vl, vv, va, vn, vr, vtr, vuw, vb, vlw, can.high, can.low)
             },
         );
         // Create empty vec to hold metrics
@@ -314,6 +320,8 @@ impl MetricAP {
                 datetime,
                 time_frame: tf,
                 lbp: *lbp,
+                high: vecs.12,
+                low: vecs.13,
                 close: vecs.0,
                 r: vecs.7[n - 1].round_dp(8),
                 h004c: dons[0],
@@ -370,7 +378,8 @@ impl MetricAP {
 pub async fn insert_metric_ap(pool: &PgPool, metric: &MetricAP) -> Result<(), sqlx::Error> {
     let sql = r#"
         INSERT INTO metrics_ap (
-            exchange_name, market_name, datetime, time_frame, lbp, close, r, H004R, H004C, L004R,
+            exchange_name, market_name, datetime, time_frame, lbp, high, low, close, r, H004R, 
+            H004C, L004R,
             L004C, H008R, H008C, L008R, L008C, H012R, H012C, L012R,
             L012C, H024R, H024C, L024R, L024C, H048R, H048C, L048R,
             L048C, H096R, H096C, L096R, L096C, H192R, H192C, L192R,
@@ -378,7 +387,8 @@ pub async fn insert_metric_ap(pool: &PgPool, metric: &MetricAP) -> Result<(), sq
             ofs, vs, rs, n, trs, uws, mbs, lws, ma, vw, insert_ts)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
             $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35,
-            $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, now())
+            $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52,
+            $53, now())
         "#;
     sqlx::query(sql)
         .bind(metric.exchange_name.as_str())
@@ -386,6 +396,8 @@ pub async fn insert_metric_ap(pool: &PgPool, metric: &MetricAP) -> Result<(), sq
         .bind(metric.datetime)
         .bind(metric.time_frame.as_str())
         .bind(metric.lbp)
+        .bind(metric.high)
+        .bind(metric.low)
         .bind(metric.close)
         .bind(metric.r)
         .bind(metric.h004h)
