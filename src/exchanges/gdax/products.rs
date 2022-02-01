@@ -1,8 +1,9 @@
-use serde::{Deserialize, Serialize};
+use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
-#[serde(rename_all="snake_case")]
+#[serde(rename_all = "snake_case")]
 pub struct Product {
     pub id: String,
     pub base_currency: String,
@@ -24,5 +25,14 @@ pub struct Product {
     pub status: String,
     pub status_message: String,
     pub auction_mode: bool,
+}
 
+#[derive(Clone, Deserialize, Serialize, Debug)]
+#[serde(rename_all = "snake_case")]
+pub struct Trade {
+    pub trade_id: i64,
+    pub side: String,
+    pub size: Decimal,
+    pub price: Decimal,
+    pub time: DateTime<Utc>,
 }
