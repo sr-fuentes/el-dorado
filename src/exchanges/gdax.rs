@@ -1,7 +1,7 @@
 mod client;
 mod error;
-mod markets;
+mod products;
 
 pub use client::*;
 pub use error::*;
-pub use markets::*;
+pub use products::*;
