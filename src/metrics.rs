@@ -179,6 +179,7 @@ impl MetricAP {
         // Get look back periods for TimeFrame
         let lbps = tf.lbps();
         let n = candles.len();
+        let n_i64 = n as i64;
         let datetime = candles[n - 1].datetime;
         // Iterate through candles and return Vecs of Decimals to use for calculations
         let vecs = candles.iter().fold(
@@ -267,22 +268,32 @@ impl MetricAP {
         let ema1 = Metric::ewma(&vecs.1, 7).round_dp(8);
         let ema2 = Metric::ewma(&vecs.1, 30).round_dp(8);
         let ema3 = Metric::ewma(&vecs.1, 90).round_dp(8);
-        let mv1: Decimal = (vecs.5[n - 7..].iter().sum::<Decimal>()
-            / vecs.4[n - 7..].iter().sum::<Decimal>())
+        let mvr = if n_i64.ge(&7) { n - 7 } else { 0 };
+        let mv1: Decimal = (vecs.5[mvr..].iter().sum::<Decimal>()
+            / vecs.4[mvr..].iter().sum::<Decimal>())
         .round_dp(8);
-        let mv2: Decimal = (vecs.5[n - 30..].iter().sum::<Decimal>()
-            / vecs.4[n - 30..].iter().sum::<Decimal>())
+        let mvr = if n_i64.ge(&30) { n - 30 } else { 0 };
+        let mv2: Decimal = (vecs.5[mvr..].iter().sum::<Decimal>()
+            / vecs.4[mvr..].iter().sum::<Decimal>())
         .round_dp(8);
-        let mv3: Decimal = (vecs.5[n - 90..].iter().sum::<Decimal>()
-            / vecs.4[n - 90..].iter().sum::<Decimal>())
+        let mvr = if n_i64.ge(&90) { n - 90 } else { 0 };
+        let mv3: Decimal = (vecs.5[mvr..].iter().sum::<Decimal>()
+            / vecs.4[mvr..].iter().sum::<Decimal>())
         .round_dp(8);
         // For each look back period, calc period specific metrics
         for lbp in lbps.iter() {
             // Set slice ranges
-            let range_start = (n - *lbp as usize).max(0);
-            println!("N / LBP / range_start: {} {} {}", n, lbp, range_start);
-            let range_shift_start = (range_start - 1).max(0);
+            let range_start = if n_i64.ge(lbp) {
+                n - *lbp as usize
+            } else {
+                usize::MIN
+            };
+            let range_shift_start = if range_start == 0 { 0 } else { range_start - 1 };
             let range_shift_end = n - 1;
+            // println!(
+            //     "N / n_i64 / LBP / range_start / rss / rse: {} {} {} {} {} {}",
+            //     n, n_i64, lbp, range_start, range_shift_start, range_shift_end
+            // );
             // println!("Look Back Period: {}", lbp);
             // Calc metrics
             let atr = Metric::ewma(&vecs.8, *lbp);
