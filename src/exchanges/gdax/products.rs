@@ -39,7 +39,43 @@ pub struct Trade {
 }
 
 impl RestClient {
+    pub async fn get_products(&self) -> Result<Vec<Product>, RestError> {
+        self.get("/products", None).await
+    }
+
     pub async fn get_product(&self, product_name: &str) -> Result<Product, RestError> {
         self.get(&format!("/products/{}", product_name), None).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::exchanges::gdax::*;
+
+    #[tokio::test]
+    async fn get_product_returns_all_products() {
+        let client = RestClient::new();
+        let products = client.get_products().await.expect("Failed to get all products.");
+        println!("Products: {:?}", products) 
+    }
+
+    #[tokio::test]
+    async fn get_products_returns_specific_product() {
+        let client = RestClient::new();
+        let product_name = "BTC-USD";
+        let product = client.get_product(&product_name).await.expect("Failed to get BTC-USD product.");
+        println!("Product: {:?}", product) 
+    }
+
+    #[tokio::test]
+    async fn reqwest_to_gdax_works() {
+        let response = reqwest::get("https://api.pro.coinbase.com/products")
+        .await
+        // each response is wrapped in a `Result` type
+        // we'll unwrap here for simplicity
+        .unwrap()
+        .text()
+        .await;
+    println!("{:?}", response);
     }
 }
