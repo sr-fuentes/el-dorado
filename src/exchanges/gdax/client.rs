@@ -10,11 +10,12 @@ pub struct RestClient {
 }
 
 impl RestClient {
-    pub const ENDPOINT: &'static str = "https://api.pro.coinbase.com";
+    pub const ENDPOINT: &'static str = "https://api.exchange.coinbase.com";
 
     pub fn new() -> Self {
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(10))
+            .user_agent("ALMEJAL")
             .build()
             .unwrap();
         Self {
@@ -47,13 +48,17 @@ impl RestClient {
             }
         });
 
+        println!("Params: {:?}", params);
+
         let response = self
             .client
             .request(method, format!("{}{}", self.endpoint, path))
             .query(&params)
+            .header("ContentType", "application/json")
             .send()
             .await?;
 
+        println!("Response: {:?}", response);
         match response.error_for_status() {
             Ok(res) => {
                 let res_bytes = res.bytes().await?;
@@ -72,6 +77,7 @@ impl RestClient {
             }
             Err(e) => {
                 println!("Reqwest status error: {:?}", e.status());
+                println!("URL: {:?}", e.url());
                 Err(e.into())
             }
         }
