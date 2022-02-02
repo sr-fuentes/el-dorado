@@ -1,3 +1,4 @@
+use super::{RestClient, RestError};
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -35,4 +36,10 @@ pub struct Trade {
     pub size: Decimal,
     pub price: Decimal,
     pub time: DateTime<Utc>,
+}
+
+impl RestClient {
+    pub async fn get_product(&self, product_name: &str) -> Result<Product, RestError> {
+        self.get(&format!("/products/{}", product_name), None).await
+    }
 }
