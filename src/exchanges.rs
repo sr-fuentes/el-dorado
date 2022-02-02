@@ -7,6 +7,7 @@ use std::convert::{TryFrom, TryInto};
 use uuid::Uuid;
 
 pub mod ftx;
+pub mod gdax;
 
 #[derive(Debug, PartialEq, Eq, Clone, sqlx::Type)]
 pub struct Exchange {

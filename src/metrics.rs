@@ -264,7 +264,9 @@ impl MetricAP {
                     false => (can.open.min(can.close) - can.low) / hl,
                 };
                 vlw.push(lwp);
-                (can.close, vc, vh, vl, vv, va, vn, vr, vtr, vuw, vb, vlw, can.high, can.low)
+                (
+                    can.close, vc, vh, vl, vv, va, vn, vr, vtr, vuw, vb, vlw, can.high, can.low,
+                )
             },
         );
         // Create empty vec to hold metrics
