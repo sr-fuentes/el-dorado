@@ -17,7 +17,7 @@ pub struct Product {
     pub min_market_funds: Decimal, // Can this be int?
     pub max_market_funds: Decimal, // Can this be int?
     pub margin_enabled: bool,
-    pub fx_stablecoind: Option<bool>,
+    pub fx_stablecoin: Option<bool>,
     pub max_slippage_percentage: Option<Decimal>,
     pub post_only: bool,
     pub limit_only: bool,
