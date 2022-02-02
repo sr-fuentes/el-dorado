@@ -60,6 +60,24 @@ impl RestClient {
         self.get(&format!("/products/{}", product_name), None).await
     }
 
+    pub async fn get_trades(
+        &self,
+        product_name: &str,
+        limit: Option<i32>,
+        before: Option<i32>,
+        after: Option<i32>,
+    ) -> Result<Vec<Trade>, RestError> {
+        self.get(
+            &format!("/products/{}/trades", product_name),
+            Some(json!({
+                "limit": limit,
+                "before": before,
+                "after": after,
+            })),
+        )
+        .await
+    }
+
     // API will return 300 candles maximum, if start and end are used, both fields need to be
     // provided. Granularity can be 60, 300, 900, 3600, 21600, 86400 only. If there are no trades
     // in a bucket there will be no candle returned. Start and End are inclusive. To get one candle
@@ -119,6 +137,17 @@ mod tests {
             .text()
             .await;
         println!("{:?}", response);
+    }
+
+    #[tokio::test]
+    async fn get_trades_returns_array_of_trades() {
+        let client = RestClient::new();
+        let product_name = "BTC-USD";
+        let trades = client
+            .get_trades(&product_name, None, None, None)
+            .await
+            .expect("Failed to get BTC-USD product.");
+        println!("Trades: {:?}", trades)
     }
 
     #[tokio::test]
