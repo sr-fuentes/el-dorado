@@ -62,7 +62,8 @@ impl RestClient {
 
     // API will return 300 candles maximum, if start and end are used, both fields need to be
     // provided. Granularity can be 60, 300, 900, 3600, 21600, 86400 only. If there are no trades
-    // in a bucket there will be no candle returned.
+    // in a bucket there will be no candle returned. Start and End are inclusive. To get one candle
+    // set Start = End
     pub async fn get_candles(
         &self,
         product_name: &str,
