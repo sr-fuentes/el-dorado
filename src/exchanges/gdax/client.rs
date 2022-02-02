@@ -1,4 +1,4 @@
-use super::{RestError};
+use super::RestError;
 use reqwest::{Client, Method};
 use serde::de::DeserializeOwned;
 use serde_json::{from_reader, Map, Value};
