@@ -151,6 +151,18 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn get_trades_after_returns_array_of_trades() {
+        let client = RestClient::new();
+        let product_name = "BTC-USD";
+        let trades = client
+            .get_trades(&product_name, None, None, Some(375128017))
+            .await
+            .expect("Failed to get BTC-USD product.");
+        println!("Trades: {:?}", trades);
+        println!("N Trades: {:?}", trades.len());
+    }
+
+    #[tokio::test]
     async fn get_candles_returns_array_of_candles() {
         let client = RestClient::new();
         let product_name = "BTC-USD";
