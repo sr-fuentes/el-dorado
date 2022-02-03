@@ -255,7 +255,7 @@ mod tests {
 
         // Get last 10 BTC/USD trades
         let trades = client
-            .get_trades(&market.market_name, Some(10), None, Some(Utc::now()))
+            .get_ftx_trades(&market.market_name, Some(10), None, Some(Utc::now()))
             .await
             .expect("Failed to get last 10 BTC/USD trades.");
 
