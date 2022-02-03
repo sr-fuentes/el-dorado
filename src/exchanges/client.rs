@@ -1,6 +1,6 @@
 use crate::exchanges::{error::RestError, ExchangeName};
-use reqwest::{Client, Method};
-use serde::de::DeserializeOwned;
+use reqwest::{Client, Method, Response};
+use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{from_reader, Map, Value};
 
 #[derive(Debug)]
@@ -8,6 +8,19 @@ pub struct RestClient {
     pub header: &'static str,
     pub endpoint: &'static str,
     pub client: Client,
+    pub exchange: ExchangeName,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct FtxSuccessResponse<T> {
+    pub success: bool,
+    pub result: T,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct FtxErrorResponse {
+    pub success: bool,
+    pub error: String,
 }
 
 impl RestClient {
@@ -41,6 +54,102 @@ impl RestClient {
             header,
             endpoint,
             client,
+            exchange: *exchange,
+        }
+    }
+
+    pub async fn get<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        params: Option<Value>,
+    ) -> Result<T, RestError> {
+        self.request(Method::GET, path, params).await
+    }
+
+    pub async fn request<T: DeserializeOwned>(
+        &self,
+        method: Method,
+        path: &str,
+        params: Option<Value>,
+    ) -> Result<T, RestError> {
+        let params = params.map(|value| {
+            if let Value::Object(map) = value {
+                map.into_iter()
+                    .filter(|(_, v)| v != &Value::Null)
+                    .collect::<Map<String, Value>>()
+            } else {
+                panic!("Invalid params.");
+            }
+        });
+
+        let response = self
+            .client
+            .request(method, format!("{}{}", self.endpoint, path))
+            .query(&params)
+            .header("ContentType", "application/json")
+            .send()
+            .await?;
+
+        match self.exchange {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                self.handle_ftx_response(response).await
+            },
+            ExchangeName::Gdax => {
+                self.handle_gdax_response(response).await
+            },
+        }
+    }
+
+    pub async fn handle_ftx_response<T: DeserializeOwned>(&self, response: Response) -> Result<T, RestError> {
+        match response.error_for_status() {
+            Ok(res) => {
+                let res_bytes = res.bytes().await?;
+                match from_reader(&*res_bytes) {
+                    Ok(FtxSuccessResponse { result, .. }) => Ok(result),
+                    Err(e) => {
+                        if let Ok(FtxErrorResponse { error, .. }) = from_reader(&*res_bytes) {
+                            Err(RestError::Api(error))
+                        } else {
+                            println!(
+                                "Reqwest resp: {:?}",
+                                std::str::from_utf8(&res_bytes).unwrap()
+                            );
+                            println!("Error: {:?}", e.to_string());
+                            eprintln!("Errorpl: {:?}", e);
+                            Err(e.into())
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                println!("Reqwest status error: {:?}", e.status());
+                Err(e.into())
+            }
+        }
+    }
+
+    pub async fn handle_gdax_response<T: DeserializeOwned>(&self, response: Response) -> Result<T, RestError> {
+        match response.error_for_status() {
+            Ok(res) => {
+                let res_bytes = res.bytes().await?;
+                match from_reader(&*res_bytes) {
+                    Ok(result) => Ok(result),
+                    Err(e) => {
+                        println!(
+                            "Reqwest resp: {:?}",
+                            std::str::from_utf8(&res_bytes).unwrap()
+                        );
+                        println!("Error: {:?}", e.to_string());
+                        eprintln!("Errorpl: {:?}", e);
+                        Err(e.into())
+                    }
+                }
+            }
+            Err(e) => {
+                println!("Reqwest status error: {:?}", e.status());
+                println!("URL: {:?}", e.url());
+                Err(e.into())
+            }
         }
     }
 }
