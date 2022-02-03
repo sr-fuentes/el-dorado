@@ -1,4 +1,4 @@
-use super::{RestClient, RestError};
+use crate::exchanges::{client::RestClient, error::RestError};
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use rust_decimal::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -52,15 +52,15 @@ pub struct Candle {
 }
 
 impl RestClient {
-    pub async fn get_products(&self) -> Result<Vec<Product>, RestError> {
+    pub async fn get_gdax_products(&self) -> Result<Vec<Product>, RestError> {
         self.get("/products", None).await
     }
 
-    pub async fn get_product(&self, product_name: &str) -> Result<Product, RestError> {
+    pub async fn get_gdax_product(&self, product_name: &str) -> Result<Product, RestError> {
         self.get(&format!("/products/{}", product_name), None).await
     }
 
-    pub async fn get_trades(
+    pub async fn get_gdax_trades(
         &self,
         product_name: &str,
         limit: Option<i32>,
@@ -82,7 +82,7 @@ impl RestClient {
     // provided. Granularity can be 60, 300, 900, 3600, 21600, 86400 only. If there are no trades
     // in a bucket there will be no candle returned. Start and End are inclusive. To get one candle
     // set Start = End
-    pub async fn get_candles(
+    pub async fn get_gdax_candles(
         &self,
         product_name: &str,
         granularity: Option<i32>,
@@ -103,14 +103,14 @@ impl RestClient {
 
 #[cfg(test)]
 mod tests {
-    use crate::exchanges::gdax::*;
+    use crate::exchanges::{ExchangeName, client::RestClient};
     use chrono::{TimeZone, Utc};
 
     #[tokio::test]
     async fn get_product_returns_all_products() {
-        let client = RestClient::new();
+        let client = RestClient::new(&ExchangeName::Gdax);
         let products = client
-            .get_products()
+            .get_gdax_products()
             .await
             .expect("Failed to get all products.");
         println!("Products: {:?}", products)
@@ -118,10 +118,10 @@ mod tests {
 
     #[tokio::test]
     async fn get_products_returns_specific_product() {
-        let client = RestClient::new();
+        let client = RestClient::new(&ExchangeName::Gdax);
         let product_name = "BTC-USD";
         let product = client
-            .get_product(&product_name)
+            .get_gdax_product(&product_name)
             .await
             .expect("Failed to get BTC-USD product.");
         println!("Product: {:?}", product)
@@ -141,10 +141,10 @@ mod tests {
 
     #[tokio::test]
     async fn get_trades_returns_array_of_trades() {
-        let client = RestClient::new();
+        let client = RestClient::new(&ExchangeName::Gdax);
         let product_name = "BTC-USD";
         let trades = client
-            .get_trades(&product_name, None, None, None)
+            .get_gdax_trades(&product_name, None, None, None)
             .await
             .expect("Failed to get BTC-USD product.");
         println!("Trades: {:?}", trades)
@@ -152,10 +152,10 @@ mod tests {
 
     #[tokio::test]
     async fn get_trades_after_returns_array_of_trades() {
-        let client = RestClient::new();
+        let client = RestClient::new(&ExchangeName::Gdax);
         let product_name = "BTC-USD";
         let trades = client
-            .get_trades(&product_name, None, None, Some(375128017))
+            .get_gdax_trades(&product_name, None, None, Some(375128017))
             .await
             .expect("Failed to get BTC-USD product.");
         println!("Trades: {:?}", trades);
@@ -164,10 +164,10 @@ mod tests {
 
     #[tokio::test]
     async fn get_candles_returns_array_of_candles() {
-        let client = RestClient::new();
+        let client = RestClient::new(&ExchangeName::Gdax);
         let product_name = "BTC-USD";
         let candles = client
-            .get_candles(&product_name, Some(86400), None, None)
+            .get_gdax_candles(&product_name, Some(86400), None, None)
             .await
             .expect("Failed to get BTC-USD product.");
         println!("Candles: {:?}", candles)
@@ -176,10 +176,10 @@ mod tests {
     #[tokio::test]
     async fn get_candles_daterange_returns_array_of_candles() {
         // Start and end are inclusive. For 1 candle set start = end
-        let client = RestClient::new();
+        let client = RestClient::new(&ExchangeName::Gdax);
         let product_name = "BTC-USD";
         let candles = client
-            .get_candles(
+            .get_gdax_candles(
                 &product_name,
                 Some(86400),
                 Some(Utc.ymd(2022, 1, 1).and_hms(0, 0, 0)),
