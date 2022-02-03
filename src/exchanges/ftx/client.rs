@@ -4,7 +4,7 @@ use futures::{
     task::{Context, Poll},
     Future, SinkExt, Stream, StreamExt,
 };
-use serde::{Deserialize};
+use serde::Deserialize;
 use serde_json::json;
 use std::collections::VecDeque;
 use std::pin::Pin;
@@ -12,7 +12,6 @@ use tokio::net::TcpStream;
 use tokio::time;
 use tokio::time::{Duration, Interval};
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
-
 
 pub struct WsClient {
     channels: Vec<Channel>,

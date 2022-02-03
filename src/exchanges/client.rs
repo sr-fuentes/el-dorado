@@ -1,6 +1,6 @@
 use crate::exchanges::{error::RestError, ExchangeName};
 use reqwest::{Client, Method, Response};
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{from_reader, Map, Value};
 
 #[derive(Debug)]
@@ -91,16 +91,15 @@ impl RestClient {
             .await?;
 
         match self.exchange {
-            ExchangeName::Ftx | ExchangeName::FtxUs => {
-                self.handle_ftx_response(response).await
-            },
-            ExchangeName::Gdax => {
-                self.handle_gdax_response(response).await
-            },
+            ExchangeName::Ftx | ExchangeName::FtxUs => self.handle_ftx_response(response).await,
+            ExchangeName::Gdax => self.handle_gdax_response(response).await,
         }
     }
 
-    pub async fn handle_ftx_response<T: DeserializeOwned>(&self, response: Response) -> Result<T, RestError> {
+    pub async fn handle_ftx_response<T: DeserializeOwned>(
+        &self,
+        response: Response,
+    ) -> Result<T, RestError> {
         match response.error_for_status() {
             Ok(res) => {
                 let res_bytes = res.bytes().await?;
@@ -128,7 +127,10 @@ impl RestClient {
         }
     }
 
-    pub async fn handle_gdax_response<T: DeserializeOwned>(&self, response: Response) -> Result<T, RestError> {
+    pub async fn handle_gdax_response<T: DeserializeOwned>(
+        &self,
+        response: Response,
+    ) -> Result<T, RestError> {
         match response.error_for_status() {
             Ok(res) => {
                 let res_bytes = res.bytes().await?;

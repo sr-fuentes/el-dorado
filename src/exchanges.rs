@@ -6,6 +6,8 @@ use sqlx::PgPool;
 use std::convert::{TryFrom, TryInto};
 use uuid::Uuid;
 
+pub mod client;
+pub mod error;
 pub mod ftx;
 pub mod gdax;
 
@@ -169,7 +171,6 @@ pub async fn insert_new_exchange(pool: &PgPool, exchange: &Exchange) -> Result<(
 mod tests {
     use super::*;
     use crate::configuration::get_configuration;
-    use crate::exchanges::ftx::*;
     use crate::markets::select_market_details;
     use crate::trades::{create_ftx_trade_table, insert_ftx_trades};
 
@@ -250,7 +251,7 @@ mod tests {
             .expect("Failed to create tables.");
 
         // Create rest client
-        let client = RestClient::new_us();
+        let client = crate::exchanges::client::RestClient::new(&ExchangeName::FtxUs);
 
         // Get last 10 BTC/USD trades
         let trades = client
