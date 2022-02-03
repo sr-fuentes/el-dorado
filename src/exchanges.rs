@@ -20,6 +20,7 @@ pub struct Exchange {
 pub enum ExchangeName {
     Ftx,
     FtxUs,
+    Gdax,
 }
 
 impl ExchangeName {
@@ -27,6 +28,7 @@ impl ExchangeName {
         match self {
             ExchangeName::Ftx => "ftx",
             ExchangeName::FtxUs => "ftxus",
+            ExchangeName::Gdax => "gdax",
         }
     }
 }
@@ -38,6 +40,7 @@ impl TryFrom<String> for ExchangeName {
         match s.to_lowercase().as_str() {
             "ftx" => Ok(Self::Ftx),
             "ftxus" => Ok(Self::FtxUs),
+            "gdax" => Ok(Self::Gdax),
             other => Err(format!("{} is not a supported exchange.", other)),
         }
     }
