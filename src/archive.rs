@@ -41,27 +41,29 @@ impl Inquisidor {
             );
             // Select trades associated with candle since we are working with trades
             // separate by exchange
-            let archive_sucess = match market.exchange_name {
+            let archive_success = match market.exchange_name {
                 ExchangeName::Ftx | ExchangeName::FtxUs => {
                     self.archive_ftx_trades(market, candle, &p).await
                 }
                 ExchangeName::Gdax => self.archive_gdax_trades(market, candle, &p).await,
             };
-            // Delete trades from validate table
-            delete_trades_by_time(
-                &self.pool,
-                &market.exchange_name,
-                market,
-                "validated",
-                candle.datetime,
-                candle.datetime + Duration::days(1),
-            )
-            .await
-            .expect("Failed to delete archived trades.");
-            update_candle_archived(&self.pool, &market.market_id, candle)
+            if archive_success {
+                // Delete trades from validate table
+                delete_trades_by_time(
+                    &self.pool,
+                    &market.exchange_name,
+                    market,
+                    "validated",
+                    candle.datetime,
+                    candle.datetime + Duration::days(1),
+                )
                 .await
-                .expect("Failed to update candle archive status.");
-        }
+                .expect("Failed to delete archived trades.");
+                update_candle_archived(&self.pool, &market.market_id, candle)
+                    .await
+                    .expect("Failed to update candle archive status.");
+                }
+            }
     }
 
     pub async fn archive_ftx_trades(
@@ -162,7 +164,7 @@ impl Inquisidor {
 mod test {
     use crate::candles::*;
     use crate::configuration::get_configuration;
-    use crate::exchanges::{ftx::RestClient, ftx::Trade, select_exchanges, ExchangeName};
+    use crate::exchanges::{client::RestClient, ftx::Trade, select_exchanges};
     use crate::markets::{select_market_detail, select_market_ids_by_exchange};
     use crate::trades::select_ftx_trades_by_time;
     use chrono::{Duration, DurationRound};
@@ -196,11 +198,7 @@ mod test {
             .unwrap();
 
         // Get REST client for exchange
-        let client = match exchange.name {
-            ExchangeName::FtxUs => RestClient::new_us(),
-            ExchangeName::Ftx => RestClient::new_intl(),
-            ExchangeName::Gdax => crate::exchanges::gdax::RestClient::new(),
-        };
+        let client = RestClient::new(&exchange.name);
 
         // Get input from config for market to archive
         let market_ids = select_market_ids_by_exchange(&pool, &exchange.name)
