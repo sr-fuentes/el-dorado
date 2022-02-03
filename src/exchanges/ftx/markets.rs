@@ -1,4 +1,4 @@
-use super::{RestClient, RestError};
+use crate::exchanges::{client::RestClient, error::RestError};
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -78,15 +78,15 @@ mod ts_micro_fractions {
 
 impl RestClient {
     // Add `/market` specific API endpoints
-    pub async fn get_markets(&self) -> Result<Vec<Market>, RestError> {
+    pub async fn get_ftx_markets(&self) -> Result<Vec<Market>, RestError> {
         self.get("/markets", None).await
     }
 
-    pub async fn get_market(&self, market_name: &str) -> Result<Market, RestError> {
+    pub async fn get_ftx_market(&self, market_name: &str) -> Result<Market, RestError> {
         self.get(&format!("/markets/{}", market_name), None).await
     }
 
-    pub async fn get_orderbook(
+    pub async fn get_ftx_orderbook(
         &self,
         market_name: &str,
         depth: Option<u32>,
@@ -100,7 +100,7 @@ impl RestClient {
         .await
     }
 
-    pub async fn get_trades(
+    pub async fn get_ftx_trades(
         &self,
         market_name: &str,
         limit: Option<u32>,
@@ -118,7 +118,7 @@ impl RestClient {
         .await
     }
 
-    pub async fn get_candles(
+    pub async fn get_ftx_candles(
         &self,
         market_name: &str,
         resolution: Option<u32>,
@@ -139,7 +139,7 @@ impl RestClient {
 
 #[cfg(test)]
 mod tests {
-    use crate::exchanges::ftx::*;
+    use crate::exchanges::{client::*, ftx::*, ExchangeName};
     use chrono::{TimeZone, Utc};
 
     #[test]
@@ -175,16 +175,19 @@ mod tests {
 
     #[tokio::test]
     async fn get_markets_returns_all_markets() {
-        let client = RestClient::new_intl();
-        let _markets = client.get_markets().await.expect("Failed to get markets.");
+        let client = RestClient::new(&ExchangeName::FtxUs);
+        let _markets = client
+            .get_ftx_markets()
+            .await
+            .expect("Failed to get markets.");
     }
 
     #[tokio::test]
     async fn get_market_returns_specific_market() {
-        let client = RestClient::new_intl();
+        let client = RestClient::new(&ExchangeName::Ftx);
         let market_name = "BTC-PERP ";
         let market = client
-            .get_market(&market_name)
+            .get_ftx_market(&market_name)
             .await
             .expect("Failed to get BTC/USD market.");
         println!("{:?}", market);
@@ -247,9 +250,9 @@ mod tests {
 
     #[tokio::test]
     async fn get_orderbook_without_params_returns_orderbook() {
-        let client = RestClient::new_us();
+        let client = RestClient::new(&ExchangeName::FtxUs);
         let orderbook = client
-            .get_orderbook("BTC/USD", None)
+            .get_ftx_orderbook("BTC/USD", None)
             .await
             .expect("Failed to get orderbook.");
         println!("Orderbook: {:?}", orderbook);
@@ -257,9 +260,9 @@ mod tests {
 
     #[tokio::test]
     async fn get_orderbook_with_params_returns_orderbook() {
-        let client = RestClient::new_us();
+        let client = RestClient::new(&ExchangeName::FtxUs);
         let orderbook = client
-            .get_orderbook("BTC/USD", Some(300))
+            .get_ftx_orderbook("BTC/USD", Some(300))
             .await
             .expect("Failed to load BTC/USD orderbook.");
         println!("Orderbook: {:?}", orderbook);
@@ -288,9 +291,9 @@ mod tests {
 
     #[tokio::test]
     async fn get_trades_without_params_returns_trades() {
-        let client = RestClient::new_us();
+        let client = RestClient::new(&ExchangeName::FtxUs);
         let trades = client
-            .get_trades("BTC/USD", None, None, None)
+            .get_ftx_trades("BTC/USD", None, None, None)
             .await
             .expect("Failed to load BTC/USD trades.");
         println!("Trades: {:?}", trades);
@@ -298,9 +301,9 @@ mod tests {
 
     #[tokio::test]
     async fn get_trades_with_params_returns_trades() {
-        let client = RestClient::new_us();
+        let client = RestClient::new(&ExchangeName::FtxUs);
         let trades = client
-            .get_trades(
+            .get_ftx_trades(
                 "SOL/USD",
                 Some(100),
                 None,
