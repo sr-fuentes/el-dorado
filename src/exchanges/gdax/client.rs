@@ -1,4 +1,4 @@
-use super::RestError;
+use crate::exchanges::error::RestError;
 use reqwest::{Client, Method};
 use serde::de::DeserializeOwned;
 use serde_json::{from_reader, Map, Value};
