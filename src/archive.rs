@@ -1,4 +1,5 @@
 use crate::candles::*;
+use crate::exchanges::ExchangeName;
 use crate::inquisidor::Inquisidor;
 use crate::markets::{select_markets_active, MarketDetail};
 use crate::trades::*;
@@ -38,45 +39,14 @@ impl Inquisidor {
                 "Archiving {:?} - {} {:?} daily trades.",
                 &market.exchange_name, &market.market_name, &candle.datetime
             );
-            // Select trades associated with candle
-            let trades_to_archive = select_ftx_trades_by_time(
-                &self.pool,
-                &market.exchange_name,
-                market,
-                "validated",
-                candle.datetime,
-                candle.datetime + Duration::days(1),
-            )
-            .await
-            .expect("Failed to fetch validated trades.");
-            // Check the number of trades selected == trade count from candle
-            if trades_to_archive.len() as i64 != candle.trade_count {
-                println!(
-                    "Trade count does not match on candle. Candle: {}, Trade Count {}",
-                    candle.trade_count,
-                    trades_to_archive.len()
-                );
-                // Insert count validation
-                insert_candle_count_validation(
-                    &self.pool,
-                    market.exchange_name.as_str(),
-                    &market.market_id,
-                    &candle.datetime,
-                )
-                .await
-                .expect("Failed to create count validation.");
-                continue;
-            }
-            // Define filename = TICKER_YYYYMMDD.csv
-            let f = format!("{}_{}.csv", market.as_strip(), candle.datetime.format("%F"));
-            // Set filepath and file name
-            let fp = std::path::Path::new(&p).join(f);
-            // Write trades to file
-            let mut wtr = Writer::from_path(fp).expect("Failed to open file.");
-            for trade in trades_to_archive.iter() {
-                wtr.serialize(trade).expect("Failed to serialize trade.");
-            }
-            wtr.flush().expect("Failed to flush wtr.");
+            // Select trades associated with candle since we are working with trades
+            // separate by exchange
+            let archive_sucess = match market.exchange_name {
+                ExchangeName::Ftx | ExchangeName::FtxUs => {
+                    self.archive_ftx_trades(market, candle, &p).await
+                }
+                ExchangeName::Gdax => self.archive_gdax_trades(market, candle, &p).await,
+            };
             // Delete trades from validate table
             delete_trades_by_time(
                 &self.pool,
@@ -92,6 +62,99 @@ impl Inquisidor {
                 .await
                 .expect("Failed to update candle archive status.");
         }
+    }
+
+    pub async fn archive_ftx_trades(
+        &self,
+        market: &MarketDetail,
+        candle: &DailyCandle,
+        path: &str,
+    ) -> bool {
+        let trades_to_archive = select_ftx_trades_by_time(
+            &self.pool,
+            &market.exchange_name,
+            market,
+            "validated",
+            candle.datetime,
+            candle.datetime + Duration::days(1),
+        )
+        .await
+        .expect("Failed to fetch validated trades.");
+        // Check the number of trades selected == trade count from candle
+        if trades_to_archive.len() as i64 != candle.trade_count {
+            println!(
+                "Trade count does not match on candle. Candle: {}, Trade Count {}",
+                candle.trade_count,
+                trades_to_archive.len()
+            );
+            // Insert count validation
+            insert_candle_count_validation(
+                &self.pool,
+                market.exchange_name.as_str(),
+                &market.market_id,
+                &candle.datetime,
+            )
+            .await
+            .expect("Failed to create count validation.");
+            return false;
+        }
+        // Define filename = TICKER_YYYYMMDD.csv
+        let f = format!("{}_{}.csv", market.as_strip(), candle.datetime.format("%F"));
+        // Set filepath and file name
+        let fp = std::path::Path::new(path).join(f);
+        // Write trades to file
+        let mut wtr = Writer::from_path(fp).expect("Failed to open file.");
+        for trade in trades_to_archive.iter() {
+            wtr.serialize(trade).expect("Failed to serialize trade.");
+        }
+        wtr.flush().expect("Failed to flush wtr.");
+        true
+    }
+
+    pub async fn archive_gdax_trades(
+        &self,
+        market: &MarketDetail,
+        candle: &DailyCandle,
+        path: &str,
+    ) -> bool {
+        let trades_to_archive = select_gdax_trades_by_time(
+            &self.pool,
+            market,
+            "validated",
+            candle.datetime,
+            candle.datetime + Duration::days(1),
+        )
+        .await
+        .expect("Failed to fetch validated trades.");
+        // Check the number of trades selected == trade count from candle
+        if trades_to_archive.len() as i64 != candle.trade_count {
+            println!(
+                "Trade count does not match on candle. Candle: {}, Trade Count {}",
+                candle.trade_count,
+                trades_to_archive.len()
+            );
+            // Insert count validation
+            insert_candle_count_validation(
+                &self.pool,
+                market.exchange_name.as_str(),
+                &market.market_id,
+                &candle.datetime,
+            )
+            .await
+            .expect("Failed to create count validation.");
+            return false;
+        }
+        // Define filename = TICKER_YYYYMMDD.csv
+        let f = format!("{}_{}.csv", market.as_strip(), candle.datetime.format("%F"));
+        // Set filepath and file name
+        let fp = std::path::Path::new(path).join(f);
+        // Write trades to file
+        let mut wtr = Writer::from_path(fp).expect("Failed to open file.");
+        for trade in trades_to_archive.iter() {
+            wtr.serialize(trade).expect("Failed to serialize trade.");
+        }
+        wtr.flush().expect("Failed to flush wtr.");
+        true
     }
 }
 
@@ -136,6 +199,7 @@ mod test {
         let client = match exchange.name {
             ExchangeName::FtxUs => RestClient::new_us(),
             ExchangeName::Ftx => RestClient::new_intl(),
+            ExchangeName::Gdax => crate::exchanges::gdax::RestClient::new(),
         };
 
         // Get input from config for market to archive
