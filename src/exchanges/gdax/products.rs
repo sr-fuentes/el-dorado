@@ -103,7 +103,7 @@ impl RestClient {
 
 #[cfg(test)]
 mod tests {
-    use crate::exchanges::{ExchangeName, client::RestClient};
+    use crate::exchanges::{client::RestClient, ExchangeName};
     use chrono::{TimeZone, Utc};
 
     #[tokio::test]
