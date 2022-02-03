@@ -1,5 +1,5 @@
 use super::{RestClient, RestError};
-use chrono::{DateTime, Utc, serde::ts_seconds};
+use chrono::{serde::ts_seconds, DateTime, Utc};
 use rust_decimal::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -179,10 +179,12 @@ mod tests {
         let client = RestClient::new();
         let product_name = "BTC-USD";
         let candles = client
-            .get_candles(&product_name, 
-                Some(86400), 
-                Some(Utc.ymd(2022,1,1).and_hms(0,0,0)), 
-                Some(Utc.ymd(2022,1,1).and_hms(0,0,0)))
+            .get_candles(
+                &product_name,
+                Some(86400),
+                Some(Utc.ymd(2022, 1, 1).and_hms(0, 0, 0)),
+                Some(Utc.ymd(2022, 1, 1).and_hms(0, 0, 0)),
+            )
             .await
             .expect("Failed to get BTC-USD product.");
         println!("Candles: {:?}", candles)
