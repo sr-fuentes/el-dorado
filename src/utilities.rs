@@ -1,3 +1,5 @@
+use chrono::{DateTime, Utc};
+use rust_decimal::prelude::*;
 use std::io::{self, Write};
 
 pub fn get_input<U: std::str::FromStr>(prompt: &str) -> U {
@@ -21,6 +23,15 @@ pub fn get_input<U: std::str::FromStr>(prompt: &str) -> U {
         };
         return input;
     }
+}
+
+pub trait Trade {
+    fn trade_id(&self) -> i64;
+    fn price(&self) -> Decimal;
+    fn size(&self) -> Decimal;
+    fn side(&self) -> String;
+    fn liquidation(&self) -> bool;
+    fn time(&self) -> DateTime<Utc>;
 }
 
 #[cfg(test)]
