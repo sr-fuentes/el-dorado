@@ -1,7 +1,7 @@
 use crate::exchanges::{client::RestClient, error::RestError};
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::json;
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
@@ -154,13 +154,13 @@ impl RestClient {
         .await
     }
 
-    pub async fn get_ftx_candles(
+    pub async fn get_ftx_candles<T: DeserializeOwned>(
         &self,
         market_name: &str,
         resolution: Option<u32>,
         start_time: Option<DateTime<Utc>>,
         end_time: Option<DateTime<Utc>>,
-    ) -> Result<Vec<Candle>, RestError> {
+    ) -> Result<Vec<T>, RestError> {
         self.get(
             &format!("/markets/{}/candles", market_name),
             Some(json!({
