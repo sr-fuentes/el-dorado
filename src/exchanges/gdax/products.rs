@@ -1,7 +1,7 @@
 use crate::exchanges::{client::RestClient, error::RestError};
 use chrono::{serde::ts_seconds, DateTime, Utc};
 use rust_decimal::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
@@ -118,13 +118,13 @@ impl RestClient {
     // provided. Granularity can be 60, 300, 900, 3600, 21600, 86400 only. If there are no trades
     // in a bucket there will be no candle returned. Start and End are inclusive. To get one candle
     // set Start = End
-    pub async fn get_gdax_candles(
+    pub async fn get_gdax_candles<T: DeserializeOwned>(
         &self,
         product_name: &str,
         granularity: Option<i32>,
         start: Option<DateTime<Utc>>,
         end: Option<DateTime<Utc>>,
-    ) -> Result<Vec<Candle>, RestError> {
+    ) -> Result<Vec<T>, RestError> {
         self.get(
             &format!("/products/{}/candles", product_name),
             Some(json!({
@@ -203,10 +203,15 @@ mod tests {
         let client = RestClient::new(&ExchangeName::Gdax);
         let product_name = "BTC-USD";
         let candles = client
-            .get_gdax_candles(&product_name, Some(86400), None, None)
+            .get_gdax_candles::<crate::exchanges::gdax::Candle>(
+                &product_name,
+                Some(86400),
+                None,
+                None,
+            )
             .await
             .expect("Failed to get BTC-USD product.");
-        println!("Candles: {:?}", candles)
+        // println!::<T>("Candles: {:?}", candles)
     }
 
     #[tokio::test]
@@ -215,7 +220,7 @@ mod tests {
         let client = RestClient::new(&ExchangeName::Gdax);
         let product_name = "BTC-USD";
         let candles = client
-            .get_gdax_candles(
+            .get_gdax_candles::<crate::exchanges::gdax::Candle>(
                 &product_name,
                 Some(86400),
                 Some(Utc.ymd(2022, 1, 1).and_hms(0, 0, 0)),
