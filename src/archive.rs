@@ -62,8 +62,8 @@ impl Inquisidor {
                 update_candle_archived(&self.pool, &market.market_id, candle)
                     .await
                     .expect("Failed to update candle archive status.");
-                }
             }
+        }
     }
 
     pub async fn archive_ftx_trades(
