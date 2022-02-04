@@ -1,5 +1,5 @@
 use crate::candles::*;
-use crate::exchanges::{client::RestClient, Exchange};
+use crate::exchanges::{client::RestClient, error::RestError, Exchange, ExchangeName};
 use crate::markets::*;
 use crate::mita::Mita;
 use crate::trades::*;
@@ -12,7 +12,6 @@ impl Mita {
         &self,
         end_source: &str,
     ) {
-        // TODO - MAKE EXCHANGE SPECIFIC - NOT FTX ONLY
         // Get REST client for exchange
         let client = RestClient::new(&self.exchange.name);
         for market in self.markets.iter() {
@@ -23,7 +22,10 @@ impl Mita {
                 .await
             {
                 Ok(c) => c.datetime + Duration::seconds(900),
-                Err(sqlx::Error::RowNotFound) => get_ftx_start(&client, market).await,
+                Err(sqlx::Error::RowNotFound) => match &self.exchange.name {
+                    ExchangeName::Ftx | ExchangeName::FtxUs => get_ftx_start(&client, market).await,
+                    ExchangeName::Gdax => get_gdax_start(&client, market).await,
+                }
                 Err(e) => panic!("Sqlx Error getting start time: {:?}", e),
             };
             let end = match end_source {
@@ -36,7 +38,7 @@ impl Mita {
                         market.market_name
                     );
                     loop {
-                        match select_ftx_trade_first_stream(&self.pool, &self.exchange.name, market)
+                        match select_trade_first_stream(&self.pool, &self.exchange.name, market)
                             .await
                         {
                             Ok(t) => break t.time + Duration::microseconds(1), // set trade time + 1 micro
@@ -61,7 +63,11 @@ impl Mita {
             .await
             .expect("Could not update market status.");
             // Backfill from start to end
-            backfill_ftx(&self.pool, &client, &self.exchange, market, start, end).await;
+            match self.exchange.name {
+                ExchangeName::Ftx | ExchangeName::FtxUs => backfill_ftx(&self.pool, &client, &self.exchange, market, start, end).await,
+                ExchangeName::Gdax => backfill_gdax(),
+
+            };
             // If `eod` end source then run validation on new backfill
             if end_source == "eod" {
                 self.validate_candles(&client, market).await;
@@ -98,7 +104,7 @@ pub async fn backfill_ftx(
             // Prevent 429 errors by only requesting 4 per second
             tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
             let mut new_trades = match client
-                .get_trades(
+                .get_ftx_trades(
                     market.market_name.as_str(),
                     Some(5000),
                     Some(interval_start),
@@ -192,7 +198,7 @@ pub async fn backfill_ftx(
                             // Get previous candle
                             let previous_candle = select_previous_candle(
                                 pool,
-                                exchange.name.as_str(),
+                                &exchange.name,
                                 &market.market_id,
                                 interval_start,
                             )
@@ -222,7 +228,7 @@ pub async fn backfill_ftx(
                     // Insert into candles
                     insert_candle(
                         pool,
-                        exchange.name.as_str(),
+                        &exchange.name,
                         &market.market_id,
                         new_candle,
                         false,
@@ -259,7 +265,7 @@ pub async fn get_ftx_start(client: &RestClient, market: &MarketDetail) -> DateTi
     while start_time < end_time {
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         let new_trades = client
-            .get_trades(market.market_name.as_str(), Some(1), None, Some(start_time))
+            .get_ftx_trades(market.market_name.as_str(), Some(1), None, Some(start_time))
             .await
             .expect("Failed to get trades.");
         println!("New Trades: {:?}", new_trades);
