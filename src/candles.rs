@@ -1,8 +1,11 @@
 use crate::configuration::*;
-use crate::exchanges::{ftx::Candle as CandleFtx, ftx::RestClient, ftx::Trade, ExchangeName};
+use crate::exchanges::{
+    client::RestClient, ftx::Candle as FtxCandle, ExchangeName,
+};
 use crate::markets::{update_market_last_validated, MarketDetail};
 use crate::mita::Mita;
 use crate::trades::*;
+use crate::utilities::Trade;
 use crate::validation::insert_candle_validation;
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal::prelude::*;
@@ -127,42 +130,50 @@ impl Candle {
     // datetime passed as argument. Candle built from trades in the order they are in
     // the Vec, sort before calling this function otherwise Open / Close / Datetime may
     // be incorrect.
-    pub fn new_from_trades(market_id: Uuid, datetime: DateTime<Utc>, trades: &[Trade]) -> Self {
+    pub fn new_from_trades<T: Trade>(
+        market_id: Uuid,
+        datetime: DateTime<Utc>,
+        trades: &[T],
+    ) -> Self {
         let candle_tuple = trades.iter().fold(
             (
-                trades.first().expect("No first trade for candle.").price, // open
-                Decimal::MIN,                                              // high
-                Decimal::MAX,                                              // low
-                dec!(0),                                                   // close
-                dec!(0),                                                   // volume
-                dec!(0),                                                   // volume_net
-                dec!(0),                                                   // volume_liquidation
-                dec!(0),                                                   // value
-                0,                                                         // count
-                0,                                                         // liquidation_count,
-                datetime,                                                  // last_trade_ts
-                "".to_string(),                                            // last_trade_id
-                trades.first().expect("No first trade.").time,             // first_trade_ts
-                trades.first().expect("No first trade.").id.to_string(),   // first_trade_id
+                trades.first().expect("No first trade for candle.").price(), // open
+                Decimal::MIN,                                                // high
+                Decimal::MAX,                                                // low
+                dec!(0),                                                     // close
+                dec!(0),                                                     // volume
+                dec!(0),                                                     // volume_net
+                dec!(0),                                                     // volume_liquidation
+                dec!(0),                                                     // value
+                0,                                                           // count
+                0,                                                           // liquidation_count,
+                datetime,                                                    // last_trade_ts
+                "".to_string(),                                              // last_trade_id
+                trades.first().expect("No first trade.").time(),             // first_trade_ts
+                trades
+                    .first()
+                    .expect("No first trade.")
+                    .trade_id()
+                    .to_string(), // first_trade_id
             ),
             |(o, h, l, _c, v, vn, vl, a, n, ln, _ts, _id, fts, fid), t| {
                 (
                     o,
-                    h.max(t.price),
-                    l.min(t.price),
-                    t.price,
-                    v + t.size,
-                    if t.side == "sell" {
-                        vn + (t.size * dec!(-1))
+                    h.max(t.price()),
+                    l.min(t.price()),
+                    t.price(),
+                    v + t.size(),
+                    if t.side() == "sell" {
+                        vn + (t.size() * dec!(-1))
                     } else {
-                        vn + t.size
+                        vn + t.size()
                     },
-                    if t.liquidation { vl + t.size } else { vl },
-                    a + (t.size * t.price),
+                    if t.liquidation() { vl + t.size() } else { vl },
+                    a + (t.size() * t.price()),
                     n + 1,
-                    if t.liquidation { ln + 1 } else { ln },
-                    t.time,
-                    t.id.to_string(),
+                    if t.liquidation() { ln + 1 } else { ln },
+                    t.time(),
+                    t.trade_id().to_string(),
                     fts,
                     fid,
                 )
@@ -312,11 +323,11 @@ impl Mita {
         validate_01d_candles(&self.pool, client, &self.exchange.name, market).await;
     }
 
-    pub async fn create_interval_candles(
+    pub async fn create_interval_candles<T: Trade + std::clone::Clone>(
         &self,
         market: &MarketDetail,
         date_range: Vec<DateTime<Utc>>,
-        trades: &[Trade],
+        trades: &[T],
     ) -> Vec<Candle> {
         // Takes a vec of trades and a date range and builds candles for each date in the range
         // Get previous candle - to be used to forward fill if there are no trades
@@ -329,9 +340,9 @@ impl Mita {
         .await
         .expect("No previous candle.");
         let candles = date_range.iter().fold(Vec::new(), |mut v, d| {
-            let mut filtered_trades: Vec<Trade> = trades
+            let mut filtered_trades: Vec<T> = trades
                 .iter()
-                .filter(|t| t.time.duration_trunc(Duration::seconds(900)).unwrap() == *d)
+                .filter(|t| t.time().duration_trunc(Duration::seconds(900)).unwrap() == *d)
                 .cloned()
                 .collect();
             let new_candle = match filtered_trades.len() {
@@ -343,7 +354,7 @@ impl Mita {
                     &previous_candle.last_trade_id.to_string(),
                 ),
                 _ => {
-                    filtered_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
+                    filtered_trades.sort_by(|t1, t2| t1.trade_id().cmp(&t2.trade_id()));
                     Candle::new_from_trades(market.market_id, *d, &filtered_trades)
                 }
             };
@@ -662,7 +673,7 @@ pub async fn validate_01d_candles(
     }
 }
 
-pub fn validate_ftx_candle(candle: &Candle, exchange_candles: &mut Vec<CandleFtx>) -> bool {
+pub fn validate_ftx_candle(candle: &Candle, exchange_candles: &mut Vec<FtxCandle>) -> bool {
     // FTX candle validation on FTX Volume = ED Value, FTX sets open = last trade event if the
     // last trades was in the prior time period.
     // Consider valid if candle.value == exchange_candle.volume.
@@ -699,13 +710,13 @@ pub async fn get_ftx_candles(
     start: DateTime<Utc>,
     mut end_or_last: DateTime<Utc>,
     seconds: u32,
-) -> Vec<CandleFtx> {
+) -> Vec<FtxCandle> {
     // If end = start then FTX will not return any candles, add 1 second if the are equal
     end_or_last = match start == end_or_last {
         true => end_or_last + Duration::seconds(1),
         _ => end_or_last,
     };
-    let mut candles: Vec<CandleFtx> = Vec::new();
+    let mut candles: Vec<FtxCandle> = Vec::new();
     while start < end_or_last {
         // Prevent 429 errors by only requesting 4 per second
         tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
