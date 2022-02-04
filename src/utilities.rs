@@ -34,6 +34,12 @@ pub trait Trade {
     fn time(&self) -> DateTime<Utc>;
 }
 
+pub trait Candle {
+    fn datetime(&self) -> DateTime<Utc>;
+    fn volume(&self) -> Decimal;
+    fn value(&self) -> Decimal;
+}
+
 #[cfg(test)]
 mod tests {
     use crate::exchanges::ftx::Trade;

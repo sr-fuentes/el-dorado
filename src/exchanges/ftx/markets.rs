@@ -88,6 +88,16 @@ pub struct Candle {
     pub volume: Decimal,
 }
 
+impl crate::utilities::Candle for Candle {
+    fn datetime(&self) -> DateTime<Utc> {
+        self.start_time
+    }
+    
+    fn volume(&self) -> Decimal {
+        self.volume
+    }
+}
+
 mod ts_micro_fractions {
     use chrono::{DateTime, TimeZone, Utc};
     use serde::{self, Deserialize, Deserializer};

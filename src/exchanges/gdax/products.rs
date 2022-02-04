@@ -77,6 +77,16 @@ pub struct Candle {
     pub volume: Decimal,
 }
 
+impl crate::utilities::Candle for Candle {
+    fn datetime(&self) -> DateTime<Utc> {
+        self.time
+    }
+
+    fn volume(&self) -> Decimal {
+        self.volume
+    }
+}
+
 impl RestClient {
     pub async fn get_gdax_products(&self) -> Result<Vec<Product>, RestError> {
         self.get("/products", None).await
