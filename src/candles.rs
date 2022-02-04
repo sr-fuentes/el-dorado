@@ -336,7 +336,7 @@ impl Mita {
         // Get previous candle - to be used to forward fill if there are no trades
         let mut previous_candle = select_previous_candle(
             &self.pool,
-            self.exchange.name.as_str(),
+            &self.exchange.name,
             &market.market_id,
             *date_range.first().unwrap(),
         )
@@ -372,7 +372,7 @@ impl Mita {
         for candle in candles.into_iter() {
             insert_candle(
                 &self.pool,
-                self.exchange.name.as_str(),
+                &self.exchange.name,
                 &market.market_id,
                 candle,
                 false,
@@ -385,7 +385,7 @@ impl Mita {
 
 pub async fn create_exchange_candle_table(
     pool: &PgPool,
-    exchange_name: &str,
+    exchange_name: &ExchangeName,
 ) -> Result<(), sqlx::Error> {
     // Create candles table for exchange
     let sql = format!(
@@ -411,7 +411,7 @@ pub async fn create_exchange_candle_table(
             PRIMARY KEY (datetime, market_id)
         )
         "#,
-        exchange_name
+        exchange_name.as_str()
     );
     sqlx::query(&sql).execute(pool).await?;
     Ok(())
@@ -843,7 +843,7 @@ pub async fn get_gdax_candles_daterange<T: crate::utilities::Candle + Deserializ
 
 pub async fn insert_candle(
     pool: &PgPool,
-    exchange_name: &str,
+    exchange_name: &ExchangeName,
     market_id: &Uuid,
     candle: Candle,
     is_validated: bool,
@@ -856,7 +856,7 @@ pub async fn insert_candle(
                 market_id, first_trade_ts, first_trade_id)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
         "#,
-        exchange_name,
+        exchange_name.as_str(),
     );
     sqlx::query(&sql)
         .bind(candle.datetime)
@@ -924,7 +924,7 @@ pub async fn insert_candles_01d(
 
 pub async fn delete_candle(
     pool: &PgPool,
-    exchange_name: &str,
+    exchange_name: &ExchangeName,
     market_id: &Uuid,
     datetime: &DateTime<Utc>,
 ) -> Result<(), sqlx::Error> {
@@ -934,7 +934,7 @@ pub async fn delete_candle(
             WHERE market_id = $1
             AND datetime = $2
         "#,
-        exchange_name,
+        exchange_name.as_str(),
     );
     sqlx::query(&sql)
         .bind(market_id)
@@ -1122,7 +1122,7 @@ pub async fn select_last_01d_candle(
 
 pub async fn select_last_candle(
     pool: &PgPool,
-    exchange_name: &str,
+    exchange_name: &ExchangeName,
     market_id: &Uuid,
 ) -> Result<Candle, sqlx::Error> {
     let sql = format!(
@@ -1131,7 +1131,7 @@ pub async fn select_last_candle(
         WHERE market_id = $1
         ORDER BY datetime DESC
         "#,
-        exchange_name
+        exchange_name.as_str()
     );
     let row = sqlx::query_as::<_, Candle>(&sql)
         .bind(market_id)
@@ -1160,7 +1160,7 @@ pub async fn select_candles_valid_not_archived(
 
 pub async fn select_previous_candle(
     pool: &PgPool,
-    exchange_name: &str,
+    exchange_name: &ExchangeName,
     market_id: &Uuid,
     datetime: DateTime<Utc>,
 ) -> Result<Candle, sqlx::Error> {
@@ -1171,7 +1171,7 @@ pub async fn select_previous_candle(
             AND datetime < $2
             ORDER BY datetime DESC
         "#,
-        exchange_name
+        exchange_name.as_str()
     );
     let row = sqlx::query_as::<_, Candle>(&sql)
         .bind(market_id)
