@@ -92,7 +92,7 @@ impl crate::utilities::Candle for Candle {
     fn datetime(&self) -> DateTime<Utc> {
         self.start_time
     }
-    
+
     fn volume(&self) -> Decimal {
         self.volume
     }
