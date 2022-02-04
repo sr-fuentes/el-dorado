@@ -37,7 +37,6 @@ pub trait Trade {
 pub trait Candle {
     fn datetime(&self) -> DateTime<Utc>;
     fn volume(&self) -> Decimal;
-    fn value(&self) -> Decimal;
 }
 
 #[cfg(test)]
