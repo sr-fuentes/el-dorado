@@ -1,7 +1,5 @@
 use crate::configuration::*;
-use crate::exchanges::{
-    client::RestClient, ftx::Candle as FtxCandle, ExchangeName,
-};
+use crate::exchanges::{client::RestClient, ftx::Candle as FtxCandle, ExchangeName};
 use crate::markets::{update_market_last_validated, MarketDetail};
 use crate::mita::Mita;
 use crate::trades::*;
@@ -10,6 +8,7 @@ use crate::validation::insert_candle_validation;
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
+use serde::de::DeserializeOwned;
 use sqlx::PgPool;
 use std::convert::TryFrom;
 use uuid::Uuid;
@@ -492,7 +491,7 @@ pub async fn create_01d_candles(pool: &PgPool, exchange_name: &ExchangeName, mar
         .expect("Could not insert candles.");
 }
 
-pub async fn validate_hb_candles(
+pub async fn validate_hb_candles<T: crate::utilities::Candle + DeserializeOwned>(
     pool: &PgPool,
     client: &RestClient,
     exchange_name: &ExchangeName,
@@ -506,27 +505,29 @@ pub async fn validate_hb_candles(
     let first_candle = unvalidated_candles.first().unwrap().datetime;
     let last_candle = unvalidated_candles.last().unwrap().datetime;
     // Match exchange because the exchange candles will be in different formats
-    match exchange_name {
+    let mut exchange_candles: Vec<T> = match exchange_name {
         ExchangeName::Ftx | ExchangeName::FtxUs => {
-            let mut exchange_candles =
-                get_ftx_candles(client, market, first_candle, last_candle, 900).await;
-            for unvalidated_candle in unvalidated_candles.iter() {
-                println!(
-                    "Validating {} candle {}.",
-                    &market.market_name, unvalidated_candle.datetime
-                );
-                let is_valid = validate_ftx_candle(unvalidated_candle, &mut exchange_candles);
-                process_validation_result(
-                    pool,
-                    exchange_name,
-                    market,
-                    config,
-                    unvalidated_candle,
-                    is_valid,
-                )
-                .await;
-            }
+            get_ftx_candles_daterange(client, market, first_candle, last_candle, 900).await
         }
+        ExchangeName::Gdax => {
+            get_gdax_candles_daterange(client, market, first_candle, last_candle, 900).await
+        }
+    };
+    for unvalidated_candle in unvalidated_candles.iter() {
+        println!(
+            "Validating {} candle {}.",
+            &market.market_name, unvalidated_candle.datetime
+        );
+        let is_valid = validate_ftx_candle(unvalidated_candle, &mut exchange_candles);
+        process_validation_result(
+            pool,
+            exchange_name,
+            market,
+            config,
+            unvalidated_candle,
+            is_valid,
+        )
+        .await;
     }
 }
 
@@ -673,19 +674,25 @@ pub async fn validate_01d_candles(
     }
 }
 
-pub fn validate_ftx_candle(candle: &Candle, exchange_candles: &mut Vec<FtxCandle>) -> bool {
+pub fn validate_ftx_candle<T: crate::utilities::Candle + DeserializeOwned>(
+    candle: &Candle,
+    exchange_candles: &mut Vec<T>,
+) -> bool {
     // FTX candle validation on FTX Volume = ED Value, FTX sets open = last trade event if the
     // last trades was in the prior time period.
     // Consider valid if candle.value == exchange_candle.volume.
-    let exchange_candle = exchange_candles.iter().find(|c| c.time == candle.datetime);
+    let exchange_candle = exchange_candles
+        .iter()
+        .find(|c| c.datetime() == candle.datetime);
     match exchange_candle {
         Some(c) => {
-            if c.volume == candle.value {
+            if c.volume() == candle.value {
                 true
             } else {
                 println!(
                     "Failed to validate: El-D Val: {:?} Ftx Vol: {:?}",
-                    candle.value, c.volume
+                    candle.value,
+                    c.volume()
                 );
                 false
             }
@@ -704,24 +711,24 @@ pub fn validate_ftx_candle(candle: &Candle, exchange_candles: &mut Vec<FtxCandle
     }
 }
 
-pub async fn get_ftx_candles(
+pub async fn get_ftx_candles_daterange<T: crate::utilities::Candle + DeserializeOwned>(
     client: &RestClient,
     market: &MarketDetail,
     start: DateTime<Utc>,
     mut end_or_last: DateTime<Utc>,
     seconds: u32,
-) -> Vec<FtxCandle> {
+) -> Vec<T> {
     // If end = start then FTX will not return any candles, add 1 second if the are equal
     end_or_last = match start == end_or_last {
         true => end_or_last + Duration::seconds(1),
         _ => end_or_last,
     };
-    let mut candles: Vec<FtxCandle> = Vec::new();
+    let mut candles: Vec<T> = Vec::new();
     while start < end_or_last {
         // Prevent 429 errors by only requesting 4 per second
         tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
         let mut new_candles = client
-            .get_candles(
+            .get_ftx_candles(
                 &market.market_name,
                 Some(seconds),
                 Some(start),
@@ -734,16 +741,32 @@ pub async fn get_ftx_candles(
             candles.append(&mut new_candles);
         };
         // Sort candles to get next last
-        candles.sort_by(|c1, c2| c1.time.cmp(&c2.time));
-        end_or_last = candles.first().unwrap().time;
+        candles.sort_by(|c1, c2| c1.datetime().cmp(&c2.datetime()));
+        end_or_last = candles.first().unwrap().datetime();
         if num_candles < 1501 {
             // Max pagination on candles is 1501
             break;
         }
     }
     // Dedup candles
-    candles.dedup_by(|c1, c2| c1.time == c2.time);
+    candles.dedup_by(|c1, c2| c1.datetime() == c2.datetime());
     candles
+}
+
+pub async fn get_gdax_candles_daterange<T: crate::utilities::Candle + DeserializeOwned>(
+    client: &RestClient,
+    market: &MarketDetail,
+    mut start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    seconds: u32,
+) -> Vec<T> {
+    // Initialize empty vec to hold all exchange candles
+    let mut candles: Vec<T> = Vec::new();
+    let mut next_end = 
+    // GDAX API returns 300 candles per call. Loop until start and end are completed.
+    while start <= end {
+
+    }
 }
 
 pub async fn insert_candle(
