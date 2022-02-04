@@ -1,29 +1,26 @@
 use crate::candles::*;
-use crate::exchanges::{ftx::RestClient, ftx::RestError, Exchange, ExchangeName};
+use crate::exchanges::{client::RestClient, Exchange};
 use crate::markets::*;
 use crate::mita::Mita;
 use crate::trades::*;
 use chrono::{DateTime, Duration, DurationRound, Utc};
+use serde::de::DeserializeOwned;
 use sqlx::PgPool;
 
 impl Mita {
-    pub async fn historical(&self, end_source: &str) {
+    pub async fn historical<T: crate::utilities::Candle + DeserializeOwned>(
+        &self,
+        end_source: &str,
+    ) {
         // TODO - MAKE EXCHANGE SPECIFIC - NOT FTX ONLY
         // Get REST client for exchange
-        let client = match self.exchange.name {
-            ExchangeName::FtxUs => RestClient::new_us(),
-            ExchangeName::Ftx => RestClient::new_intl(),
-        };
+        let client = RestClient::new(&self.exchange.name);
         for market in self.markets.iter() {
             // Validate hb, create and validate 01 candles
-            self.validate_candles(&client, market).await;
+            self.validate_candles::<T>(&client, market).await;
             // Set start and end times for backfill
-            let start = match select_last_candle(
-                &self.pool,
-                self.exchange.name.as_str(),
-                &market.market_id,
-            )
-            .await
+            let start = match select_last_candle(&self.pool, &self.exchange.name, &market.market_id)
+                .await
             {
                 Ok(c) => c.datetime + Duration::seconds(900),
                 Err(sqlx::Error::RowNotFound) => get_ftx_start(&client, market).await,
