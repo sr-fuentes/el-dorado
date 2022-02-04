@@ -49,6 +49,32 @@ pub struct Trade {
     pub time: DateTime<Utc>,
 }
 
+impl crate::utilities::Trade for Trade {
+    fn trade_id(&self) -> i64 {
+        self.id
+    }
+
+    fn price(&self) -> Decimal {
+        self.price
+    }
+
+    fn size(&self) -> Decimal {
+        self.size
+    }
+
+    fn side(&self) -> String {
+        self.side
+    }
+
+    fn liquidation(&self) -> bool {
+        self.liquidation
+    }
+
+    fn time(&self) -> DateTime<Utc> {
+        self.time
+    }
+}
+
 #[derive(Clone, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Candle {
