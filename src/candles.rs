@@ -1236,16 +1236,18 @@ pub async fn update_candle_archived(
 
 #[cfg(test)]
 mod tests {
+    use crate::candles::{
+        resample_candles, select_candles_gte_datetime, Candle, DailyCandle, TimeFrame,
+    };
     use crate::configuration::get_configuration;
     use crate::exchanges::select_exchanges;
+    use crate::exchanges::{client::RestClient, ftx::Trade};
     use crate::markets::{select_market_detail, select_market_ids_by_exchange};
-    use chrono::{TimeZone, Utc, Duration};
+    use chrono::{Duration, TimeZone, Utc};
     use rust_decimal::prelude::*;
     use rust_decimal_macros::dec;
-    use crate::exchanges::{client::RestClient, ftx::Trade};
     use sqlx::PgPool;
     use uuid::Uuid;
-    use crate::candles::{DailyCandle, Candle, TimeFrame, resample_candles, select_candles_gte_datetime};
 
     pub fn sample_trades() -> Vec<Trade> {
         let mut trades: Vec<Trade> = Vec::new();
