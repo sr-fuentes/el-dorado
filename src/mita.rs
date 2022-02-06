@@ -160,7 +160,7 @@ impl Mita {
             // Get start time for candle sync
             let start = match select_last_candle(
                 &self.pool,
-                self.exchange.name.as_str(),
+                &self.exchange.name,
                 &market.market_id,
             )
             .await
