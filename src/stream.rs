@@ -25,6 +25,7 @@ impl Mita {
             ExchangeName::Ftx => WsClient::connect_intl()
                 .await
                 .expect("Could not connect ws."),
+            ExchangeName::Gdax => panic!(),
         };
         // Subscribe to trades channels for each market
         ws.subscribe(channels)
@@ -129,6 +130,7 @@ mod tests {
             ExchangeName::Ftx => WsClient::connect_intl()
                 .await
                 .expect("Could not connect ws."),
+            ExchangeName::Gdax => panic!(),
         };
         ws.subscribe(vec![Channel::Trades(market_id.market_name.to_owned())])
             .await
