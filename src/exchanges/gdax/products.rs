@@ -31,7 +31,7 @@ pub struct Product {
 
 impl crate::utilities::Market for Product {
     fn name(&self) -> String {
-        self.display_name
+        self.id
     }
     fn market_type(&self) -> String {
         "spot".to_string() // GDAX markets are all spot as of 2/2022
@@ -115,7 +115,7 @@ impl crate::utilities::Candle for Candle {
 }
 
 impl RestClient {
-    pub async fn get_gdax_products(&self) -> Result<Vec<Product>, RestError> {
+    pub async fn get_gdax_products<T: DeserializeOwned>(&self) -> Result<Vec<T>, RestError> {
         self.get("/products", None).await
     }
 
@@ -173,7 +173,7 @@ mod tests {
     async fn get_product_returns_all_products() {
         let client = RestClient::new(&ExchangeName::Gdax);
         let products = client
-            .get_gdax_products()
+            .get_gdax_products::<crate::exchanges::gdax::Product>()
             .await
             .expect("Failed to get all products.");
         println!("Products: {:?}", products)
