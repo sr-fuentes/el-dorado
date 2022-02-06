@@ -1,7 +1,5 @@
 use crate::candles::Candle;
-use crate::exchanges::{client::RestClient, error::RestError,
-    select_exchanges, ExchangeName,
-};
+use crate::exchanges::{client::RestClient, error::RestError, select_exchanges, ExchangeName};
 use crate::inquisidor::Inquisidor;
 use crate::utilities::get_input;
 use chrono::{DateTime, Utc};
@@ -144,7 +142,10 @@ impl Inquisidor {
         self.refresh_exchange_markets::<T>(&exchange).await;
     }
 
-    pub async fn refresh_exchange_markets<T: crate::utilities::Market + DeserializeOwned>(&self, exchange: &ExchangeName) {
+    pub async fn refresh_exchange_markets<T: crate::utilities::Market + DeserializeOwned>(
+        &self,
+        exchange: &ExchangeName,
+    ) {
         // Get USD markets from exchange
         let markets: Vec<T> = get_usd_markets(&self.clients[exchange], exchange).await;
         // Get existing markets for exchange from db.
@@ -168,7 +169,11 @@ impl Inquisidor {
         }
     }
 
-    pub async fn update_market_ranks<T: crate::utilities::Market + DeserializeOwned + std::clone::Clone>(&self) {
+    pub async fn update_market_ranks<
+        T: crate::utilities::Market + DeserializeOwned + std::clone::Clone,
+    >(
+        &self,
+    ) {
         // Get user input for exchange to add
         let exchange: String = get_input("Enter Exchange to Rank:");
         // Parse input to see if there is a valid exchange
@@ -200,20 +205,18 @@ impl Inquisidor {
         println!("# exchange markets: {}", markets_exch.len());
         // Filter out non-terminated markets and non-perp markets
         let mut filtered_markets: Vec<T> = match exchange {
-            ExchangeName::Ftx | ExchangeName::FtxUs => {
-                markets_exch
-                    .iter()
-                    .filter(|m| {
-                        m.market_type() == "future"
-                            && !markets_terminated.iter().any(|tm| tm.market_name == m.name())
-                            && m.name().split('-').last() == Some("PERP")
-                    })
-                    .cloned()
-                    .collect()
-            }
-            ExchangeName::Gdax => {
-                markets_exch
-            }
+            ExchangeName::Ftx | ExchangeName::FtxUs => markets_exch
+                .iter()
+                .filter(|m| {
+                    m.market_type() == "future"
+                        && !markets_terminated
+                            .iter()
+                            .any(|tm| tm.market_name == m.name())
+                        && m.name().split('-').last() == Some("PERP")
+                })
+                .cloned()
+                .collect(),
+            ExchangeName::Gdax => markets_exch,
         };
         // println!("Filtered markets: {:?}", filtered_markets);
         // Sort by 24h volume
@@ -354,7 +357,8 @@ impl Inquisidor {
 
 pub async fn get_usd_markets<T: crate::utilities::Market + DeserializeOwned>(
     client: &RestClient,
-    exchange: &ExchangeName) -> Vec<T> {
+    exchange: &ExchangeName,
+) -> Vec<T> {
     let markets = match exchange {
         ExchangeName::FtxUs => get_ftx_usd_markets(client).await,
         ExchangeName::Ftx => get_ftx_usd_markets(client).await,
@@ -366,15 +370,21 @@ pub async fn get_usd_markets<T: crate::utilities::Market + DeserializeOwned>(
     }
 }
 
-pub async fn get_ftx_usd_markets<T: crate::utilities::Market + DeserializeOwned>(client: &RestClient) -> Result<Vec<T>, RestError> {
+pub async fn get_ftx_usd_markets<T: crate::utilities::Market + DeserializeOwned>(
+    client: &RestClient,
+) -> Result<Vec<T>, RestError> {
     // Get markets from exchange
     let mut markets = client.get_ftx_markets().await?;
     // Filter for USD based markets
-    markets.retain(|m: &T| m.quote_currency() == Some("USD".to_string()) || m.market_type() == *"future");
+    markets.retain(|m: &T| {
+        m.quote_currency() == Some("USD".to_string()) || m.market_type() == *"future"
+    });
     Ok(markets)
 }
 
-pub async fn get_gdax_usd_markets<T: crate::utilities::Market + DeserializeOwned>(client: &RestClient) -> Result<Vec<T>, RestError> {
+pub async fn get_gdax_usd_markets<T: crate::utilities::Market + DeserializeOwned>(
+    client: &RestClient,
+) -> Result<Vec<T>, RestError> {
     // Get markets from exchange
     let mut markets = client.get_gdax_products().await?;
     // Filter for USD based markets

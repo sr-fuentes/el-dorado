@@ -261,9 +261,14 @@ mod test {
         // Get exchange candles for validation
         let first_candle = resampled_candles.first().unwrap().datetime;
         let last_candle = resampled_candles.last().unwrap().datetime;
-        let mut exchange_candles =
-            get_ftx_candles_daterange::<crate::exchanges::ftx::Candle>(&client, &market_detail, first_candle, last_candle, 86400)
-                .await;
+        let mut exchange_candles = get_ftx_candles_daterange::<crate::exchanges::ftx::Candle>(
+            &client,
+            &market_detail,
+            first_candle,
+            last_candle,
+            86400,
+        )
+        .await;
 
         // Validate 01d candles - if all 15T candles are validated (trades archived)
         for candle in resampled_candles.iter() {

@@ -25,7 +25,7 @@ impl Mita {
                 Err(sqlx::Error::RowNotFound) => match &self.exchange.name {
                     ExchangeName::Ftx | ExchangeName::FtxUs => get_ftx_start(&client, market).await,
                     ExchangeName::Gdax => get_gdax_start(&client, market).await,
-                }
+                },
                 Err(e) => panic!("Sqlx Error getting start time: {:?}", e),
             };
             let end = match end_source {
@@ -64,9 +64,10 @@ impl Mita {
             .expect("Could not update market status.");
             // Backfill from start to end
             match self.exchange.name {
-                ExchangeName::Ftx | ExchangeName::FtxUs => backfill_ftx(&self.pool, &client, &self.exchange, market, start, end).await,
+                ExchangeName::Ftx | ExchangeName::FtxUs => {
+                    backfill_ftx(&self.pool, &client, &self.exchange, market, start, end).await
+                }
                 ExchangeName::Gdax => backfill_gdax(),
-
             };
             // If `eod` end source then run validation on new backfill
             if end_source == "eod" {
@@ -226,15 +227,9 @@ pub async fn backfill_ftx(
                         }
                     };
                     // Insert into candles
-                    insert_candle(
-                        pool,
-                        &exchange.name,
-                        &market.market_id,
-                        new_candle,
-                        false,
-                    )
-                    .await
-                    .expect("Could not insert new candle.");
+                    insert_candle(pool, &exchange.name, &market.market_id, new_candle, false)
+                        .await
+                        .expect("Could not insert new candle.");
                     println!("Candle {:?} inserted", interval_start);
                     // Delete trades for market between start and end interval
                     insert_delete_ftx_trades(
