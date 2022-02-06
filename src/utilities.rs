@@ -69,6 +69,7 @@ pub trait Market {
     fn base_currency(&self) -> Option<String>;
     fn quote_currency(&self) -> Option<String>;
     fn underlying(&self) -> Option<String>;
+    fn usd_volume_24h(&self) -> Option<Decimal>;
 }
 
 #[cfg(test)]

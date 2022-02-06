@@ -56,6 +56,9 @@ impl crate::utilities::Market for Market {
     fn underlying(&self) -> Option<String> {
         self.underlying
     }
+    fn usd_volume_24h(&self) -> Option<Decimal> {
+        Some(self.volume_usd24h)
+    }
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug)]

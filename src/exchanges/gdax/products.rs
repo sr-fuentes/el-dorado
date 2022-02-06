@@ -54,6 +54,9 @@ impl crate::utilities::Market for Product {
     fn underlying(&self) -> Option<String> {
         None
     }
+    fn usd_volume_24h(&self) -> Option<Decimal> {
+        None
+    }
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
