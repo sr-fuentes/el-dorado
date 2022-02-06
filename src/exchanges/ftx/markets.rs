@@ -31,6 +31,33 @@ pub struct Market {
     pub volume_usd24h: Decimal,
 }
 
+impl crate::utilities::Market for Market {
+    fn name(&self) -> String {
+        self.name
+    }
+    fn market_type(&self) -> String {
+        self.market_type
+    }
+    fn dp_quantity(&self) -> i32 {
+        crate::utilities::min_to_dp(self.size_increment)
+    }
+    fn dp_price(&self) -> i32 {
+        crate::utilities::min_to_dp(self.price_increment)
+    }
+    fn min_quantity(&self) -> Decimal {
+        self.min_provide_size
+    }
+    fn base_currency(&self) -> Option<String> {
+        self.base_currency
+    }
+    fn quote_currency(&self) -> Option<String> {
+        self.quote_currency
+    }
+    fn underlying(&self) -> Option<String> {
+        self.underlying
+    }
+}
+
 #[derive(Clone, Deserialize, Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Orderbook {

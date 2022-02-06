@@ -29,6 +29,33 @@ pub struct Product {
     pub auction_mode: bool,
 }
 
+impl crate::utilities::Market for Product {
+    fn name(&self) -> String {
+        self.display_name
+    }
+    fn market_type(&self) -> String {
+        "spot".to_string() // GDAX markets are all spot as of 2/2022
+    }
+    fn dp_quantity(&self) -> i32 {
+        crate::utilities::min_to_dp(self.base_increment)
+    }
+    fn dp_price(&self) -> i32 {
+        crate::utilities::min_to_dp(self.quote_increment)
+    }
+    fn min_quantity(&self) -> Decimal {
+        self.base_min_size
+    }
+    fn base_currency(&self) -> Option<String> {
+        Some(self.base_currency)
+    }
+    fn quote_currency(&self) -> Option<String> {
+        Some(self.quote_currency)
+    }
+    fn underlying(&self) -> Option<String> {
+        None
+    }
+}
+
 #[derive(Clone, Deserialize, Serialize, Debug)]
 #[serde(rename_all = "snake_case")]
 pub struct Trade {
