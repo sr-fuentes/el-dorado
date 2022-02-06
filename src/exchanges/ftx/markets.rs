@@ -141,7 +141,7 @@ mod ts_micro_fractions {
 
 impl RestClient {
     // Add `/market` specific API endpoints
-    pub async fn get_ftx_markets(&self) -> Result<Vec<Market>, RestError> {
+    pub async fn get_ftx_markets<T: DeserializeOwned>(&self) -> Result<Vec<T>, RestError> {
         self.get("/markets", None).await
     }
 
@@ -240,7 +240,7 @@ mod tests {
     async fn get_markets_returns_all_markets() {
         let client = RestClient::new(&ExchangeName::FtxUs);
         let _markets = client
-            .get_ftx_markets()
+            .get_ftx_markets::<crate::exchanges::ftx::Market>()
             .await
             .expect("Failed to get markets.");
     }
