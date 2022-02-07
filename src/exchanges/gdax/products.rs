@@ -59,7 +59,7 @@ impl crate::utilities::Market for Product {
     }
 }
 
-#[derive(Clone, Deserialize, Serialize, Debug)]
+#[derive(Clone, Deserialize, Serialize, Debug, sqlx::FromRow)]
 #[serde(rename_all = "snake_case")]
 pub struct Trade {
     pub trade_id: i64,
