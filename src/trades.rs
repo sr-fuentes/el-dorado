@@ -48,9 +48,10 @@ pub async fn select_insert_delete_trades(
                 select_ftx_trades_by_time(pool, exchange_name, market, source, start, end).await?;
             // Insert ftx trades into destination table
             insert_ftx_trades(pool, exchange_name, market, destination, trades).await?;
-        },
+        }
         ExchangeName::Gdax => {
-            let trades = select_gdax_trades_by_time(pool, exchange_name, market, source, start, end).await?;
+            let trades =
+                select_gdax_trades_by_time(pool, exchange_name, market, source, start, end).await?;
             insert_gdax_trades(pool, exchange_name, market, destination, trades).await?;
         }
     }
@@ -75,9 +76,10 @@ pub async fn select_insert_drop_trades(
                 select_ftx_trades_by_time(pool, exchange_name, market, source, start, end).await?;
             // Insert ftx trades into destination table
             insert_ftx_trades(pool, exchange_name, market, destination, trades).await?;
-        },
+        }
         ExchangeName::Gdax => {
-            let trades = select_gdax_trades_by_time(pool, exchange_name, market, source, start, end).await?;
+            let trades =
+                select_gdax_trades_by_time(pool, exchange_name, market, source, start, end).await?;
             insert_gdax_trades(pool, exchange_name, market, destination, trades).await?;
         }
     }
@@ -134,8 +136,10 @@ pub async fn drop_create_trade_table(
     match exchange_name {
         ExchangeName::Ftx | ExchangeName::FtxUs => {
             create_ftx_trade_table(pool, exchange_name, market, trade_table).await?
-        },
-        ExchangeName::Gdax => create_gdax_trade_table(pool, exchange_name, market, trade_table).await?,
+        }
+        ExchangeName::Gdax => {
+            create_gdax_trade_table(pool, exchange_name, market, trade_table).await?
+        }
     }
     Ok(())
 }
@@ -162,10 +166,16 @@ pub async fn alter_create_migrate_drop_trade_table(
                 format!("{}_temp", trade_table).as_str(),
             )
             .await?;
-        },
+        }
         ExchangeName::Gdax => {
             create_gdax_trade_table(pool, exchange_name, market, trade_table).await?;
-            create_gdax_trade_table(pool, exchange_name, market,format!("{}_temp", trade_table).as_str()).await?;
+            create_gdax_trade_table(
+                pool,
+                exchange_name,
+                market,
+                format!("{}_temp", trade_table).as_str(),
+            )
+            .await?;
         }
     }
     // Migrate trades fromm temp
