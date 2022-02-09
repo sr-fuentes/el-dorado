@@ -43,7 +43,7 @@ impl Inquisidor {
         println!("Starting INQUI loop.");
         loop {
             // Process any events for ig
-            self.process_events().await;
+            self.process_events::<T>().await;
             // Process any validation events
             self.process_candle_validations::<T>(ValidationStatus::New)
                 .await;

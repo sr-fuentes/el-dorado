@@ -92,7 +92,7 @@ impl Inquisidor {
             // Insert count validation
             insert_candle_count_validation(
                 &self.pool,
-                market.exchange_name.as_str(),
+                &market.exchange_name,
                 &market.market_id,
                 &candle.datetime,
             )
@@ -121,6 +121,7 @@ impl Inquisidor {
     ) -> bool {
         let trades_to_archive = select_gdax_trades_by_time(
             &self.pool,
+            &ExchangeName::Gdax,
             market,
             "validated",
             candle.datetime,
@@ -138,7 +139,7 @@ impl Inquisidor {
             // Insert count validation
             insert_candle_count_validation(
                 &self.pool,
-                market.exchange_name.as_str(),
+                &market.exchange_name,
                 &market.market_id,
                 &candle.datetime,
             )

@@ -5,6 +5,7 @@ use chrono::Utc;
 use sqlx::PgPool;
 use std::convert::{TryFrom, TryInto};
 use uuid::Uuid;
+use serde::de::DeserializeOwned;
 
 pub mod client;
 pub mod error;
@@ -80,7 +81,7 @@ impl TryFrom<String> for ExchangeStatus {
 }
 
 impl Inquisidor {
-    pub async fn add_new_exchange(&self) {
+    pub async fn add_new_exchange<T: crate::utilities::Market + DeserializeOwned>(&self) {
         // Get user input for exchange to add
         let exchange: String = get_input("Enter Exchange to Add:");
         // Parse input to see if there is a valid exchange
@@ -105,7 +106,7 @@ impl Inquisidor {
             .await
             .expect("Failed to insert new exchange.");
         // Refresh markets for new exchange (should insert all)
-        self.refresh_exchange_markets(&new_exchange.name).await;
+        self.refresh_exchange_markets::<T>(&new_exchange.name).await;
         // Create candle table for exchange
         create_exchange_candle_table(&self.pool, &new_exchange.name)
             .await
