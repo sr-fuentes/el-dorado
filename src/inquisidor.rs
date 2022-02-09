@@ -4,6 +4,7 @@ use crate::{
     exchanges::{client::RestClient, ExchangeName},
     validation::ValidationStatus,
 };
+use serde::de::DeserializeOwned;
 use sqlx::PgPool;
 use std::collections::HashMap;
 
@@ -35,7 +36,7 @@ impl Inquisidor {
         }
     }
 
-    pub async fn run(&self) {
+    pub async fn run<T: crate::utilities::Candle + DeserializeOwned>(&self) {
         // Check that a daily event to create candles for each exchange exists and create one if it
         // does not then start loop to process events and validations.
         self.set_initial_event().await;
@@ -44,7 +45,8 @@ impl Inquisidor {
             // Process any events for ig
             self.process_events().await;
             // Process any validation events
-            self.process_candle_validations(ValidationStatus::New).await;
+            self.process_candle_validations::<T>(ValidationStatus::New)
+                .await;
             // Sleep for 200 ms to give control back to tokio scheduler
             tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
         }
