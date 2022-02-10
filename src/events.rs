@@ -10,10 +10,10 @@ use crate::markets::{
 use crate::mita::Mita;
 use crate::trades::select_insert_delete_trades;
 use chrono::{DateTime, Duration, DurationRound, Utc};
+use serde::de::DeserializeOwned;
 use sqlx::PgPool;
 use std::convert::TryFrom;
 use uuid::Uuid;
-use serde::de::DeserializeOwned;
 
 #[derive(Debug)]
 pub struct Event {
@@ -156,7 +156,11 @@ impl Inquisidor {
         }
     }
 
-    pub async fn process_event_validate_candle<T: crate::utilities::Candle + DeserializeOwned>(&self, event: &Event, market: &MarketDetail) {
+    pub async fn process_event_validate_candle<T: crate::utilities::Candle + DeserializeOwned>(
+        &self,
+        event: &Event,
+        market: &MarketDetail,
+    ) {
         // Get candles to validate based on event end date
         let unvalidated_candles = select_candles_unvalidated_lt_datetime(
             &self.pool,
@@ -215,7 +219,12 @@ impl Inquisidor {
             .expect("Failed to update event status to done.");
     }
 
-    pub async fn process_event_validate_daily_candles<T: crate::utilities::Candle + DeserializeOwned>(&self, event: &Event) {
+    pub async fn process_event_validate_daily_candles<
+        T: crate::utilities::Candle + DeserializeOwned,
+    >(
+        &self,
+        event: &Event,
+    ) {
         // Select active market from each exchange
         let markets = select_market_details_by_status_exchange(
             &self.pool,

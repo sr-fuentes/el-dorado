@@ -2,10 +2,10 @@ use crate::candles::create_exchange_candle_table;
 use crate::inquisidor::Inquisidor;
 use crate::utilities::get_input;
 use chrono::Utc;
+use serde::de::DeserializeOwned;
 use sqlx::PgPool;
 use std::convert::{TryFrom, TryInto};
 use uuid::Uuid;
-use serde::de::DeserializeOwned;
 
 pub mod client;
 pub mod error;
