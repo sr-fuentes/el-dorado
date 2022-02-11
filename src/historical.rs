@@ -3,7 +3,8 @@ use crate::exchanges::{client::RestClient, error::RestError, Exchange, ExchangeN
 use crate::markets::*;
 use crate::mita::Mita;
 use crate::trades::*;
-use chrono::{DateTime, Duration, DurationRound, Utc};
+use crate::utilities::Trade;
+use chrono::{DateTime, Duration, DurationRound, TimeZone, Utc};
 use serde::de::DeserializeOwned;
 use sqlx::PgPool;
 
@@ -18,12 +19,21 @@ impl Mita {
             // Validate hb, create and validate 01 candles
             self.validate_candles::<T>(&client, market).await;
             // Set start and end times for backfill
-            let start = match select_last_candle(&self.pool, &self.exchange.name, &market.market_id)
-                .await
+            let (start_ts, start_id) = match select_last_candle(
+                &self.pool,
+                &self.exchange.name,
+                &market.market_id,
+            )
+            .await
             {
-                Ok(c) => c.datetime + Duration::seconds(900),
+                Ok(c) => (
+                    Some(c.datetime + Duration::seconds(900)),
+                    Some(c.last_trade_id.parse::<i64>().unwrap()),
+                ),
                 Err(sqlx::Error::RowNotFound) => match &self.exchange.name {
-                    ExchangeName::Ftx | ExchangeName::FtxUs => get_ftx_start(&client, market).await,
+                    ExchangeName::Ftx | ExchangeName::FtxUs => {
+                        (Some(get_ftx_start(&client, market).await), None)
+                    }
                     ExchangeName::Gdax => get_gdax_start(&client, market).await,
                 },
                 Err(e) => panic!("Sqlx Error getting start time: {:?}", e),
@@ -65,7 +75,15 @@ impl Mita {
             // Backfill from start to end
             match self.exchange.name {
                 ExchangeName::Ftx | ExchangeName::FtxUs => {
-                    backfill_ftx(&self.pool, &client, &self.exchange, market, start, end).await
+                    backfill_ftx(
+                        &self.pool,
+                        &client,
+                        &self.exchange,
+                        market,
+                        start_ts.unwrap(),
+                        end,
+                    )
+                    .await
                 }
                 ExchangeName::Gdax => backfill_gdax(),
             };
@@ -271,4 +289,47 @@ pub async fn get_ftx_start(client: &RestClient, market: &MarketDetail) -> DateTi
         };
     }
     start_time
+}
+
+pub async fn get_gdax_start(
+    client: &RestClient,
+    market: &MarketDetail,
+) -> (Option<DateTime<Utc>>, Option<i64>) {
+    // Get latest trade to establish current trade id and trade ts
+    let exchange_trade = client
+        .get_gdax_trades(&market.market_name, Some(1), None, None)
+        .await
+        .expect("Failed to get gdax trade.")
+        .pop()
+        .unwrap();
+    let start_ts = Utc::now().duration_trunc(Duration::days(1)).unwrap() - Duration::days(91);
+    let mut first_trade_id = 0_i64;
+    let mut first_trade_ts = Utc.ymd(2017, 1, 1).and_hms(0, 0, 0);
+    let mut last_trade_id = exchange_trade.trade_id();
+    let mut mid = 1001_i64; // Once mid is < 1k, return that trade
+    while first_trade_ts < start_ts - Duration::days(1) || first_trade_ts > start_ts {
+        mid = (first_trade_id + last_trade_id) / 2;
+        if mid < 1000 {
+            break;
+        };
+        println!(
+            "First / Mid / Last: {} {} {}",
+            first_trade_id, mid, last_trade_id
+        );
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        let exchange_trade = client
+            .get_gdax_trades(&market.market_name, Some(1), None, Some(mid))
+            .await
+            .expect("Failed to get gdax trade.")
+            .pop()
+            .unwrap();
+        first_trade_ts = exchange_trade.time();
+        if first_trade_ts < start_ts - Duration::days(1) {
+            first_trade_id = mid;
+        } else if first_trade_ts > start_ts {
+            last_trade_id = mid;
+        };
+    }
+    println!("Final start: {} {}", mid, first_trade_ts);
+    (Some(first_trade_ts), Some(mid))
 }
