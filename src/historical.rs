@@ -333,3 +333,62 @@ pub async fn get_gdax_start(
     println!("Final start: {} {}", mid, first_trade_ts);
     (Some(first_trade_ts), Some(mid))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::get_gdax_start;
+    use crate::configuration::get_configuration;
+    use crate::exchanges::{client::RestClient, ExchangeName};
+    use crate::markets::select_market_details;
+    use sqlx::PgPool;
+
+    #[tokio::test]
+    pub async fn get_gdax_start_old_asset_returns_90d() {
+        // Load configuration
+        let configuration = get_configuration().expect("Failed to read configuration.");
+        println!("Configuration: {:?}", configuration);
+        // Create db connection
+        let pool = PgPool::connect_with(configuration.database.with_db())
+            .await
+            .expect("Failed to connect to Postgres.");
+        // Create rest client
+        let client = RestClient::new(&ExchangeName::Gdax);
+        // Select old asset (BTC or ETH) and run get gdax start
+        let market_details = select_market_details(&pool)
+            .await
+            .expect("Failed to select market details.");
+        let market = market_details
+            .iter()
+            .find(|m| m.market_name == "BTC-USD")
+            .unwrap();
+        // Get gdax start
+        println!("Getting GDAX start for BTC-USD");
+        let (id, ts) = get_gdax_start(&client, market).await;
+        println!("ID / TS: {:?} {:?}", id, ts);
+    }
+
+    #[tokio::test]
+    pub async fn get_gdax_start_new_asset_returns_first_day() {
+        // Load configuration
+        let configuration = get_configuration().expect("Failed to read configuration.");
+        println!("Configuration: {:?}", configuration);
+        // Create db connection
+        let pool = PgPool::connect_with(configuration.database.with_db())
+            .await
+            .expect("Failed to connect to Postgres.");
+        // Create rest client
+        let client = RestClient::new(&ExchangeName::Gdax);
+        // Select old asset (BTC or ETH) and run get gdax start
+        let market_details = select_market_details(&pool)
+            .await
+            .expect("Failed to select market details.");
+        let market = market_details
+            .iter()
+            .find(|m| m.market_name == "ORCA-USD")
+            .unwrap();
+        // Get gdax start
+        println!("Getting GDAX start for ORCA-USD");
+        let (id, ts) = get_gdax_start(&client, market).await;
+        println!("ID / TS: {:?} {:?}", id, ts);
+    }
+}
