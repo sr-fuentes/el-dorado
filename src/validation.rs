@@ -546,11 +546,11 @@ impl Inquisidor {
                     "Manual Validation for {:?} {} {}",
                     validation.exchange_name, market.market_name, validation.datetime
                 );
-                let delta = candle.value() - exchange_candle.volume();
+                let delta = candle.value - exchange_candle.volume();
                 let percent = delta / exchange_candle.volume() * dec!(100.0);
                 println!("New Candle: {:?}", candle);
                 println!("ED Value versus FTX Volume:");
-                println!("ElDorado: {:?}", candle.value());
+                println!("ElDorado: {:?}", candle.value);
                 println!("Exchange: {:?}", exchange_candle.volume());
                 let message = format!(
                     "Delta: {:?} & Percent: {:?}",
@@ -565,11 +565,11 @@ impl Inquisidor {
                     "Manual Validation for {:?} {} {}",
                     validation.exchange_name, market.market_name, validation.datetime
                 );
-                let delta = candle.volume() - exchange_candle.volume();
+                let delta = candle.volume - exchange_candle.volume();
                 let percent = delta / exchange_candle.volume() * dec!(100.0);
                 println!("New Candle: {:?}", candle);
                 println!("ED Value versus FTX Volume:");
-                println!("ElDorado: {:?}", candle.volume());
+                println!("ElDorado: {:?}", candle.volume);
                 println!("Exchange: {:?}", exchange_candle.volume());
                 let message = format!(
                     "Delta: {:?} & Percent: {:?}",
@@ -835,6 +835,27 @@ impl Inquisidor {
                 break;
             };
         }
+        // If it gets to this point the validaion failed. Return false and the original candle
+        let original_candle = select_candles_by_daterange(
+            &self.pool,
+            &validation.exchange_name,
+            &market.market_id,
+            candle_start,
+            candle_start + self.hbtf.as_dur(),
+        )
+        .await
+        .expect("Failed to select candle from db.")
+        .pop()
+        .unwrap();
+        original_candle
+    }
+
+    pub async fn recreate_gdax_candle(
+        &self,
+        validation: &CandleValidation,
+        market: &MarketDetail,
+        candle_start: DateTime<Utc>,
+    ) -> Candle {
         // If it gets to this point the validaion failed. Return false and the original candle
         let original_candle = select_candles_by_daterange(
             &self.pool,
