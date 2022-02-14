@@ -2,7 +2,6 @@ use crate::candles::create_exchange_candle_table;
 use crate::inquisidor::Inquisidor;
 use crate::utilities::get_input;
 use chrono::Utc;
-use serde::de::DeserializeOwned;
 use sqlx::PgPool;
 use std::convert::{TryFrom, TryInto};
 use uuid::Uuid;
@@ -81,7 +80,7 @@ impl TryFrom<String> for ExchangeStatus {
 }
 
 impl Inquisidor {
-    pub async fn add_new_exchange<T: crate::utilities::Market + DeserializeOwned>(&self) {
+    pub async fn add_new_exchange(&self) {
         // Get user input for exchange to add
         let exchange: String = get_input("Enter Exchange to Add:");
         // Parse input to see if there is a valid exchange
@@ -106,7 +105,17 @@ impl Inquisidor {
             .await
             .expect("Failed to insert new exchange.");
         // Refresh markets for new exchange (should insert all)
-        self.refresh_exchange_markets::<T>(&new_exchange.name).await;
+        match exchange {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                self.refresh_exchange_markets::<crate::exchanges::ftx::Market>(&new_exchange.name)
+                    .await
+            }
+
+            ExchangeName::Gdax => {
+                self.refresh_exchange_markets::<crate::exchanges::gdax::Product>(&new_exchange.name)
+                    .await
+            }
+        };
         // Create candle table for exchange
         create_exchange_candle_table(&self.pool, &new_exchange.name)
             .await

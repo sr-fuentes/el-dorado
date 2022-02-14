@@ -1,7 +1,6 @@
 use chrono::Utc;
 use clap::App;
-use el_dorado::inquisidor::Inquisidor;
-use el_dorado::mita::Mita;
+use el_dorado::{inquisidor::Inquisidor, mita::Mita};
 
 #[tokio::main]
 async fn main() {

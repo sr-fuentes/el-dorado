@@ -124,7 +124,7 @@ impl TryFrom<String> for MarketStatus {
 }
 
 impl Inquisidor {
-    pub async fn refresh_exchange<T: crate::utilities::Market + DeserializeOwned>(&self) {
+    pub async fn refresh_exchange(&self) {
         // Get user input for exchange to refresh
         let exchange: String = get_input("Enter Exchange to Refresh:");
         // Parse input to see if it is a valid exchange
@@ -139,7 +139,18 @@ impl Inquisidor {
             println!("{:?} has not been added to El-Dorado.", exchange);
             return;
         }
-        self.refresh_exchange_markets::<T>(&exchange).await;
+        // Refresh markets for new exchange (should insert all)
+        match exchange {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                self.refresh_exchange_markets::<crate::exchanges::ftx::Market>(&exchange)
+                    .await
+            }
+
+            ExchangeName::Gdax => {
+                self.refresh_exchange_markets::<crate::exchanges::gdax::Product>(&exchange)
+                    .await
+            }
+        };
     }
 
     pub async fn refresh_exchange_markets<T: crate::utilities::Market + DeserializeOwned>(
@@ -169,11 +180,7 @@ impl Inquisidor {
         }
     }
 
-    pub async fn update_market_ranks<
-        T: crate::utilities::Market + DeserializeOwned + std::clone::Clone,
-    >(
-        &self,
-    ) {
+    pub async fn update_market_ranks(&self) {
         // Get user input for exchange to add
         let exchange: String = get_input("Enter Exchange to Rank:");
         // Parse input to see if there is a valid exchange
@@ -188,10 +195,29 @@ impl Inquisidor {
             println!("{:?} has not been added to El-Dorado.", exchange);
             return;
         }
+        match exchange {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                self.update_market_ranks_generic::<crate::exchanges::ftx::Market>(&exchange)
+                    .await
+            }
+
+            ExchangeName::Gdax => {
+                self.update_market_ranks_generic::<crate::exchanges::gdax::Product>(&exchange)
+                    .await
+            }
+        };
+    }
+
+    pub async fn update_market_ranks_generic<
+        T: crate::utilities::Market + DeserializeOwned + std::clone::Clone,
+    >(
+        &self,
+        exchange: &ExchangeName,
+    ) {
         // Get terminated markets from database
         let markets_terminated = select_market_details_by_status_exchange(
             &self.pool,
-            &exchange,
+            exchange,
             &MarketStatus::Terminated,
         )
         .await
@@ -201,10 +227,10 @@ impl Inquisidor {
             .await
             .expect("Failed to select market details.");
         // Get USD markets from exchange
-        let markets_exch: Vec<T> = get_usd_markets(&self.clients[&exchange], &exchange).await;
+        let markets_exch: Vec<T> = get_usd_markets(&self.clients[exchange], exchange).await;
         println!("# exchange markets: {}", markets_exch.len());
         // Filter out non-terminated markets and non-perp markets
-        let mut filtered_markets: Vec<T> = match exchange {
+        let mut filtered_markets: Vec<T> = match *exchange {
             ExchangeName::Ftx | ExchangeName::FtxUs => markets_exch
                 .iter()
                 .filter(|m| {
@@ -222,10 +248,10 @@ impl Inquisidor {
         // Sort by 24h volume
         filtered_markets.sort_by(|m1, m2| m2.usd_volume_24h().cmp(&m1.usd_volume_24h()));
         // Create ranks table and select current contents
-        create_market_ranks_table(&self.pool, &exchange)
+        create_market_ranks_table(&self.pool, exchange)
             .await
             .expect("Failed to create market ranks table.");
-        let previous_ranks = select_market_ranks(&self.pool, &exchange)
+        let previous_ranks = select_market_ranks(&self.pool, exchange)
             .await
             .expect("Failed to select market ranks.");
         // Create empty vec to hold new ranks
@@ -273,17 +299,17 @@ impl Inquisidor {
             rank += 1;
         }
         // Drop market ranks table
-        drop_market_ranks_table(&self.pool, &exchange)
+        drop_market_ranks_table(&self.pool, exchange)
             .await
             .expect("Failed to drop market ranks.");
         // Create market ranks table
-        create_market_ranks_table(&self.pool, &exchange)
+        create_market_ranks_table(&self.pool, exchange)
             .await
             .expect("Failed to create market ranks table.");
         // Insert markets
         for new_rank in new_ranks.iter() {
             // Insert rank
-            insert_market_rank(&self.pool, &exchange, new_rank)
+            insert_market_rank(&self.pool, exchange, new_rank)
                 .await
                 .expect("Failed to insert market rank.");
         }
