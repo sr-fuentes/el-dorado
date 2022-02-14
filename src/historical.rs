@@ -1,3 +1,5 @@
+use std::convert::TryInto;
+
 use crate::candles::*;
 use crate::exchanges::{client::RestClient, error::RestError, Exchange, ExchangeName};
 use crate::markets::*;
@@ -27,19 +29,19 @@ impl Mita {
             .await
             {
                 Ok(c) => (
-                    Some(c.datetime + Duration::seconds(900)),
+                    c.datetime + Duration::seconds(900),
                     Some(c.last_trade_id.parse::<i64>().unwrap()),
                 ),
                 Err(sqlx::Error::RowNotFound) => match &self.exchange.name {
                     ExchangeName::Ftx | ExchangeName::FtxUs => {
-                        (Some(get_ftx_start(&client, market).await), None)
+                        (get_ftx_start(&client, market).await, None)
                     }
                     ExchangeName::Gdax => get_gdax_start(&client, market).await,
                 },
                 Err(e) => panic!("Sqlx Error getting start time: {:?}", e),
             };
-            let end = match end_source {
-                "eod" => Utc::now().duration_trunc(Duration::days(1)).unwrap(),
+            let (end_ts, end_id) = match end_source {
+                "eod" => (Utc::now().duration_trunc(Duration::days(1)).unwrap(), Some(0_i64)),
                 // Loop until there is a trade in the ws table. If there is no trade, sleep
                 // and check back until there is a trade.
                 "stream" => {
@@ -51,7 +53,7 @@ impl Mita {
                         match select_trade_first_stream(&self.pool, &self.exchange.name, market)
                             .await
                         {
-                            Ok(t) => break t.time + Duration::microseconds(1), // set trade time + 1 micro
+                            Ok((t,i)) => break (t + Duration::microseconds(1), i), // set trade time + 1 micro
                             Err(sqlx::Error::RowNotFound) => {
                                 // There are no trades, sleep for 5 seconds
                                 println!("Awaiting for ws trade for {}", market.market_name);
@@ -80,8 +82,8 @@ impl Mita {
                         &client,
                         &self.exchange,
                         market,
-                        start_ts.unwrap(),
-                        end,
+                        start_ts,
+                        end_ts,
                     )
                     .await
                 }
@@ -294,7 +296,7 @@ pub async fn get_ftx_start(client: &RestClient, market: &MarketDetail) -> DateTi
 pub async fn get_gdax_start(
     client: &RestClient,
     market: &MarketDetail,
-) -> (Option<DateTime<Utc>>, Option<i64>) {
+) -> (DateTime<Utc>, Option<i64>) {
     // Get latest trade to establish current trade id and trade ts
     let exchange_trade = client
         .get_gdax_trades(&market.market_name, Some(1), None, None)
@@ -318,7 +320,7 @@ pub async fn get_gdax_start(
         );
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         let exchange_trade = client
-            .get_gdax_trades(&market.market_name, Some(1), None, Some(mid))
+            .get_gdax_trades(&market.market_name, Some(1), None, Some(mid.try_into().unwrap()))
             .await
             .expect("Failed to get gdax trade.")
             .pop()
@@ -331,7 +333,7 @@ pub async fn get_gdax_start(
         };
     }
     println!("Final start: {} {}", mid, first_trade_ts);
-    (Some(first_trade_ts), Some(mid))
+    (first_trade_ts, Some(mid))
 }
 
 #[cfg(test)]

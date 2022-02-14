@@ -1,6 +1,7 @@
 use crate::exchanges::{ftx::Trade as FtxTrade, gdax::Trade as GdaxTrade, ExchangeName};
 use crate::markets::MarketDetail;
 use crate::mita::Mita;
+use crate::utilities::Trade;
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 
@@ -560,6 +561,23 @@ pub async fn select_gdax_trades_by_table(
     );
     let rows = sqlx::query_as::<_, GdaxTrade>(&sql).fetch_all(pool).await?;
     Ok(rows)
+}
+
+pub async fn select_trade_first_stream(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+    market: &MarketDetail,
+) -> Result<(DateTime<Utc>, Option<i64>), sqlx::Error> {
+    match exchange_name {
+        ExchangeName::Ftx | ExchangeName::FtxUs => {
+            let ftx_trade = select_ftx_trade_first_stream(pool, exchange_name, market).await?;
+            Ok((ftx_trade.time(), Some(ftx_trade.trade_id())))
+        }
+        ExchangeName::Gdax => {
+            let gdax_trade = select_gdax_trade_first_stream(pool, exchange_name, market).await?;
+            Ok((gdax_trade.time(), Some(gdax_trade.trade_id())))
+        }
+    }
 }
 
 pub async fn select_ftx_trade_first_stream(
