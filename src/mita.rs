@@ -2,13 +2,13 @@ use crate::candles::TimeFrame;
 use crate::candles::{resample_candles, select_candles_gte_datetime, select_last_candle, Candle};
 use crate::configuration::{get_configuration, Settings};
 use crate::events::insert_event_process_trades;
-use crate::exchanges::{select_exchanges, Exchange};
+use crate::exchanges::{select_exchanges, Exchange, ExchangeName};
 use crate::markets::{
     select_market_detail_by_exchange_mita, update_market_data_status, MarketDetail, MarketStatus,
 };
 use crate::metrics::{delete_metrics_ap_by_exchange_market, insert_metric_ap, MetricAP};
 use crate::trades::{
-    insert_delete_ftx_trades, select_ftx_trades_by_time, select_insert_drop_trades,
+    insert_delete_ftx_trades, insert_delete_gdax_trades, select_ftx_trades_by_time, select_gdax_trades_by_time, select_insert_drop_trades,
 };
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal::Decimal;
@@ -189,39 +189,12 @@ impl Mita {
                 // Create candles from ws table
                 // Get trades to sync. There has to be at least one trade because the historical
                 // fill needs a ws trade to start the backfill function.
-                let sync_trades = select_ftx_trades_by_time(
-                    &self.pool,
-                    &self.exchange.name,
-                    market,
-                    "ws",
-                    start,
-                    end,
-                )
-                .await
-                .expect("Failed to select ws trades.");
-                // Get date range
-                let date_range = self.create_date_range(start, end, self.hbtf.as_dur());
-                // Make new candles
-                let candles = self
-                    .create_interval_candles(market, date_range, &sync_trades)
-                    .await;
-                println!("Created {} candles to insert into db.", candles.len());
-                // Insert candles to db
-                self.insert_candles(market, candles).await;
-                // Move trades from ws to processed and delete from ws
-                insert_delete_ftx_trades(
-                    &self.pool,
-                    &self.exchange.name,
-                    market,
-                    start,
-                    end,
-                    "ws",
-                    "processed",
-                    sync_trades,
-                )
-                .await
-                .expect("Failed to insert delete ftx trades.");
-            }
+                match self.exchange.name {
+                    ExchangeName::Ftx | ExchangeName::FtxUs => self.sync_ftx_trades(market, start, end).await,
+                    ExchangeName::Gdax => self.sync_gdax_trades(market, start, end).await,
+                };
+                
+            };
             // Create heartbeat
             let heartbeat = self.create_heartbeat(market).await;
             // Update mita heartbeat interval
@@ -259,6 +232,86 @@ impl Mita {
         heartbeats
     }
 
+    pub async fn sync_ftx_trades(
+        &self,
+        market: &MarketDetail,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) {
+        let sync_trades = select_ftx_trades_by_time(
+            &self.pool,
+            &self.exchange.name,
+            market,
+            "ws",
+            start,
+            end,
+        )
+        .await
+        .expect("Failed to select ws trades.");
+        // Get date range
+        let date_range = self.create_date_range(start, end, self.hbtf.as_dur());
+        // Make new candles
+        let candles = self
+            .create_interval_candles(market, date_range, &sync_trades)
+            .await;
+        println!("Created {} candles to insert into db.", candles.len());
+        // Insert candles to db
+        self.insert_candles(market, candles).await;
+        // Move trades from ws to processed and delete from ws
+        insert_delete_ftx_trades(
+            &self.pool,
+            &self.exchange.name,
+            market,
+            start,
+            end,
+            "ws",
+            "processed",
+            sync_trades,
+        )
+        .await
+        .expect("Failed to insert delete ftx trades.");
+    }
+
+    pub async fn sync_gdax_trades(
+        &self,
+        market: &MarketDetail,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) {
+        let sync_trades = select_gdax_trades_by_time(
+            &self.pool,
+            &self.exchange.name,
+            market,
+            "ws",
+            start,
+            end,
+        )
+        .await
+        .expect("Failed to select ws trades.");
+        // Get date range
+        let date_range = self.create_date_range(start, end, self.hbtf.as_dur());
+        // Make new candles
+        let candles = self
+            .create_interval_candles(market, date_range, &sync_trades)
+            .await;
+        println!("Created {} candles to insert into db.", candles.len());
+        // Insert candles to db
+        self.insert_candles(market, candles).await;
+        // Move trades from ws to processed and delete from ws
+        insert_delete_gdax_trades(
+            &self.pool,
+            &self.exchange.name,
+            market,
+            start,
+            end,
+            "ws",
+            "processed",
+            sync_trades,
+        )
+        .await
+        .expect("Failed to insert delete ftx trades.");
+    }
+
     pub async fn process_interval(
         &self,
         start: DateTime<Utc>,
@@ -268,6 +321,7 @@ impl Mita {
     ) -> Option<Heartbeat> {
         // println!("Process interval start: {:?}", Utc::now());
         // Get trades
+        match &self.exchange.name {}
         let trades =
             select_ftx_trades_by_time(&self.pool, &self.exchange.name, market, "ws", start, end)
                 .await
@@ -403,7 +457,7 @@ impl Mita {
         }
     }
 
-    fn create_date_range(
+    pub fn create_date_range(
         &self,
         start: DateTime<Utc>,
         end: DateTime<Utc>,
