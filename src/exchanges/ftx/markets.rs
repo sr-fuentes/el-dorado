@@ -33,10 +33,10 @@ pub struct Market {
 
 impl crate::utilities::Market for Market {
     fn name(&self) -> String {
-        self.name
+        self.name.clone()
     }
     fn market_type(&self) -> String {
-        self.market_type
+        self.market_type.clone()
     }
     fn dp_quantity(&self) -> i32 {
         crate::utilities::min_to_dp(self.size_increment)
@@ -48,13 +48,13 @@ impl crate::utilities::Market for Market {
         self.min_provide_size
     }
     fn base_currency(&self) -> Option<String> {
-        self.base_currency
+        self.base_currency.clone()
     }
     fn quote_currency(&self) -> Option<String> {
-        self.quote_currency
+        self.quote_currency.clone()
     }
     fn underlying(&self) -> Option<String> {
-        self.underlying
+        self.underlying.clone()
     }
     fn usd_volume_24h(&self) -> Option<Decimal> {
         Some(self.volume_usd24h)
@@ -93,7 +93,7 @@ impl crate::utilities::Trade for Trade {
     }
 
     fn side(&self) -> String {
-        self.side
+        self.side.clone()
     }
 
     fn liquidation(&self) -> bool {

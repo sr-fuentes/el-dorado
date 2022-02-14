@@ -31,7 +31,7 @@ pub struct Product {
 
 impl crate::utilities::Market for Product {
     fn name(&self) -> String {
-        self.id
+        self.id.clone()
     }
     fn market_type(&self) -> String {
         "spot".to_string() // GDAX markets are all spot as of 2/2022
@@ -46,10 +46,10 @@ impl crate::utilities::Market for Product {
         self.base_min_size
     }
     fn base_currency(&self) -> Option<String> {
-        Some(self.base_currency)
+        Some(self.base_currency.clone())
     }
     fn quote_currency(&self) -> Option<String> {
-        Some(self.quote_currency)
+        Some(self.quote_currency.clone())
     }
     fn underlying(&self) -> Option<String> {
         None
@@ -83,7 +83,7 @@ impl crate::utilities::Trade for Trade {
     }
 
     fn side(&self) -> String {
-        self.side
+        self.side.clone()
     }
 
     fn liquidation(&self) -> bool {
@@ -232,7 +232,7 @@ mod tests {
     async fn get_candles_returns_array_of_candles() {
         let client = RestClient::new(&ExchangeName::Gdax);
         let product_name = "BTC-USD";
-        let candles = client
+        let _candles = client
             .get_gdax_candles::<crate::exchanges::gdax::Candle>(
                 &product_name,
                 Some(86400),
