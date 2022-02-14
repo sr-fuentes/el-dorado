@@ -41,7 +41,10 @@ impl Mita {
                 Err(e) => panic!("Sqlx Error getting start time: {:?}", e),
             };
             let (end_ts, end_id) = match end_source {
-                "eod" => (Utc::now().duration_trunc(Duration::days(1)).unwrap(), Some(0_i64)),
+                "eod" => (
+                    Utc::now().duration_trunc(Duration::days(1)).unwrap(),
+                    Some(0_i64),
+                ),
                 // Loop until there is a trade in the ws table. If there is no trade, sleep
                 // and check back until there is a trade.
                 "stream" => {
@@ -53,7 +56,7 @@ impl Mita {
                         match select_trade_first_stream(&self.pool, &self.exchange.name, market)
                             .await
                         {
-                            Ok((t,i)) => break (t + Duration::microseconds(1), i), // set trade time + 1 micro
+                            Ok((t, i)) => break (t + Duration::microseconds(1), i), // set trade time + 1 micro
                             Err(sqlx::Error::RowNotFound) => {
                                 // There are no trades, sleep for 5 seconds
                                 println!("Awaiting for ws trade for {}", market.market_name);
@@ -87,7 +90,17 @@ impl Mita {
                     )
                     .await
                 }
-                ExchangeName::Gdax => self.backfill_gdax(&client, market, start_ts, start_id.unwrap() as i32, end_ts, end_id.unwrap() as i32).await,
+                ExchangeName::Gdax => {
+                    self.backfill_gdax(
+                        &client,
+                        market,
+                        start_ts,
+                        start_id.unwrap() as i32,
+                        end_ts,
+                        end_id.unwrap() as i32,
+                    )
+                    .await
+                }
             };
             // If `eod` end source then run validation on new backfill
             if end_source == "eod" {
@@ -113,7 +126,10 @@ impl Mita {
         let mut candle_ts = start_ts;
         while interval_start_id < end_id || interval_start_ts < end_ts {
             // Get next 1000 trades
-            println!("Filling {} trades from {} to {}.", market.market_name, interval_start_ts, end_ts);
+            println!(
+                "Filling {} trades from {} to {}.",
+                market.market_name, interval_start_ts, end_ts
+            );
             // Prevent 429 errors by only requesting 4 per second
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             let mut new_trades = match client
@@ -164,16 +180,26 @@ impl Mita {
                 // Update start id and ts
                 interval_start_id = newest_trade.trade_id() as i32;
                 interval_start_ts = newest_trade.time();
-                println!("{} {} trades returned. First: {}, Last: {}",
-                    new_trades.len(), market.market_name, oldest_trade.time(), newest_trade.time());
-                println!("New interval_start id and ts: {} {}", interval_start_id, interval_start_ts);
+                println!(
+                    "{} {} trades returned. First: {}, Last: {}",
+                    new_trades.len(),
+                    market.market_name,
+                    oldest_trade.time(),
+                    newest_trade.time()
+                );
+                println!(
+                    "New interval_start id and ts: {} {}",
+                    interval_start_id, interval_start_ts
+                );
                 // Insert trades into db
                 insert_gdax_trades(&self.pool, &self.exchange.name, market, "rest", new_trades)
                     .await
                     .expect("Failed to insert gdax rest trades.");
             }
             // Make new candles if trades moves to new interval
-            let newest_floor = interval_start_ts.duration_trunc(Duration::minutes(15)).unwrap();
+            let newest_floor = interval_start_ts
+                .duration_trunc(Duration::minutes(15))
+                .unwrap();
             if newest_floor > candle_ts {
                 let mut interval_trades = select_gdax_trades_by_time(
                     &self.pool,
@@ -189,10 +215,13 @@ impl Mita {
                 interval_trades.sort_by(|t1, t2| t1.trade_id.cmp(&t2.trade_id));
                 interval_trades.dedup_by(|t1, t2| t1.trade_id == t2.trade_id);
                 // Create daterange
-                let date_range = self.create_date_range(candle_ts, newest_floor, self.hbtf.as_dur());
+                let date_range =
+                    self.create_date_range(candle_ts, newest_floor, self.hbtf.as_dur());
                 println!("Creating candles for dr: {:?}", date_range);
                 // Create new candles from interval trades
-                let candles = self.create_interval_candles(market, date_range, &interval_trades).await;
+                let candles = self
+                    .create_interval_candles(market, date_range, &interval_trades)
+                    .await;
                 println!("Created {} candles to insert into db.", candles.len());
                 // Insert candles to db
                 self.insert_candles(market, candles).await;
@@ -243,7 +272,12 @@ impl Mita {
             );
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             let exchange_trade = client
-                .get_gdax_trades(&market.market_name, Some(1), None, Some(mid.try_into().unwrap()))
+                .get_gdax_trades(
+                    &market.market_name,
+                    Some(1),
+                    None,
+                    Some(mid.try_into().unwrap()),
+                )
                 .await
                 .expect("Failed to get gdax trade.")
                 .pop()
@@ -456,7 +490,6 @@ pub async fn get_ftx_start(client: &RestClient, market: &MarketDetail) -> DateTi
     }
     start_time
 }
-
 
 #[cfg(test)]
 mod tests {

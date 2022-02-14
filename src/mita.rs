@@ -8,7 +8,8 @@ use crate::markets::{
 };
 use crate::metrics::{delete_metrics_ap_by_exchange_market, insert_metric_ap, MetricAP};
 use crate::trades::{
-    insert_delete_ftx_trades, insert_delete_gdax_trades, select_ftx_trades_by_time, select_gdax_trades_by_time, select_insert_drop_trades,
+    insert_delete_ftx_trades, insert_delete_gdax_trades, select_ftx_trades_by_time,
+    select_gdax_trades_by_time, select_insert_drop_trades,
 };
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal::Decimal;
@@ -190,10 +191,11 @@ impl Mita {
                 // Get trades to sync. There has to be at least one trade because the historical
                 // fill needs a ws trade to start the backfill function.
                 match self.exchange.name {
-                    ExchangeName::Ftx | ExchangeName::FtxUs => self.sync_ftx_trades(market, start, end).await,
+                    ExchangeName::Ftx | ExchangeName::FtxUs => {
+                        self.sync_ftx_trades(market, start, end).await
+                    }
                     ExchangeName::Gdax => self.sync_gdax_trades(market, start, end).await,
                 };
-                
             };
             // Create heartbeat
             let heartbeat = self.create_heartbeat(market).await;
@@ -238,16 +240,10 @@ impl Mita {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) {
-        let sync_trades = select_ftx_trades_by_time(
-            &self.pool,
-            &self.exchange.name,
-            market,
-            "ws",
-            start,
-            end,
-        )
-        .await
-        .expect("Failed to select ws trades.");
+        let sync_trades =
+            select_ftx_trades_by_time(&self.pool, &self.exchange.name, market, "ws", start, end)
+                .await
+                .expect("Failed to select ws trades.");
         // Get date range
         let date_range = self.create_date_range(start, end, self.hbtf.as_dur());
         // Make new candles
@@ -278,16 +274,10 @@ impl Mita {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) {
-        let sync_trades = select_gdax_trades_by_time(
-            &self.pool,
-            &self.exchange.name,
-            market,
-            "ws",
-            start,
-            end,
-        )
-        .await
-        .expect("Failed to select ws trades.");
+        let sync_trades =
+            select_gdax_trades_by_time(&self.pool, &self.exchange.name, market, "ws", start, end)
+                .await
+                .expect("Failed to select ws trades.");
         // Get date range
         let date_range = self.create_date_range(start, end, self.hbtf.as_dur());
         // Make new candles
@@ -323,39 +313,51 @@ impl Mita {
         // Get trades
         let mut new_candles = match self.exchange.name {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
-                let trades = select_ftx_trades_by_time(&self.pool, &self.exchange.name, market, "ws", start, end)
-                    .await
-                    .expect("Failed to select ftx ws trades.");
+                let trades = select_ftx_trades_by_time(
+                    &self.pool,
+                    &self.exchange.name,
+                    market,
+                    "ws",
+                    start,
+                    end,
+                )
+                .await
+                .expect("Failed to select ftx ws trades.");
                 // If no trades return without updating hashmap
                 if trades.is_empty() {
                     // TODO: Consider returning candle forward filled from last and updating hb
-                    return None
+                    return None;
                 } else {
                     // Get date range
                     let date_range =
                         self.create_date_range(start + self.hbtf.as_dur(), end, self.hbtf.as_dur());
                     println!("Date Range: {:?}", date_range);
-                    self
-                    .create_interval_candles(market, date_range, &trades)
-                    .await
+                    self.create_interval_candles(market, date_range, &trades)
+                        .await
                 }
-            },
+            }
             ExchangeName::Gdax => {
-                let trades = select_gdax_trades_by_time(&self.pool, &self.exchange.name, market, "ws", start, end)
-                    .await
-                    .expect("Failed to select gdax ws trades.");
+                let trades = select_gdax_trades_by_time(
+                    &self.pool,
+                    &self.exchange.name,
+                    market,
+                    "ws",
+                    start,
+                    end,
+                )
+                .await
+                .expect("Failed to select gdax ws trades.");
                 // If no trades return without updating hashmap
                 if trades.is_empty() {
                     // TODO: Consider returning candle forward filled from last and updating hb
-                    return None
+                    return None;
                 } else {
                     // Get date range
                     let date_range =
                         self.create_date_range(start + self.hbtf.as_dur(), end, self.hbtf.as_dur());
                     println!("Date Range: {:?}", date_range);
-                    self
-                    .create_interval_candles(market, date_range, &trades)
-                    .await
+                    self.create_interval_candles(market, date_range, &trades)
+                        .await
                 }
             }
         };
@@ -386,8 +388,7 @@ impl Mita {
                 let new_candles: Vec<Candle> = map_candles[&self.hbtf]
                     .iter()
                     .filter(|c| {
-                        c.datetime
-                            >= heartbeat.candles[tf].last().unwrap().datetime + tf.as_dur()
+                        c.datetime >= heartbeat.candles[tf].last().unwrap().datetime + tf.as_dur()
                             && c.datetime < end.duration_trunc(tf.as_dur()).unwrap()
                     })
                     .cloned()
