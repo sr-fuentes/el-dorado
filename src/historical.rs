@@ -10,20 +10,18 @@ use chrono::{DateTime, Duration, DurationRound, TimeZone, Utc};
 use sqlx::PgPool;
 
 impl Mita {
-    pub async fn historical(&self, end_source: &str) {
+    pub async fn historical(
+        &self,
+        end_source: &str,
+    ) {
         // Get REST client for exchange
         let client = RestClient::new(&self.exchange.name);
         for market in self.markets.iter() {
             // Validate hb, create and validate 01 candles
             match &self.exchange.name {
-                ExchangeName::Ftx | ExchangeName::FtxUs => {
-                    self.validate_candles::<crate::exchanges::ftx::Candle>(&client, market)
-                        .await
-                }
-                ExchangeName::Gdax => {
-                    self.validate_candles::<crate::exchanges::gdax::Candle>(&client, market)
-                        .await
-                }
+                ExchangeName::Ftx | ExchangeName::FtxUs => self.validate_candles::<crate::exchanges::ftx::Candle>(&client, market).await,
+                ExchangeName::Gdax => self.validate_candles::<crate::exchanges::gdax::Candle>(&client, market).await,
+
             };
             // Set start and end times for backfill
             let (start_ts, start_id) = match select_last_candle(
@@ -110,14 +108,9 @@ impl Mita {
             // If `eod` end source then run validation on new backfill
             if end_source == "eod" {
                 match &self.exchange.name {
-                    ExchangeName::Ftx | ExchangeName::FtxUs => {
-                        self.validate_candles::<crate::exchanges::ftx::Candle>(&client, market)
-                            .await
-                    }
-                    ExchangeName::Gdax => {
-                        self.validate_candles::<crate::exchanges::gdax::Candle>(&client, market)
-                            .await
-                    }
+                    ExchangeName::Ftx | ExchangeName::FtxUs => self.validate_candles::<crate::exchanges::ftx::Candle>(&client, market).await,
+                    ExchangeName::Gdax => self.validate_candles::<crate::exchanges::gdax::Candle>(&client, market).await,
+    
                 };
             }
         }
