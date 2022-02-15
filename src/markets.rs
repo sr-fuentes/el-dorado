@@ -3,6 +3,7 @@ use crate::exchanges::{client::RestClient, error::RestError, select_exchanges, E
 use crate::inquisidor::Inquisidor;
 use crate::utilities::get_input;
 use chrono::{DateTime, Utc};
+use core::cmp::Reverse;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::de::DeserializeOwned;
@@ -10,7 +11,6 @@ use sqlx::PgPool;
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use uuid::Uuid;
-use core::cmp::Reverse;
 
 #[derive(Debug, PartialEq, Eq, sqlx::FromRow)]
 pub struct MarketId {
