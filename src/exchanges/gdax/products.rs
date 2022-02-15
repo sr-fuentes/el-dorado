@@ -1,7 +1,7 @@
-use super::{RestClient, RestError};
-use chrono::{DateTime, Utc, serde::ts_seconds};
+use crate::exchanges::{client::RestClient, error::RestError};
+use chrono::{serde::ts_seconds, DateTime, Utc};
 use rust_decimal::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
@@ -29,7 +29,37 @@ pub struct Product {
     pub auction_mode: bool,
 }
 
-#[derive(Clone, Deserialize, Serialize, Debug)]
+impl crate::utilities::Market for Product {
+    fn name(&self) -> String {
+        self.id.clone()
+    }
+    fn market_type(&self) -> String {
+        "spot".to_string() // GDAX markets are all spot as of 2/2022
+    }
+    fn dp_quantity(&self) -> i32 {
+        crate::utilities::min_to_dp(self.base_increment)
+    }
+    fn dp_price(&self) -> i32 {
+        crate::utilities::min_to_dp(self.quote_increment)
+    }
+    fn min_quantity(&self) -> Decimal {
+        self.base_min_size
+    }
+    fn base_currency(&self) -> Option<String> {
+        Some(self.base_currency.clone())
+    }
+    fn quote_currency(&self) -> Option<String> {
+        Some(self.quote_currency.clone())
+    }
+    fn underlying(&self) -> Option<String> {
+        None
+    }
+    fn usd_volume_24h(&self) -> Option<Decimal> {
+        None
+    }
+}
+
+#[derive(Clone, Deserialize, Serialize, Debug, sqlx::FromRow)]
 #[serde(rename_all = "snake_case")]
 pub struct Trade {
     pub trade_id: i64,
@@ -37,6 +67,32 @@ pub struct Trade {
     pub size: Decimal,
     pub price: Decimal,
     pub time: DateTime<Utc>,
+}
+
+impl crate::utilities::Trade for Trade {
+    fn trade_id(&self) -> i64 {
+        self.trade_id
+    }
+
+    fn price(&self) -> Decimal {
+        self.price
+    }
+
+    fn size(&self) -> Decimal {
+        self.size
+    }
+
+    fn side(&self) -> String {
+        self.side.clone()
+    }
+
+    fn liquidation(&self) -> bool {
+        false
+    }
+
+    fn time(&self) -> DateTime<Utc> {
+        self.time
+    }
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
@@ -51,16 +107,26 @@ pub struct Candle {
     pub volume: Decimal,
 }
 
+impl crate::utilities::Candle for Candle {
+    fn datetime(&self) -> DateTime<Utc> {
+        self.time
+    }
+
+    fn volume(&self) -> Decimal {
+        self.volume
+    }
+}
+
 impl RestClient {
-    pub async fn get_products(&self) -> Result<Vec<Product>, RestError> {
+    pub async fn get_gdax_products<T: DeserializeOwned>(&self) -> Result<Vec<T>, RestError> {
         self.get("/products", None).await
     }
 
-    pub async fn get_product(&self, product_name: &str) -> Result<Product, RestError> {
+    pub async fn get_gdax_product(&self, product_name: &str) -> Result<Product, RestError> {
         self.get(&format!("/products/{}", product_name), None).await
     }
 
-    pub async fn get_trades(
+    pub async fn get_gdax_trades(
         &self,
         product_name: &str,
         limit: Option<i32>,
@@ -82,13 +148,13 @@ impl RestClient {
     // provided. Granularity can be 60, 300, 900, 3600, 21600, 86400 only. If there are no trades
     // in a bucket there will be no candle returned. Start and End are inclusive. To get one candle
     // set Start = End
-    pub async fn get_candles(
+    pub async fn get_gdax_candles<T: DeserializeOwned>(
         &self,
         product_name: &str,
         granularity: Option<i32>,
         start: Option<DateTime<Utc>>,
         end: Option<DateTime<Utc>>,
-    ) -> Result<Vec<Candle>, RestError> {
+    ) -> Result<Vec<T>, RestError> {
         self.get(
             &format!("/products/{}/candles", product_name),
             Some(json!({
@@ -103,14 +169,14 @@ impl RestClient {
 
 #[cfg(test)]
 mod tests {
-    use crate::exchanges::gdax::*;
+    use crate::exchanges::{client::RestClient, ExchangeName};
     use chrono::{TimeZone, Utc};
 
     #[tokio::test]
     async fn get_product_returns_all_products() {
-        let client = RestClient::new();
+        let client = RestClient::new(&ExchangeName::Gdax);
         let products = client
-            .get_products()
+            .get_gdax_products::<crate::exchanges::gdax::Product>()
             .await
             .expect("Failed to get all products.");
         println!("Products: {:?}", products)
@@ -118,10 +184,10 @@ mod tests {
 
     #[tokio::test]
     async fn get_products_returns_specific_product() {
-        let client = RestClient::new();
+        let client = RestClient::new(&ExchangeName::Gdax);
         let product_name = "BTC-USD";
         let product = client
-            .get_product(&product_name)
+            .get_gdax_product(&product_name)
             .await
             .expect("Failed to get BTC-USD product.");
         println!("Product: {:?}", product)
@@ -141,10 +207,10 @@ mod tests {
 
     #[tokio::test]
     async fn get_trades_returns_array_of_trades() {
-        let client = RestClient::new();
+        let client = RestClient::new(&ExchangeName::Gdax);
         let product_name = "BTC-USD";
         let trades = client
-            .get_trades(&product_name, None, None, None)
+            .get_gdax_trades(&product_name, None, None, None)
             .await
             .expect("Failed to get BTC-USD product.");
         println!("Trades: {:?}", trades)
@@ -152,10 +218,10 @@ mod tests {
 
     #[tokio::test]
     async fn get_trades_after_returns_array_of_trades() {
-        let client = RestClient::new();
+        let client = RestClient::new(&ExchangeName::Gdax);
         let product_name = "BTC-USD";
         let trades = client
-            .get_trades(&product_name, None, None, Some(375128017))
+            .get_gdax_trades(&product_name, None, None, Some(375128017))
             .await
             .expect("Failed to get BTC-USD product.");
         println!("Trades: {:?}", trades);
@@ -164,25 +230,32 @@ mod tests {
 
     #[tokio::test]
     async fn get_candles_returns_array_of_candles() {
-        let client = RestClient::new();
+        let client = RestClient::new(&ExchangeName::Gdax);
         let product_name = "BTC-USD";
-        let candles = client
-            .get_candles(&product_name, Some(86400), None, None)
+        let _candles = client
+            .get_gdax_candles::<crate::exchanges::gdax::Candle>(
+                &product_name,
+                Some(86400),
+                None,
+                None,
+            )
             .await
             .expect("Failed to get BTC-USD product.");
-        println!("Candles: {:?}", candles)
+        // println!::<T>("Candles: {:?}", candles)
     }
 
     #[tokio::test]
     async fn get_candles_daterange_returns_array_of_candles() {
         // Start and end are inclusive. For 1 candle set start = end
-        let client = RestClient::new();
+        let client = RestClient::new(&ExchangeName::Gdax);
         let product_name = "BTC-USD";
         let candles = client
-            .get_candles(&product_name, 
-                Some(86400), 
-                Some(Utc.ymd(2022,1,1).and_hms(0,0,0)), 
-                Some(Utc.ymd(2022,1,1).and_hms(0,0,0)))
+            .get_gdax_candles::<crate::exchanges::gdax::Candle>(
+                &product_name,
+                Some(86400),
+                Some(Utc.ymd(2022, 1, 1).and_hms(0, 0, 0)),
+                Some(Utc.ymd(2022, 1, 1).and_hms(0, 0, 0)),
+            )
             .await
             .expect("Failed to get BTC-USD product.");
         println!("Candles: {:?}", candles)

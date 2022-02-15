@@ -1,7 +1,7 @@
 use crate::{
     candles::TimeFrame,
     configuration::{get_configuration, Settings},
-    exchanges::{ftx::RestClient, ExchangeName},
+    exchanges::{client::RestClient, ExchangeName},
     validation::ValidationStatus,
 };
 use sqlx::PgPool;
@@ -24,8 +24,9 @@ impl Inquisidor {
             .await
             .expect("Failed to connect to postgres db.");
         let mut clients = HashMap::new();
-        clients.insert(ExchangeName::Ftx, RestClient::new_intl());
-        clients.insert(ExchangeName::FtxUs, RestClient::new_us());
+        clients.insert(ExchangeName::Ftx, RestClient::new(&ExchangeName::Ftx));
+        clients.insert(ExchangeName::FtxUs, RestClient::new(&ExchangeName::FtxUs));
+        clients.insert(ExchangeName::Gdax, RestClient::new(&ExchangeName::Gdax));
         Self {
             settings,
             pool,
@@ -65,11 +66,11 @@ mod tests {
         let ig = Inquisidor::new().await;
         println!("Inquisidor: {:?}", ig);
         let ftx_trades = &ig.clients[&ExchangeName::Ftx]
-            .get_trades("BTC/USD", Some(5), None, None)
+            .get_ftx_trades("BTC/USD", Some(5), None, None)
             .await
             .expect("Failed to get trades.");
         let ftxus_trades = &ig.clients[&ExchangeName::FtxUs]
-            .get_trades("BTC/USD", Some(5), None, None)
+            .get_ftx_trades("BTC/USD", Some(5), None, None)
             .await
             .expect("Failed to get trades.");
         println!("FTX Trades: {:?}", ftx_trades);

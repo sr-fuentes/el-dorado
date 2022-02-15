@@ -6,6 +6,8 @@ use sqlx::PgPool;
 use std::convert::{TryFrom, TryInto};
 use uuid::Uuid;
 
+pub mod client;
+pub mod error;
 pub mod ftx;
 pub mod gdax;
 
@@ -20,6 +22,7 @@ pub struct Exchange {
 pub enum ExchangeName {
     Ftx,
     FtxUs,
+    Gdax,
 }
 
 impl ExchangeName {
@@ -27,6 +30,7 @@ impl ExchangeName {
         match self {
             ExchangeName::Ftx => "ftx",
             ExchangeName::FtxUs => "ftxus",
+            ExchangeName::Gdax => "gdax",
         }
     }
 }
@@ -38,6 +42,7 @@ impl TryFrom<String> for ExchangeName {
         match s.to_lowercase().as_str() {
             "ftx" => Ok(Self::Ftx),
             "ftxus" => Ok(Self::FtxUs),
+            "gdax" => Ok(Self::Gdax),
             other => Err(format!("{} is not a supported exchange.", other)),
         }
     }
@@ -100,9 +105,19 @@ impl Inquisidor {
             .await
             .expect("Failed to insert new exchange.");
         // Refresh markets for new exchange (should insert all)
-        self.refresh_exchange_markets(&new_exchange.name).await;
+        match exchange {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                self.refresh_exchange_markets::<crate::exchanges::ftx::Market>(&new_exchange.name)
+                    .await
+            }
+
+            ExchangeName::Gdax => {
+                self.refresh_exchange_markets::<crate::exchanges::gdax::Product>(&new_exchange.name)
+                    .await
+            }
+        };
         // Create candle table for exchange
-        create_exchange_candle_table(&self.pool, new_exchange.name.as_str())
+        create_exchange_candle_table(&self.pool, &new_exchange.name)
             .await
             .expect("Failed to create exchange table.");
     }
@@ -166,7 +181,6 @@ pub async fn insert_new_exchange(pool: &PgPool, exchange: &Exchange) -> Result<(
 mod tests {
     use super::*;
     use crate::configuration::get_configuration;
-    use crate::exchanges::ftx::*;
     use crate::markets::select_market_details;
     use crate::trades::{create_ftx_trade_table, insert_ftx_trades};
 
@@ -247,11 +261,11 @@ mod tests {
             .expect("Failed to create tables.");
 
         // Create rest client
-        let client = RestClient::new_us();
+        let client = crate::exchanges::client::RestClient::new(&ExchangeName::FtxUs);
 
         // Get last 10 BTC/USD trades
         let trades = client
-            .get_trades(&market.market_name, Some(10), None, Some(Utc::now()))
+            .get_ftx_trades(&market.market_name, Some(10), None, Some(Utc::now()))
             .await
             .expect("Failed to get last 10 BTC/USD trades.");
 

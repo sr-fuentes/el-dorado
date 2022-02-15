@@ -1,6 +1,7 @@
-use crate::exchanges::{ftx::Trade, ExchangeName};
+use crate::exchanges::{ftx::Trade as FtxTrade, gdax::Trade as GdaxTrade, ExchangeName};
 use crate::markets::MarketDetail;
 use crate::mita::Mita;
+use crate::utilities::Trade;
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 
@@ -49,6 +50,11 @@ pub async fn select_insert_delete_trades(
             // Insert ftx trades into destination table
             insert_ftx_trades(pool, exchange_name, market, destination, trades).await?;
         }
+        ExchangeName::Gdax => {
+            let trades =
+                select_gdax_trades_by_time(pool, exchange_name, market, source, start, end).await?;
+            insert_gdax_trades(pool, exchange_name, market, destination, trades).await?;
+        }
     }
     // Delete trades form source table
     delete_trades_by_time(pool, exchange_name, market, source, start, end).await?;
@@ -72,6 +78,11 @@ pub async fn select_insert_drop_trades(
             // Insert ftx trades into destination table
             insert_ftx_trades(pool, exchange_name, market, destination, trades).await?;
         }
+        ExchangeName::Gdax => {
+            let trades =
+                select_gdax_trades_by_time(pool, exchange_name, market, source, start, end).await?;
+            insert_gdax_trades(pool, exchange_name, market, destination, trades).await?;
+        }
     }
     // Drop source table
     drop_trade_table(pool, exchange_name, market, source).await?;
@@ -87,10 +98,28 @@ pub async fn insert_delete_ftx_trades(
     end: DateTime<Utc>,
     source: &str,
     destination: &str,
-    trades: Vec<Trade>,
+    trades: Vec<FtxTrade>,
 ) -> Result<(), sqlx::Error> {
     // Insert ftx trades into destination table
     insert_ftx_trades(pool, exchange_name, market, destination, trades).await?;
+    // Delete trades form source table
+    delete_trades_by_time(pool, exchange_name, market, source, start, end).await?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn insert_delete_gdax_trades(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+    market: &MarketDetail,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    source: &str,
+    destination: &str,
+    trades: Vec<GdaxTrade>,
+) -> Result<(), sqlx::Error> {
+    // Insert ftx trades into destination table
+    insert_gdax_trades(pool, exchange_name, market, destination, trades).await?;
     // Delete trades form source table
     delete_trades_by_time(pool, exchange_name, market, source, start, end).await?;
     Ok(())
@@ -108,6 +137,9 @@ pub async fn drop_create_trade_table(
     match exchange_name {
         ExchangeName::Ftx | ExchangeName::FtxUs => {
             create_ftx_trade_table(pool, exchange_name, market, trade_table).await?
+        }
+        ExchangeName::Gdax => {
+            create_gdax_trade_table(pool, exchange_name, market, trade_table).await?
         }
     }
     Ok(())
@@ -129,6 +161,16 @@ pub async fn alter_create_migrate_drop_trade_table(
         ExchangeName::Ftx | ExchangeName::FtxUs => {
             create_ftx_trade_table(pool, exchange_name, market, trade_table).await?;
             create_ftx_trade_table(
+                pool,
+                exchange_name,
+                market,
+                format!("{}_temp", trade_table).as_str(),
+            )
+            .await?;
+        }
+        ExchangeName::Gdax => {
+            create_gdax_trade_table(pool, exchange_name, market, trade_table).await?;
+            create_gdax_trade_table(
                 pool,
                 exchange_name,
                 market,
@@ -169,6 +211,46 @@ pub async fn create_ftx_trade_table(
             size NUMERIC NOT NULL,
             side TEXT NOT NULL,
             liquidation BOOLEAN NOT NULL,
+            time timestamptz NOT NULL
+        )
+        "#,
+        exchange_name.as_str(),
+        market.as_strip(),
+        trade_table
+    );
+    sqlx::query(&sql).execute(pool).await?;
+    // Create index on time
+    let sql = format!(
+        r#"
+        CREATE INDEX IF NOT EXISTS trades_{e}_{m}_{t}_time_asc
+        ON trades_{e}_{m}_{t} (time)
+        "#,
+        e = exchange_name.as_str(),
+        m = market.as_strip(),
+        t = trade_table
+    );
+    sqlx::query(&sql).execute(pool).await?;
+    Ok(())
+}
+
+pub async fn create_gdax_trade_table(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+    market: &MarketDetail,
+    trade_table: &str,
+) -> Result<(), sqlx::Error> {
+    // Create trade table
+    // trades_EXCHANGE_MARKET_SOURCE
+    // trades_ftx_btcperp_rest
+    let sql = format!(
+        r#"
+        CREATE TABLE IF NOT EXISTS trades_{}_{}_{} (
+            market_id uuid NOT NULL,
+            trade_id BIGINT NOT NULL,
+            PRIMARY KEY (trade_id),
+            price NUMERIC NOT NULL,
+            size NUMERIC NOT NULL,
+            side TEXT NOT NULL,
             time timestamptz NOT NULL
         )
         "#,
@@ -264,7 +346,7 @@ pub async fn insert_ftx_trades(
     exchange_name: &ExchangeName,
     market: &MarketDetail,
     trade_table: &str,
-    trades: Vec<Trade>,
+    trades: Vec<FtxTrade>,
 ) -> Result<(), sqlx::Error> {
     // Cannot user sqlx query! macro because table may not exist at
     // compile time and table name is dynamic to ftx and ftxus.
@@ -294,12 +376,78 @@ pub async fn insert_ftx_trades(
     Ok(())
 }
 
+pub async fn insert_gdax_trades(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+    market: &MarketDetail,
+    trade_table: &str,
+    trades: Vec<GdaxTrade>,
+) -> Result<(), sqlx::Error> {
+    // Cannot user sqlx query! macro because table may not exist at
+    // compile time and table name is dynamic to ftx and ftxus.
+    let sql = format!(
+        r#"
+        INSERT INTO trades_{}_{}_{} (
+            market_id, trade_id, price, size, side, time)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (trade_id) DO NOTHING
+        "#,
+        exchange_name.as_str(),
+        market.as_strip(),
+        trade_table
+    );
+    for trade in trades.iter() {
+        sqlx::query(&sql)
+            .bind(market.market_id)
+            .bind(trade.trade_id)
+            .bind(trade.price)
+            .bind(trade.size)
+            .bind(&trade.side)
+            .bind(trade.time)
+            .execute(pool)
+            .await?;
+    }
+    Ok(())
+}
+
+pub async fn insert_gdax_trade(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+    market: &MarketDetail,
+    trade_table: &str,
+    trade: GdaxTrade,
+) -> Result<(), sqlx::Error> {
+    // Cannot user sqlx query! macro because table may not exist at
+    // compile time and table name is dynamic to ftx and ftxus.
+    let sql = format!(
+        r#"
+        INSERT INTO trades_{}_{}_{} (
+            market_id, trade_id, price, size, side, time)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (trade_id) DO NOTHING
+        "#,
+        exchange_name.as_str(),
+        market.as_strip(),
+        trade_table
+    );
+    sqlx::query(&sql)
+        .bind(market.market_id)
+        .bind(trade.trade_id)
+        .bind(trade.price)
+        .bind(trade.size)
+        .bind(&trade.side)
+        .bind(trade.time)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 pub async fn insert_ftx_trade(
     pool: &PgPool,
     exchange_name: &ExchangeName,
     market: &MarketDetail,
     trade_table: &str,
-    trade: Trade,
+    trade: FtxTrade,
 ) -> Result<(), sqlx::Error> {
     // Cannot user sqlx query! macro because table may not exist at
     // compile time and table name is dynamic to ftx and ftxus.
@@ -334,7 +482,7 @@ pub async fn select_ftx_trades_by_time(
     trade_table: &str,
     interval_start: DateTime<Utc>,
     interval_end: DateTime<Utc>,
-) -> Result<Vec<Trade>, sqlx::Error> {
+) -> Result<Vec<FtxTrade>, sqlx::Error> {
     // Cannot user query_as! macro because table may not exist at compile time
     let sql = format!(
         r#"
@@ -346,7 +494,34 @@ pub async fn select_ftx_trades_by_time(
         market.as_strip(),
         trade_table,
     );
-    let rows = sqlx::query_as::<_, Trade>(&sql)
+    let rows = sqlx::query_as::<_, FtxTrade>(&sql)
+        .bind(interval_start)
+        .bind(interval_end)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows)
+}
+
+pub async fn select_gdax_trades_by_time(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+    market: &MarketDetail,
+    trade_table: &str,
+    interval_start: DateTime<Utc>,
+    interval_end: DateTime<Utc>,
+) -> Result<Vec<GdaxTrade>, sqlx::Error> {
+    // Cannot user query_as! macro because table may not exist at compile time
+    let sql = format!(
+        r#"
+        SELECT trade_id, price, size, side, time
+        FROM trades_{}_{}_{}
+        WHERE time >= $1 and time < $2
+        "#,
+        exchange_name.as_str(),
+        market.as_strip(),
+        trade_table,
+    );
+    let rows = sqlx::query_as::<_, GdaxTrade>(&sql)
         .bind(interval_start)
         .bind(interval_end)
         .fetch_all(pool)
@@ -357,7 +532,7 @@ pub async fn select_ftx_trades_by_time(
 pub async fn select_ftx_trades_by_table(
     pool: &PgPool,
     table: &str,
-) -> Result<Vec<Trade>, sqlx::Error> {
+) -> Result<Vec<FtxTrade>, sqlx::Error> {
     // Cannot user query_as! macro because table may not exist at compile time
     let sql = format!(
         r#"
@@ -367,15 +542,49 @@ pub async fn select_ftx_trades_by_table(
         "#,
         table
     );
-    let rows = sqlx::query_as::<_, Trade>(&sql).fetch_all(pool).await?;
+    let rows = sqlx::query_as::<_, FtxTrade>(&sql).fetch_all(pool).await?;
     Ok(rows)
+}
+
+pub async fn select_gdax_trades_by_table(
+    pool: &PgPool,
+    table: &str,
+) -> Result<Vec<GdaxTrade>, sqlx::Error> {
+    // Cannot user query_as! macro because table may not exist at compile time
+    let sql = format!(
+        r#"
+        SELECT trade_id, price, size, side, time
+        FROM {}
+        ORDER BY time
+        "#,
+        table
+    );
+    let rows = sqlx::query_as::<_, GdaxTrade>(&sql).fetch_all(pool).await?;
+    Ok(rows)
+}
+
+pub async fn select_trade_first_stream(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+    market: &MarketDetail,
+) -> Result<(DateTime<Utc>, Option<i64>), sqlx::Error> {
+    match exchange_name {
+        ExchangeName::Ftx | ExchangeName::FtxUs => {
+            let ftx_trade = select_ftx_trade_first_stream(pool, exchange_name, market).await?;
+            Ok((ftx_trade.time(), Some(ftx_trade.trade_id())))
+        }
+        ExchangeName::Gdax => {
+            let gdax_trade = select_gdax_trade_first_stream(pool, exchange_name, market).await?;
+            Ok((gdax_trade.time(), Some(gdax_trade.trade_id())))
+        }
+    }
 }
 
 pub async fn select_ftx_trade_first_stream(
     pool: &PgPool,
     exchange_name: &ExchangeName,
     market: &MarketDetail,
-) -> Result<Trade, sqlx::Error> {
+) -> Result<FtxTrade, sqlx::Error> {
     let sql = format!(
         r#"
         SELECT trade_id as id, price, size, side, liquidation, time
@@ -386,7 +595,26 @@ pub async fn select_ftx_trade_first_stream(
         exchange_name.as_str(),
         market.as_strip()
     );
-    let row = sqlx::query_as::<_, Trade>(&sql).fetch_one(pool).await?;
+    let row = sqlx::query_as::<_, FtxTrade>(&sql).fetch_one(pool).await?;
+    Ok(row)
+}
+
+pub async fn select_gdax_trade_first_stream(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+    market: &MarketDetail,
+) -> Result<GdaxTrade, sqlx::Error> {
+    let sql = format!(
+        r#"
+        SELECT trade_id, price, size, side, time
+        FROM trades_{}_{}_ws
+        ORDER BY time
+        LIMIT 1
+        "#,
+        exchange_name.as_str(),
+        market.as_strip()
+    );
+    let row = sqlx::query_as::<_, GdaxTrade>(&sql).fetch_one(pool).await?;
     Ok(row)
 }
 

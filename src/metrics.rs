@@ -516,9 +516,9 @@ mod tests {
     #[tokio::test]
     pub async fn calc_daily_ema() {
         // Get daily BTC-PERP candles from FTX
-        let client = crate::exchanges::ftx::RestClient::new_intl();
+        let client = crate::exchanges::client::RestClient::new(&ExchangeName::Ftx);
         let mut candles = client
-            .get_candles("BTC-PERP", Some(86400), None, None)
+            .get_ftx_candles::<crate::exchanges::ftx::Candle>("BTC-PERP", Some(86400), None, None)
             .await
             .expect("Failed to get candles.");
         // Sort candles and put close prices into vector
@@ -534,9 +534,9 @@ mod tests {
     #[tokio::test]
     pub async fn calc_daily_ema_shift() {
         // Get daily BTC-PERP candles from FTX
-        let client = crate::exchanges::ftx::RestClient::new_intl();
+        let client = crate::exchanges::client::RestClient::new(&ExchangeName::Ftx);
         let mut candles = client
-            .get_candles("BTC-PERP", Some(86400), None, None)
+            .get_ftx_candles::<crate::exchanges::ftx::Candle>("BTC-PERP", Some(86400), None, None)
             .await
             .expect("Failed to get candles.");
         // Sort candles and put close prices into vector
@@ -553,9 +553,9 @@ mod tests {
     #[tokio::test]
     pub async fn calc_atr() {
         // Get daily BTC-PERP candles from FTX
-        let client = crate::exchanges::ftx::RestClient::new_intl();
+        let client = crate::exchanges::client::RestClient::new(&ExchangeName::Ftx);
         let mut candles = client
-            .get_candles("BTC-PERP", Some(86400), None, None)
+            .get_ftx_candles::<crate::exchanges::ftx::Candle>("BTC-PERP", Some(86400), None, None)
             .await
             .expect("Failed to get candles.");
         // Sort candles and put tr values into vector
@@ -585,9 +585,9 @@ mod tests {
     #[tokio::test]
     pub async fn calc_z_return() {
         // Get daily BTC-PERP candles from FTX
-        let client = crate::exchanges::ftx::RestClient::new_intl();
+        let client = crate::exchanges::client::RestClient::new(&ExchangeName::Ftx);
         let mut candles = client
-            .get_candles("BTC-PERP", Some(86400), None, None)
+            .get_ftx_candles::<crate::exchanges::ftx::Candle>("BTC-PERP", Some(86400), None, None)
             .await
             .expect("Failed to get candles.");
         // Sort candles and put tr values into vector
@@ -616,9 +616,9 @@ mod tests {
     #[tokio::test]
     pub async fn calc_dons() {
         // Get daily BTC-PERP candles from FTX
-        let client = crate::exchanges::ftx::RestClient::new_intl();
+        let client = crate::exchanges::client::RestClient::new(&ExchangeName::Ftx);
         let mut candles = client
-            .get_candles("BTC-PERP", Some(86400), None, None)
+            .get_ftx_candles::<crate::exchanges::ftx::Candle>("BTC-PERP", Some(86400), None, None)
             .await
             .expect("Failed to get candles.");
         // Sort candles and put close prices into vector

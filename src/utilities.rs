@@ -1,3 +1,6 @@
+use chrono::{DateTime, Utc};
+use rust_decimal::prelude::*;
+use rust_decimal_macros::dec;
 use std::io::{self, Write};
 
 pub fn get_input<U: std::str::FromStr>(prompt: &str) -> U {
@@ -21,6 +24,52 @@ pub fn get_input<U: std::str::FromStr>(prompt: &str) -> U {
         };
         return input;
     }
+}
+
+pub fn min_to_dp(increment: Decimal) -> i32 {
+    if increment < dec!(1) {
+        let dp = increment.scale() as i32;
+        if dec!(10).powi(dp as i64) * increment == dec!(1) {
+            dp
+        } else if dec!(10).powi(dp as i64) * increment == dec!(5) {
+            dp - 1
+        } else {
+            dp - 2
+        }
+    } else {
+        let log10 = increment.log10();
+        if log10.scale() == 0 {
+            -log10.trunc().mantissa() as i32
+        } else {
+            -log10.trunc().mantissa() as i32 - 1
+        }
+    }
+}
+
+pub trait Trade {
+    fn trade_id(&self) -> i64;
+    fn price(&self) -> Decimal;
+    fn size(&self) -> Decimal;
+    fn side(&self) -> String;
+    fn liquidation(&self) -> bool;
+    fn time(&self) -> DateTime<Utc>;
+}
+
+pub trait Candle {
+    fn datetime(&self) -> DateTime<Utc>;
+    fn volume(&self) -> Decimal;
+}
+
+pub trait Market {
+    fn name(&self) -> String;
+    fn market_type(&self) -> String;
+    fn dp_quantity(&self) -> i32;
+    fn dp_price(&self) -> i32;
+    fn min_quantity(&self) -> Decimal;
+    fn base_currency(&self) -> Option<String>;
+    fn quote_currency(&self) -> Option<String>;
+    fn underlying(&self) -> Option<String>;
+    fn usd_volume_24h(&self) -> Option<Decimal>;
 }
 
 #[cfg(test)]

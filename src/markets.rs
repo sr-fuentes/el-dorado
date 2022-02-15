@@ -1,13 +1,12 @@
 use crate::candles::Candle;
-use crate::exchanges::{
-    ftx::{Market, RestClient, RestError},
-    select_exchanges, ExchangeName,
-};
+use crate::exchanges::{client::RestClient, error::RestError, select_exchanges, ExchangeName};
 use crate::inquisidor::Inquisidor;
 use crate::utilities::get_input;
 use chrono::{DateTime, Utc};
-use rust_decimal::{Decimal, MathematicalOps};
+use core::cmp::Reverse;
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
+use serde::de::DeserializeOwned;
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
@@ -141,21 +140,35 @@ impl Inquisidor {
             println!("{:?} has not been added to El-Dorado.", exchange);
             return;
         }
-        self.refresh_exchange_markets(&exchange).await;
+        // Refresh markets for new exchange (should insert all)
+        match exchange {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                self.refresh_exchange_markets::<crate::exchanges::ftx::Market>(&exchange)
+                    .await
+            }
+
+            ExchangeName::Gdax => {
+                self.refresh_exchange_markets::<crate::exchanges::gdax::Product>(&exchange)
+                    .await
+            }
+        };
     }
 
-    pub async fn refresh_exchange_markets(&self, exchange: &ExchangeName) {
+    pub async fn refresh_exchange_markets<T: crate::utilities::Market + DeserializeOwned>(
+        &self,
+        exchange: &ExchangeName,
+    ) {
         // Get USD markets from exchange
-        let markets = get_usd_markets(exchange).await;
+        let markets: Vec<T> = get_usd_markets(&self.clients[exchange], exchange).await;
         // Get existing markets for exchange from db.
         let market_ids = select_market_ids_by_exchange(&self.pool, exchange)
             .await
             .expect("Failed to get markets from db.");
         // For each market that is not in the exchange, insert into db.
         for market in markets.iter() {
-            if !market_ids.iter().any(|m| m.market_name == market.name) {
+            if !market_ids.iter().any(|m| m.market_name == market.name()) {
                 // Exchange market not in database.
-                println!("Adding {:?} market for {:?}", market.name, exchange);
+                println!("Adding {:?} market for {:?}", market.name(), exchange);
                 insert_new_market(
                     &self.pool,
                     exchange,
@@ -183,10 +196,29 @@ impl Inquisidor {
             println!("{:?} has not been added to El-Dorado.", exchange);
             return;
         }
+        match exchange {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                self.update_market_ranks_generic::<crate::exchanges::ftx::Market>(&exchange)
+                    .await
+            }
+
+            ExchangeName::Gdax => {
+                self.update_market_ranks_generic::<crate::exchanges::gdax::Product>(&exchange)
+                    .await
+            }
+        };
+    }
+
+    pub async fn update_market_ranks_generic<
+        T: crate::utilities::Market + DeserializeOwned + std::clone::Clone,
+    >(
+        &self,
+        exchange: &ExchangeName,
+    ) {
         // Get terminated markets from database
         let markets_terminated = select_market_details_by_status_exchange(
             &self.pool,
-            &exchange,
+            exchange,
             &MarketStatus::Terminated,
         )
         .await
@@ -196,26 +228,31 @@ impl Inquisidor {
             .await
             .expect("Failed to select market details.");
         // Get USD markets from exchange
-        let markets_exch = get_usd_markets(&exchange).await;
+        let markets_exch: Vec<T> = get_usd_markets(&self.clients[exchange], exchange).await;
         println!("# exchange markets: {}", markets_exch.len());
         // Filter out non-terminated markets and non-perp markets
-        let mut filtered_markets: Vec<Market> = markets_exch
-            .iter()
-            .filter(|m| {
-                m.market_type == "future"
-                    && !markets_terminated.iter().any(|tm| tm.market_name == m.name)
-                    && m.name.split('-').last() == Some("PERP")
-            })
-            .cloned()
-            .collect();
+        let mut filtered_markets: Vec<T> = match *exchange {
+            ExchangeName::Ftx | ExchangeName::FtxUs => markets_exch
+                .iter()
+                .filter(|m| {
+                    m.market_type() == "future"
+                        && !markets_terminated
+                            .iter()
+                            .any(|tm| tm.market_name == m.name())
+                        && m.name().split('-').last() == Some("PERP")
+                })
+                .cloned()
+                .collect(),
+            ExchangeName::Gdax => markets_exch,
+        };
         // println!("Filtered markets: {:?}", filtered_markets);
         // Sort by 24h volume
-        filtered_markets.sort_by(|m1, m2| m2.volume_usd24h.cmp(&m1.volume_usd24h));
+        filtered_markets.sort_by_key(|m2| Reverse(m2.usd_volume_24h()));
         // Create ranks table and select current contents
-        create_market_ranks_table(&self.pool, &exchange)
+        create_market_ranks_table(&self.pool, exchange)
             .await
             .expect("Failed to create market ranks table.");
-        let previous_ranks = select_market_ranks(&self.pool, &exchange)
+        let previous_ranks = select_market_ranks(&self.pool, exchange)
             .await
             .expect("Failed to select market ranks.");
         // Create empty vec to hold new ranks
@@ -227,12 +264,12 @@ impl Inquisidor {
             // Check if there is a previous record for market
             let previous_rank = previous_ranks
                 .iter()
-                .find(|pr| pr.market_name == market.name);
+                .find(|pr| pr.market_name == market.name());
             let rank_prev = previous_rank.map(|pr| pr.rank);
             // Get MarketDetail for id and current mita fields
             let market_detail = market_details
                 .iter()
-                .find(|md| md.market_name == market.name)
+                .find(|md| md.market_name == market.name())
                 .unwrap();
             let (market_id, mita_current) = (market_detail.market_id, market_detail.mita.clone());
             let proposed_mita = proposal.get(&rank).map(|m| m.to_string());
@@ -245,35 +282,35 @@ impl Inquisidor {
             };
             let new_rank = MarketRank {
                 market_id,
-                market_name: market.name.clone(),
+                market_name: market.name(),
                 rank,
                 rank_prev,
                 mita_current,
                 mita_proposed,
-                usd_volume_24h: market.volume_usd24h.round(),
-                usd_volume_15t: (market.volume_usd24h / dec!(96)).round(),
-                ats_v1: (market.volume_usd24h / dec!(24) * dec!(0.05)).round_dp(2),
-                ats_v2: (market.volume_usd24h / dec!(96) * dec!(0.05)).round_dp(2),
-                mps: (market.volume_usd24h * dec!(0.005)).round_dp(2),
-                dp_quantity: self.min_to_dp(market.size_increment),
-                dp_price: self.min_to_dp(market.price_increment),
-                min_quantity: market.min_provide_size,
+                usd_volume_24h: market.usd_volume_24h().unwrap().round(),
+                usd_volume_15t: (market.usd_volume_24h().unwrap() / dec!(96)).round(),
+                ats_v1: (market.usd_volume_24h().unwrap() / dec!(24) * dec!(0.05)).round_dp(2),
+                ats_v2: (market.usd_volume_24h().unwrap() / dec!(96) * dec!(0.05)).round_dp(2),
+                mps: (market.usd_volume_24h().unwrap() * dec!(0.005)).round_dp(2),
+                dp_quantity: market.dp_quantity(),
+                dp_price: market.dp_price(),
+                min_quantity: market.min_quantity(),
             };
             new_ranks.push(new_rank);
             rank += 1;
         }
         // Drop market ranks table
-        drop_market_ranks_table(&self.pool, &exchange)
+        drop_market_ranks_table(&self.pool, exchange)
             .await
             .expect("Failed to drop market ranks.");
         // Create market ranks table
-        create_market_ranks_table(&self.pool, &exchange)
+        create_market_ranks_table(&self.pool, exchange)
             .await
             .expect("Failed to create market ranks table.");
         // Insert markets
         for new_rank in new_ranks.iter() {
             // Insert rank
-            insert_market_rank(&self.pool, &exchange, new_rank)
+            insert_market_rank(&self.pool, exchange, new_rank)
                 .await
                 .expect("Failed to insert market rank.");
         }
@@ -318,26 +355,6 @@ impl Inquisidor {
         }
     }
 
-    fn min_to_dp(&self, increment: Decimal) -> i32 {
-        if increment < dec!(1) {
-            let dp = increment.scale() as i32;
-            if dec!(10).powi(dp as i64) * increment == dec!(1) {
-                dp
-            } else if dec!(10).powi(dp as i64) * increment == dec!(5) {
-                dp - 1
-            } else {
-                dp - 2
-            }
-        } else {
-            let log10 = increment.log10();
-            if log10.scale() == 0 {
-                -log10.trunc().mantissa() as i32
-            } else {
-                -log10.trunc().mantissa() as i32 - 1
-            }
-        }
-    }
-
     fn mita_proposal(&self) -> HashMap<i64, String> {
         let mut proposal = HashMap::new();
         // Create map for proposed mitas: 1-48 in streams, 49-75 in daily catchups
@@ -365,16 +382,14 @@ impl Inquisidor {
     }
 }
 
-pub async fn get_usd_markets(exchange: &ExchangeName) -> Vec<Market> {
+pub async fn get_usd_markets<T: crate::utilities::Market + DeserializeOwned>(
+    client: &RestClient,
+    exchange: &ExchangeName,
+) -> Vec<T> {
     let markets = match exchange {
-        ExchangeName::FtxUs => {
-            let client = RestClient::new_us();
-            get_ftx_usd_markets(&client).await
-        }
-        ExchangeName::Ftx => {
-            let client = RestClient::new_intl();
-            get_ftx_usd_markets(&client).await
-        }
+        ExchangeName::FtxUs => get_ftx_usd_markets(client).await,
+        ExchangeName::Ftx => get_ftx_usd_markets(client).await,
+        ExchangeName::Gdax => get_gdax_usd_markets(client).await,
     };
     match markets {
         Ok(markets) => markets,
@@ -382,11 +397,25 @@ pub async fn get_usd_markets(exchange: &ExchangeName) -> Vec<Market> {
     }
 }
 
-pub async fn get_ftx_usd_markets(client: &RestClient) -> Result<Vec<Market>, RestError> {
+pub async fn get_ftx_usd_markets<T: crate::utilities::Market + DeserializeOwned>(
+    client: &RestClient,
+) -> Result<Vec<T>, RestError> {
     // Get markets from exchange
-    let mut markets = client.get_markets().await?;
+    let mut markets = client.get_ftx_markets().await?;
     // Filter for USD based markets
-    markets.retain(|m| m.quote_currency == Some("USD".to_string()) || m.market_type == *"future");
+    markets.retain(|m: &T| {
+        m.quote_currency() == Some("USD".to_string()) || m.market_type() == *"future"
+    });
+    Ok(markets)
+}
+
+pub async fn get_gdax_usd_markets<T: crate::utilities::Market + DeserializeOwned>(
+    client: &RestClient,
+) -> Result<Vec<T>, RestError> {
+    // Get markets from exchange
+    let mut markets = client.get_gdax_products().await?;
+    // Filter for USD based markets
+    markets.retain(|m: &T| m.quote_currency() == Some("USD".to_string()));
     Ok(markets)
 }
 
@@ -590,10 +619,10 @@ pub async fn select_market_details(pool: &PgPool) -> Result<Vec<MarketDetail>, s
     Ok(rows)
 }
 
-pub async fn insert_new_market(
+pub async fn insert_new_market<T: crate::utilities::Market + DeserializeOwned>(
     pool: &PgPool,
     exchange: &ExchangeName,
-    market: &Market,
+    market: &T,
     ip_addr: &str,
 ) -> Result<(), sqlx::Error> {
     let network = ip_addr
@@ -609,11 +638,11 @@ pub async fn insert_new_market(
         "#,
         Uuid::new_v4(),
         exchange.as_str(),
-        market.name,
-        market.market_type,
-        market.base_currency,
-        market.quote_currency,
-        market.underlying,
+        market.name(),
+        market.market_type(),
+        market.base_currency(),
+        market.quote_currency(),
+        market.underlying(),
         MarketStatus::Active.as_str(),
         MarketStatus::New.as_str(),
         "15T",

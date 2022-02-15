@@ -1,7 +1,7 @@
-use super::{RestClient, RestError};
+use crate::exchanges::{client::RestClient, error::RestError};
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
@@ -31,6 +31,36 @@ pub struct Market {
     pub volume_usd24h: Decimal,
 }
 
+impl crate::utilities::Market for Market {
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+    fn market_type(&self) -> String {
+        self.market_type.clone()
+    }
+    fn dp_quantity(&self) -> i32 {
+        crate::utilities::min_to_dp(self.size_increment)
+    }
+    fn dp_price(&self) -> i32 {
+        crate::utilities::min_to_dp(self.price_increment)
+    }
+    fn min_quantity(&self) -> Decimal {
+        self.min_provide_size
+    }
+    fn base_currency(&self) -> Option<String> {
+        self.base_currency.clone()
+    }
+    fn quote_currency(&self) -> Option<String> {
+        self.quote_currency.clone()
+    }
+    fn underlying(&self) -> Option<String> {
+        self.underlying.clone()
+    }
+    fn usd_volume_24h(&self) -> Option<Decimal> {
+        Some(self.volume_usd24h)
+    }
+}
+
 #[derive(Clone, Deserialize, Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Orderbook {
@@ -49,6 +79,32 @@ pub struct Trade {
     pub time: DateTime<Utc>,
 }
 
+impl crate::utilities::Trade for Trade {
+    fn trade_id(&self) -> i64 {
+        self.id
+    }
+
+    fn price(&self) -> Decimal {
+        self.price
+    }
+
+    fn size(&self) -> Decimal {
+        self.size
+    }
+
+    fn side(&self) -> String {
+        self.side.clone()
+    }
+
+    fn liquidation(&self) -> bool {
+        self.liquidation
+    }
+
+    fn time(&self) -> DateTime<Utc> {
+        self.time
+    }
+}
+
 #[derive(Clone, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Candle {
@@ -60,6 +116,16 @@ pub struct Candle {
     pub low: Decimal,
     pub close: Decimal,
     pub volume: Decimal,
+}
+
+impl crate::utilities::Candle for Candle {
+    fn datetime(&self) -> DateTime<Utc> {
+        self.start_time
+    }
+
+    fn volume(&self) -> Decimal {
+        self.volume
+    }
 }
 
 mod ts_micro_fractions {
@@ -78,15 +144,15 @@ mod ts_micro_fractions {
 
 impl RestClient {
     // Add `/market` specific API endpoints
-    pub async fn get_markets(&self) -> Result<Vec<Market>, RestError> {
+    pub async fn get_ftx_markets<T: DeserializeOwned>(&self) -> Result<Vec<T>, RestError> {
         self.get("/markets", None).await
     }
 
-    pub async fn get_market(&self, market_name: &str) -> Result<Market, RestError> {
+    pub async fn get_ftx_market(&self, market_name: &str) -> Result<Market, RestError> {
         self.get(&format!("/markets/{}", market_name), None).await
     }
 
-    pub async fn get_orderbook(
+    pub async fn get_ftx_orderbook(
         &self,
         market_name: &str,
         depth: Option<u32>,
@@ -100,7 +166,7 @@ impl RestClient {
         .await
     }
 
-    pub async fn get_trades(
+    pub async fn get_ftx_trades(
         &self,
         market_name: &str,
         limit: Option<u32>,
@@ -118,13 +184,13 @@ impl RestClient {
         .await
     }
 
-    pub async fn get_candles(
+    pub async fn get_ftx_candles<T: DeserializeOwned>(
         &self,
         market_name: &str,
-        resolution: Option<u32>,
+        resolution: Option<i32>,
         start_time: Option<DateTime<Utc>>,
         end_time: Option<DateTime<Utc>>,
-    ) -> Result<Vec<Candle>, RestError> {
+    ) -> Result<Vec<T>, RestError> {
         self.get(
             &format!("/markets/{}/candles", market_name),
             Some(json!({
@@ -139,7 +205,7 @@ impl RestClient {
 
 #[cfg(test)]
 mod tests {
-    use crate::exchanges::ftx::*;
+    use crate::exchanges::{client::*, ftx::*, ExchangeName};
     use chrono::{TimeZone, Utc};
 
     #[test]
@@ -175,16 +241,19 @@ mod tests {
 
     #[tokio::test]
     async fn get_markets_returns_all_markets() {
-        let client = RestClient::new_intl();
-        let _markets = client.get_markets().await.expect("Failed to get markets.");
+        let client = RestClient::new(&ExchangeName::FtxUs);
+        let _markets = client
+            .get_ftx_markets::<crate::exchanges::ftx::Market>()
+            .await
+            .expect("Failed to get markets.");
     }
 
     #[tokio::test]
     async fn get_market_returns_specific_market() {
-        let client = RestClient::new_intl();
+        let client = RestClient::new(&ExchangeName::Ftx);
         let market_name = "BTC-PERP ";
         let market = client
-            .get_market(&market_name)
+            .get_ftx_market(&market_name)
             .await
             .expect("Failed to get BTC/USD market.");
         println!("{:?}", market);
@@ -247,9 +316,9 @@ mod tests {
 
     #[tokio::test]
     async fn get_orderbook_without_params_returns_orderbook() {
-        let client = RestClient::new_us();
+        let client = RestClient::new(&ExchangeName::FtxUs);
         let orderbook = client
-            .get_orderbook("BTC/USD", None)
+            .get_ftx_orderbook("BTC/USD", None)
             .await
             .expect("Failed to get orderbook.");
         println!("Orderbook: {:?}", orderbook);
@@ -257,9 +326,9 @@ mod tests {
 
     #[tokio::test]
     async fn get_orderbook_with_params_returns_orderbook() {
-        let client = RestClient::new_us();
+        let client = RestClient::new(&ExchangeName::FtxUs);
         let orderbook = client
-            .get_orderbook("BTC/USD", Some(300))
+            .get_ftx_orderbook("BTC/USD", Some(300))
             .await
             .expect("Failed to load BTC/USD orderbook.");
         println!("Orderbook: {:?}", orderbook);
@@ -288,9 +357,9 @@ mod tests {
 
     #[tokio::test]
     async fn get_trades_without_params_returns_trades() {
-        let client = RestClient::new_us();
+        let client = RestClient::new(&ExchangeName::FtxUs);
         let trades = client
-            .get_trades("BTC/USD", None, None, None)
+            .get_ftx_trades("BTC/USD", None, None, None)
             .await
             .expect("Failed to load BTC/USD trades.");
         println!("Trades: {:?}", trades);
@@ -298,9 +367,9 @@ mod tests {
 
     #[tokio::test]
     async fn get_trades_with_params_returns_trades() {
-        let client = RestClient::new_us();
+        let client = RestClient::new(&ExchangeName::FtxUs);
         let trades = client
-            .get_trades(
+            .get_ftx_trades(
                 "SOL/USD",
                 Some(100),
                 None,

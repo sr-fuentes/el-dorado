@@ -168,16 +168,31 @@ impl Inquisidor {
         .expect("Failed to select candles.");
         if !unvalidated_candles.is_empty() {
             // Validate
-            validate_hb_candles(
-                &self.pool,
-                &self.clients[&event.exchange_name],
-                &event.exchange_name,
-                market,
-                &self.settings,
-                &unvalidated_candles,
-            )
-            .await;
-        }
+            match event.exchange_name {
+                ExchangeName::Ftx | ExchangeName::FtxUs => {
+                    validate_hb_candles::<crate::exchanges::ftx::Candle>(
+                        &self.pool,
+                        &self.clients[&event.exchange_name],
+                        &event.exchange_name,
+                        market,
+                        &self.settings,
+                        &unvalidated_candles,
+                    )
+                    .await;
+                }
+                ExchangeName::Gdax => {
+                    validate_hb_candles::<crate::exchanges::gdax::Candle>(
+                        &self.pool,
+                        &self.clients[&event.exchange_name],
+                        &event.exchange_name,
+                        market,
+                        &self.settings,
+                        &unvalidated_candles,
+                    )
+                    .await;
+                }
+            };
+        };
         // Close event
         update_event_status_processed(&self.pool, event)
             .await
@@ -225,13 +240,26 @@ impl Inquisidor {
         .expect("Failed to select markets.");
         for market in markets.iter() {
             // Create 01d candles if needed
-            validate_01d_candles(
-                &self.pool,
-                &self.clients[&event.exchange_name],
-                &event.exchange_name,
-                market,
-            )
-            .await;
+            match event.exchange_name {
+                ExchangeName::Ftx | ExchangeName::FtxUs => {
+                    validate_01d_candles::<crate::exchanges::ftx::Candle>(
+                        &self.pool,
+                        &self.clients[&event.exchange_name],
+                        &event.exchange_name,
+                        market,
+                    )
+                    .await;
+                }
+                ExchangeName::Gdax => {
+                    validate_01d_candles::<crate::exchanges::gdax::Candle>(
+                        &self.pool,
+                        &self.clients[&event.exchange_name],
+                        &event.exchange_name,
+                        market,
+                    )
+                    .await;
+                }
+            };
         }
         // Close event
         update_event_status_processed(&self.pool, event)

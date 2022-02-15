@@ -1,13 +1,17 @@
 use crate::candles::{
-    delete_candle, delete_candle_01d, get_ftx_candles, insert_candle, insert_candles_01d,
-    resample_candles, select_candles_by_daterange, validate_ftx_candle, Candle,
+    delete_candle, delete_candle_01d, get_ftx_candles_daterange, get_gdax_candles_daterange,
+    insert_candle, insert_candles_01d, resample_candles, select_candles_by_daterange,
+    validate_candle, Candle,
 };
-use crate::exchanges::{ftx::RestError, ftx::Trade, ExchangeName};
+use crate::exchanges::{
+    error::RestError, ftx::Trade as FtxTrade, gdax::Trade as GdaxTrade, ExchangeName,
+};
 use crate::inquisidor::Inquisidor;
 use crate::markets::{select_market_details, MarketDetail};
 use crate::trades::{
     create_ftx_trade_table, delete_trades_by_time, drop_table, drop_trade_table, insert_ftx_trades,
-    select_ftx_trades_by_table, select_ftx_trades_by_time,
+    insert_gdax_trades, select_ftx_trades_by_table, select_ftx_trades_by_time,
+    select_gdax_trades_by_table, select_gdax_trades_by_time,
 };
 use crate::utilities::get_input;
 use chrono::{DateTime, Duration, DurationRound, Utc};
@@ -143,67 +147,16 @@ impl Inquisidor {
         )
         .await
         .expect("Failed to select hb candles.");
-        let trades = select_ftx_trades_by_time(
-            &self.pool,
-            &validation.exchange_name,
-            market,
-            "validated",
-            validation.datetime,
-            validation.datetime + Duration::days(1),
-        )
-        .await
-        .expect("Failed to select daily trades.");
-        let mut updated_count = 0;
-        for candle in hb_candles.iter() {
-            // Check trade counts against candle
-            let filtered_trades: Vec<Trade> = trades
-                .iter()
-                .filter(|t| t.time.duration_trunc(self.hbtf.as_dur()).unwrap() == candle.datetime)
-                .cloned()
-                .collect();
-            if filtered_trades.len() as i64 != candle.trade_count {
-                updated_count += 1;
-                println!(
-                    "{:?} trade count does not match: {} trades v {} candle trade count.",
-                    candle.datetime,
-                    filtered_trades.len(),
-                    candle.trade_count
-                );
-                let new_candle = match validation.exchange_name {
-                    ExchangeName::Ftx | ExchangeName::FtxUs => {
-                        self.recreate_ftx_candle(validation, market, candle.datetime)
-                            .await
-                    }
-                };
-                // If new candle trade count matches candle trade count, insert trades
-                if new_candle.trade_count == candle.trade_count {
-                    println!("Found missing trades, updating trade table.");
-                    let qc_table = format!(
-                        "trades_{}_{}_qc_{}",
-                        validation.exchange_name.as_str(),
-                        market.as_strip(),
-                        validation.validation_type.as_str(),
-                    );
-                    match validation.exchange_name {
-                        ExchangeName::Ftx | ExchangeName::FtxUs => {
-                            let validated_trades =
-                                select_ftx_trades_by_table(&self.pool, qc_table.as_str())
-                                    .await
-                                    .expect("Failed to select qc trades.");
-                            insert_ftx_trades(
-                                &self.pool,
-                                &validation.exchange_name,
-                                market,
-                                "validated",
-                                validated_trades,
-                            )
-                            .await
-                            .expect("Failed to insert validated trades.");
-                        }
-                    }
-                }
+        let updated_count = match validation.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                self.process_ftx_candle_count_validation(validation, market, &hb_candles)
+                    .await
             }
-        }
+            ExchangeName::Gdax => {
+                self.process_gdax_candle_count_validation(validation, market, &hb_candles)
+                    .await
+            }
+        };
         // Mark as closed - if there is another issue then it wont be able to be added do to unique
         // constrain on validation table but we don't want it constantly trying to re-download
         // trades. TODO add a check on the insert to see if a validtion exists that is closed and
@@ -222,6 +175,132 @@ impl Inquisidor {
         drop_table(&self.pool, &qc_table)
             .await
             .expect("Failed to drop qc table.");
+    }
+
+    pub async fn process_ftx_candle_count_validation(
+        &self,
+        validation: &CandleValidation,
+        market: &MarketDetail,
+        hb_candles: &[Candle],
+    ) -> i32 {
+        let trades = select_ftx_trades_by_time(
+            &self.pool,
+            &validation.exchange_name,
+            market,
+            "validated",
+            validation.datetime,
+            validation.datetime + Duration::days(1),
+        )
+        .await
+        .expect("Failed to select daily trades.");
+        let mut updated_count = 0;
+        for candle in hb_candles.iter() {
+            // Check trade counts against candle
+            let filtered_trades: Vec<FtxTrade> = trades
+                .iter()
+                .filter(|t| t.time.duration_trunc(self.hbtf.as_dur()).unwrap() == candle.datetime)
+                .cloned()
+                .collect();
+            if filtered_trades.len() as i64 != candle.trade_count {
+                updated_count += 1;
+                println!(
+                    "{:?} trade count does not match: {} trades v {} candle trade count.",
+                    candle.datetime,
+                    filtered_trades.len(),
+                    candle.trade_count
+                );
+                let new_candle = self
+                    .recreate_ftx_candle(validation, market, candle.datetime)
+                    .await;
+                // If new candle trade count matches candle trade count, insert trades
+                if new_candle.trade_count == candle.trade_count {
+                    println!("Found missing trades, updating trade table.");
+                    let qc_table = format!(
+                        "trades_{}_{}_qc_{}",
+                        validation.exchange_name.as_str(),
+                        market.as_strip(),
+                        validation.validation_type.as_str(),
+                    );
+                    let validated_trades =
+                        select_ftx_trades_by_table(&self.pool, qc_table.as_str())
+                            .await
+                            .expect("Failed to select qc trades.");
+                    insert_ftx_trades(
+                        &self.pool,
+                        &validation.exchange_name,
+                        market,
+                        "validated",
+                        validated_trades,
+                    )
+                    .await
+                    .expect("Failed to insert validated trades.");
+                }
+            }
+        }
+        updated_count
+    }
+
+    pub async fn process_gdax_candle_count_validation(
+        &self,
+        validation: &CandleValidation,
+        market: &MarketDetail,
+        hb_candles: &[Candle],
+    ) -> i32 {
+        let trades = select_gdax_trades_by_time(
+            &self.pool,
+            &validation.exchange_name,
+            market,
+            "validated",
+            validation.datetime,
+            validation.datetime + Duration::days(1),
+        )
+        .await
+        .expect("Failed to select daily trades.");
+        let mut updated_count = 0;
+        for candle in hb_candles.iter() {
+            // Check trade counts against candle
+            let filtered_trades: Vec<GdaxTrade> = trades
+                .iter()
+                .filter(|t| t.time.duration_trunc(self.hbtf.as_dur()).unwrap() == candle.datetime)
+                .cloned()
+                .collect();
+            if filtered_trades.len() as i64 != candle.trade_count {
+                updated_count += 1;
+                println!(
+                    "{:?} trade count does not match: {} trades v {} candle trade count.",
+                    candle.datetime,
+                    filtered_trades.len(),
+                    candle.trade_count
+                );
+                let new_candle = self
+                    .recreate_gdax_candle(validation, market, candle.datetime)
+                    .await;
+                // If new candle trade count matches candle trade count, insert trades
+                if new_candle.trade_count == candle.trade_count {
+                    println!("Found missing trades, updating trade table.");
+                    let qc_table = format!(
+                        "trades_{}_{}_qc_{}",
+                        validation.exchange_name.as_str(),
+                        market.as_strip(),
+                        validation.validation_type.as_str(),
+                    );
+                    let validated_trades =
+                        select_gdax_trades_by_table(&self.pool, qc_table.as_str())
+                            .await
+                            .expect("Failed to select qc trades.");
+                    insert_gdax_trades(
+                        &self.pool,
+                        &validation.exchange_name,
+                        market,
+                        "validated",
+                        validated_trades,
+                    )
+                    .await
+                    .expect("Failed to insert validated trades.");
+                }
+            }
+        }
+        updated_count
     }
 
     pub async fn auto_process_candle_validation(
@@ -258,25 +337,48 @@ impl Inquisidor {
 
     pub async fn auto_validate_candle(&self, validation: &CandleValidation, market: &MarketDetail) {
         // Recreate candle and then compare new candle to exchange candle for validation and return result.
-        let candle = match validation.exchange_name {
-            ExchangeName::Ftx | ExchangeName::FtxUs => {
-                self.recreate_ftx_candle(validation, market, validation.datetime)
-                    .await
-            }
-        };
         // Set start and end for candle period
         let candle_start = validation.datetime;
-        // Get exchange candles from REST client
-        let mut exchange_candles = get_ftx_candles(
-            &self.clients[&validation.exchange_name],
-            market,
-            candle_start,
-            candle_start,
-            900,
-        )
-        .await;
-        // Validate new candle an d return validation status
-        let is_valid = validate_ftx_candle(&candle, &mut exchange_candles);
+        let (candle, is_valid) = match validation.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                let candle = self
+                    .recreate_ftx_candle(validation, market, validation.datetime)
+                    .await;
+                // Get exchange candles from REST client
+                let mut exchange_candles =
+                    get_ftx_candles_daterange::<crate::exchanges::ftx::Candle>(
+                        &self.clients[&validation.exchange_name],
+                        market,
+                        candle_start,
+                        candle_start,
+                        900,
+                    )
+                    .await;
+                // Validate new candle an d return validation status
+                let is_valid =
+                    validate_candle(&validation.exchange_name, &candle, &mut exchange_candles);
+                (candle, is_valid)
+            }
+            ExchangeName::Gdax => {
+                let candle = self
+                    .recreate_gdax_candle(validation, market, validation.datetime)
+                    .await;
+                // Get exchange candles from REST client
+                let mut exchange_candles =
+                    get_gdax_candles_daterange::<crate::exchanges::gdax::Candle>(
+                        &self.clients[&validation.exchange_name],
+                        market,
+                        candle_start,
+                        candle_start,
+                        900,
+                    )
+                    .await;
+                // Validate new candle an d return validation status
+                let is_valid =
+                    validate_candle(&validation.exchange_name, &candle, &mut exchange_candles);
+                (candle, is_valid)
+            }
+        };
         if is_valid {
             let message = "Re-validation successful.".to_string();
             // New candle was validated, save trades if heartbeat and replace unvalidated candle
@@ -339,17 +441,36 @@ impl Inquisidor {
                     return;
                 }
             };
-        // Get exchange candle
-        let mut exchange_candles = get_ftx_candles(
-            &self.clients[&validation.exchange_name],
-            market,
-            validation.datetime,
-            validation.datetime,
-            86400,
-        )
-        .await;
-        // Validate new candle volume
-        let is_valid = validate_ftx_candle(&candle, &mut exchange_candles);
+        let is_valid = match validation.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                // Get exchange candle
+                let mut exchange_candles =
+                    get_ftx_candles_daterange::<crate::exchanges::ftx::Candle>(
+                        &self.clients[&validation.exchange_name],
+                        market,
+                        validation.datetime,
+                        validation.datetime,
+                        86400,
+                    )
+                    .await;
+                // Validate new candle volume
+                validate_candle(&validation.exchange_name, &candle, &mut exchange_candles)
+            }
+            ExchangeName::Gdax => {
+                // Get exchange candle
+                let mut exchange_candles =
+                    get_gdax_candles_daterange::<crate::exchanges::gdax::Candle>(
+                        &self.clients[&validation.exchange_name],
+                        market,
+                        validation.datetime,
+                        validation.datetime,
+                        86400,
+                    )
+                    .await;
+                // Validate new candle volume
+                validate_candle(&validation.exchange_name, &candle, &mut exchange_candles)
+            }
+        };
         if is_valid {
             let message = "Re-validation successful.".to_string();
             // New candle was validated, update new candle
@@ -385,44 +506,13 @@ impl Inquisidor {
                 self.recreate_ftx_candle(validation, market, validation.datetime)
                     .await
             }
+            ExchangeName::Gdax => {
+                self.recreate_gdax_candle(validation, market, validation.datetime)
+                    .await
+            }
         };
         // Set start and end for candle period
         let candle_start = validation.datetime;
-        // Get exchange candles from REST client TODO - make multi exchange
-        let exchange_candle = get_ftx_candles(
-            &self.clients[&validation.exchange_name],
-            market,
-            candle_start,
-            candle_start,
-            900,
-        )
-        .await
-        .pop()
-        .unwrap();
-        // Get +/- 1 seconds of candles
-        let end_trades = match validation.exchange_name {
-            ExchangeName::Ftx | ExchangeName::FtxUs => self.clients[&validation.exchange_name]
-                .get_trades(
-                    market.market_name.as_str(),
-                    Some(5000),
-                    Some(candle_start + Duration::seconds(899)),
-                    Some(candle_start + Duration::seconds(901)),
-                )
-                .await
-                .expect("Failed to get ftx end of candle trades."),
-        };
-        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-        let start_trades = match validation.exchange_name {
-            ExchangeName::Ftx | ExchangeName::FtxUs => self.clients[&validation.exchange_name]
-                .get_trades(
-                    market.market_name.as_str(),
-                    Some(5000),
-                    Some(candle_start - Duration::seconds(1)),
-                    Some(candle_start + Duration::seconds(1)),
-                )
-                .await
-                .expect("Failed to get ftx end of candle trades."),
-        };
         // Present candle data versus exchange data and get input from user to validate or not
         let message = match validation.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
@@ -430,13 +520,50 @@ impl Inquisidor {
                     "Manual Validation for {:?} {} {}",
                     validation.exchange_name, market.market_name, validation.datetime
                 );
+                let exchange_candle = get_ftx_candles_daterange::<crate::exchanges::ftx::Candle>(
+                    &self.clients[&validation.exchange_name],
+                    market,
+                    candle_start,
+                    candle_start,
+                    900,
+                )
+                .await
+                .pop()
+                .unwrap();
                 let delta = candle.value - exchange_candle.volume;
                 let percent = delta / exchange_candle.volume * dec!(100.0);
-                println!("End of candle trades:\n{:?}", end_trades);
-                println!("Start of candle trades:\n{:?}", start_trades);
                 println!("New Candle: {:?}", candle);
                 println!("ED Value versus FTX Volume:");
                 println!("ElDorado: {:?}", candle.value);
+                println!("Exchange: {:?}", exchange_candle.volume);
+                let message = format!(
+                    "Delta: {:?} & Percent: {:?}",
+                    delta.round_dp(2),
+                    percent.round_dp(4)
+                );
+                println!("{}", message);
+                message
+            }
+            ExchangeName::Gdax => {
+                println!(
+                    "Manual Validation for {:?} {} {}",
+                    validation.exchange_name, market.market_name, validation.datetime
+                );
+                let exchange_candle = get_gdax_candles_daterange::<crate::exchanges::gdax::Candle>(
+                    &self.clients[&validation.exchange_name],
+                    market,
+                    candle_start,
+                    candle_start,
+                    900,
+                )
+                .await
+                .pop()
+                .unwrap();
+                let delta = candle.volume - exchange_candle.volume;
+                let percent = delta / exchange_candle.volume * dec!(100.0);
+                println!("New Candle: {:?}", candle);
+                println!("ED Value versus FTX Volume:");
+                println!("ElDorado: {:?}", candle.volume);
                 println!("Exchange: {:?}", exchange_candle.volume);
                 let message = format!(
                     "Delta: {:?} & Percent: {:?}",
@@ -499,17 +626,6 @@ impl Inquisidor {
         let candle = resample_candles(validation.market_id, &hb_candles, Duration::days(1))
             .pop()
             .unwrap();
-        // Get exchange candle
-        let exchange_candle = get_ftx_candles(
-            &self.clients[&validation.exchange_name],
-            market,
-            validation.datetime,
-            validation.datetime,
-            86400,
-        )
-        .await
-        .pop()
-        .unwrap();
         // Get hb validations
         let hb_validations = select_candle_validations_for_01d(&self.pool, validation)
             .await
@@ -521,11 +637,51 @@ impl Inquisidor {
                     "Manual Validation for 01D {:?} {} {}",
                     validation.exchange_name, market.market_name, validation.datetime
                 );
+                let exchange_candle = get_ftx_candles_daterange::<crate::exchanges::ftx::Candle>(
+                    &self.clients[&validation.exchange_name],
+                    market,
+                    validation.datetime,
+                    validation.datetime,
+                    86400,
+                )
+                .await
+                .pop()
+                .unwrap();
                 let delta = candle.value - exchange_candle.volume;
                 let percent = delta / exchange_candle.volume * dec!(100.0);
                 println!("New Candle: {:?}", candle);
                 println!("ED Value versus FTX Volume:");
                 println!("ElDorado: {:?}", candle.value);
+                println!("Exchange: {:?}", exchange_candle.volume);
+                let message = format!(
+                    "Delta: {:?} & Percent: {:?}",
+                    delta.round_dp(2),
+                    percent.round_dp(4)
+                );
+                println!("{}", message);
+                println!("HB Validations:\n{:?}", hb_validations);
+                message
+            }
+            ExchangeName::Gdax => {
+                println!(
+                    "Manual Validation for 01D {:?} {} {}",
+                    validation.exchange_name, market.market_name, validation.datetime
+                );
+                let exchange_candle = get_gdax_candles_daterange::<crate::exchanges::gdax::Candle>(
+                    &self.clients[&validation.exchange_name],
+                    market,
+                    validation.datetime,
+                    validation.datetime,
+                    86400,
+                )
+                .await
+                .pop()
+                .unwrap();
+                let delta = candle.volume - exchange_candle.volume;
+                let percent = delta / exchange_candle.volume * dec!(100.0);
+                println!("New Candle: {:?}", candle);
+                println!("ED Value versus FTX Volume:");
+                println!("ElDorado: {:?}", candle.volume);
                 println!("Exchange: {:?}", exchange_candle.volume);
                 let message = format!(
                     "Delta: {:?} & Percent: {:?}",
@@ -583,7 +739,7 @@ impl Inquisidor {
             // Prevent 429 errors by only requesting 4 per second
             tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
             let mut new_trades = match self.clients[&validation.exchange_name]
-                .get_trades(
+                .get_ftx_trades(
                     market.market_name.as_str(),
                     Some(5000),
                     Some(candle_start),
@@ -686,6 +842,27 @@ impl Inquisidor {
         original_candle
     }
 
+    pub async fn recreate_gdax_candle(
+        &self,
+        validation: &CandleValidation,
+        market: &MarketDetail,
+        candle_start: DateTime<Utc>,
+    ) -> Candle {
+        // If it gets to this point the validaion failed. Return false and the original candle
+        let original_candle = select_candles_by_daterange(
+            &self.pool,
+            &validation.exchange_name,
+            &market.market_id,
+            candle_start,
+            candle_start + self.hbtf.as_dur(),
+        )
+        .await
+        .expect("Failed to select candle from db.")
+        .pop()
+        .unwrap();
+        original_candle
+    }
+
     async fn process_revalidated_candle(
         &self,
         validation: &CandleValidation,
@@ -694,24 +871,20 @@ impl Inquisidor {
     ) {
         // Delete all trades from _processed (_rest and _ws will drop on next restart)
         println!("New candle is validated. Deleting old trades.");
-        match validation.exchange_name {
-            ExchangeName::Ftx | ExchangeName::FtxUs => {
-                delete_trades_by_time(
-                    &self.pool,
-                    &validation.exchange_name,
-                    market,
-                    "processed",
-                    validation.datetime,
-                    validation.datetime + Duration::seconds(900),
-                )
-                .await
-                .expect("Could not delete processed trades.");
-            }
-        }
+        delete_trades_by_time(
+            &self.pool,
+            &validation.exchange_name,
+            market,
+            "processed",
+            validation.datetime,
+            validation.datetime + Duration::seconds(900),
+        )
+        .await
+        .expect("Could not delete processed trades.");
         // Delete existing candle
         delete_candle(
             &self.pool,
-            validation.exchange_name.as_str(),
+            &validation.exchange_name,
             &market.market_id,
             &validation.datetime,
         )
@@ -720,7 +893,7 @@ impl Inquisidor {
         // Insert candle with validated status
         insert_candle(
             &self.pool,
-            validation.exchange_name.as_str(),
+            &validation.exchange_name,
             &market.market_id,
             candle,
             true,
@@ -746,6 +919,21 @@ impl Inquisidor {
                     .expect("Failed to select trades from temp table.");
                 // Insert trades into _validated
                 insert_ftx_trades(
+                    &self.pool,
+                    &validation.exchange_name,
+                    market,
+                    "validated",
+                    validated_trades,
+                )
+                .await
+                .expect("Could not insert validated trades.");
+            }
+            ExchangeName::Gdax => {
+                let validated_trades = select_gdax_trades_by_table(&self.pool, qc_table.as_str())
+                    .await
+                    .expect("Failed to select trades from temp table.");
+                // Insert trades into _validated
+                insert_gdax_trades(
                     &self.pool,
                     &validation.exchange_name,
                     market,
@@ -804,7 +992,7 @@ pub async fn insert_candle_validation(
 
 pub async fn insert_candle_count_validation(
     pool: &PgPool,
-    exchange: &str,
+    exchange: &ExchangeName,
     market_id: &Uuid,
     datetime: &DateTime<Utc>,
 ) -> Result<(), sqlx::Error> {
@@ -816,7 +1004,7 @@ pub async fn insert_candle_count_validation(
         ON CONFLICT (exchange_name, market_id, datetime, duration) DO NOTHING
         "#;
     sqlx::query(sql)
-        .bind(exchange)
+        .bind(exchange.as_str())
         .bind(market_id)
         .bind(datetime)
         .bind(0_i64)
@@ -976,7 +1164,7 @@ mod tests {
             .execute(&pool)
             .await
             .expect("Failed to drop table.");
-        create_exchange_candle_table(&pool, "ftx")
+        create_exchange_candle_table(&pool, &ExchangeName::Ftx)
             .await
             .expect("Failed to create table.");
 
@@ -1127,7 +1315,7 @@ mod tests {
         let ig = Inquisidor::new().await;
         insert_candle(
             &ig.pool,
-            "ftx",
+            &ExchangeName::Ftx,
             &Uuid::parse_str("b3bf21db-92bb-4613-972a-1d0f1aab1e95").unwrap(),
             candle,
             true,
