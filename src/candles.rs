@@ -334,14 +334,18 @@ impl Mita {
     ) -> Vec<Candle> {
         // Takes a vec of trades and a date range and builds candles for each date in the range
         // Get previous candle - to be used to forward fill if there are no trades
-        let mut previous_candle = select_previous_candle(
+        let mut previous_candle = match select_previous_candle(
             &self.pool,
             &self.exchange.name,
             &market.market_id,
             *date_range.first().unwrap(),
         )
         .await
-        .expect("No previous candle.");
+        {
+            Ok(c) => Some(c),
+            Err(sqlx::Error::RowNotFound) => None,
+            Err(e) => panic!("Sqlx Error: {:?}", e),
+        };
         let candles = date_range.iter().fold(Vec::new(), |mut v, d| {
             let mut filtered_trades: Vec<T> = trades
                 .iter()
@@ -349,23 +353,29 @@ impl Mita {
                 .cloned()
                 .collect();
             let new_candle = match filtered_trades.len() {
-                0 => Candle::new_from_last(
-                    market.market_id,
-                    *d,
-                    previous_candle.close,
-                    previous_candle.last_trade_ts,
-                    &previous_candle.last_trade_id.to_string(),
-                ),
+                0 => previous_candle.as_ref().map(|pc| {
+                    Candle::new_from_last(
+                        market.market_id,
+                        *d,
+                        pc.close,
+                        pc.last_trade_ts,
+                        &pc.last_trade_id.to_string(),
+                    )
+                }),
                 _ => {
                     filtered_trades.sort_by_key(|t1| t1.trade_id());
-                    Candle::new_from_trades(market.market_id, *d, &filtered_trades)
+                    Some(Candle::new_from_trades(
+                        market.market_id,
+                        *d,
+                        &filtered_trades,
+                    ))
                 }
             };
             previous_candle = new_candle.clone();
             v.push(new_candle);
             v
         });
-        candles
+        candles.into_iter().flatten().collect()
     }
 
     pub async fn insert_candles(&self, market: &MarketDetail, candles: Vec<Candle>) {
