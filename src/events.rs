@@ -10,7 +10,6 @@ use crate::markets::{
 use crate::mita::Mita;
 use crate::trades::select_insert_delete_trades;
 use chrono::{DateTime, Duration, DurationRound, Utc};
-use serde::de::DeserializeOwned;
 use sqlx::PgPool;
 use std::convert::TryFrom;
 use uuid::Uuid;
@@ -123,7 +122,7 @@ impl Inquisidor {
         }
     }
 
-    pub async fn process_events<T: crate::utilities::Candle + DeserializeOwned>(&self) {
+    pub async fn process_events(&self) {
         // Get any open events for the droplet
         let open_events =
             select_open_events_for_droplet(&self.pool, &self.settings.application.droplet)
@@ -140,14 +139,14 @@ impl Inquisidor {
             match event.event_type {
                 EventType::ProcessTrades => continue, // All trade processing done by mita
                 EventType::ValidateCandle => {
-                    self.process_event_validate_candle::<T>(event, market.unwrap())
+                    self.process_event_validate_candle(event, market.unwrap())
                         .await
                 }
                 EventType::CreateDailyCandles => {
                     self.process_event_create_daily_candles(event).await
                 }
                 EventType::ValidateDailyCandles => {
-                    self.process_event_validate_daily_candles::<T>(event).await
+                    self.process_event_validate_daily_candles(event).await
                 }
                 EventType::ArchiveDailyCandles => {
                     self.process_event_archive_daily_candles(event).await
@@ -156,11 +155,7 @@ impl Inquisidor {
         }
     }
 
-    pub async fn process_event_validate_candle<T: crate::utilities::Candle + DeserializeOwned>(
-        &self,
-        event: &Event,
-        market: &MarketDetail,
-    ) {
+    pub async fn process_event_validate_candle(&self, event: &Event, market: &MarketDetail) {
         // Get candles to validate based on event end date
         let unvalidated_candles = select_candles_unvalidated_lt_datetime(
             &self.pool,
@@ -173,16 +168,31 @@ impl Inquisidor {
         .expect("Failed to select candles.");
         if !unvalidated_candles.is_empty() {
             // Validate
-            validate_hb_candles::<T>(
-                &self.pool,
-                &self.clients[&event.exchange_name],
-                &event.exchange_name,
-                market,
-                &self.settings,
-                &unvalidated_candles,
-            )
-            .await;
-        }
+            match event.exchange_name {
+                ExchangeName::Ftx | ExchangeName::FtxUs => {
+                    validate_hb_candles::<crate::exchanges::ftx::Candle>(
+                        &self.pool,
+                        &self.clients[&event.exchange_name],
+                        &event.exchange_name,
+                        market,
+                        &self.settings,
+                        &unvalidated_candles,
+                    )
+                    .await;
+                }
+                ExchangeName::Gdax => {
+                    validate_hb_candles::<crate::exchanges::gdax::Candle>(
+                        &self.pool,
+                        &self.clients[&event.exchange_name],
+                        &event.exchange_name,
+                        market,
+                        &self.settings,
+                        &unvalidated_candles,
+                    )
+                    .await;
+                }
+            };
+        };
         // Close event
         update_event_status_processed(&self.pool, event)
             .await
@@ -219,12 +229,7 @@ impl Inquisidor {
             .expect("Failed to update event status to done.");
     }
 
-    pub async fn process_event_validate_daily_candles<
-        T: crate::utilities::Candle + DeserializeOwned,
-    >(
-        &self,
-        event: &Event,
-    ) {
+    pub async fn process_event_validate_daily_candles(&self, event: &Event) {
         // Select active market from each exchange
         let markets = select_market_details_by_status_exchange(
             &self.pool,
@@ -235,13 +240,26 @@ impl Inquisidor {
         .expect("Failed to select markets.");
         for market in markets.iter() {
             // Create 01d candles if needed
-            validate_01d_candles::<T>(
-                &self.pool,
-                &self.clients[&event.exchange_name],
-                &event.exchange_name,
-                market,
-            )
-            .await;
+            match event.exchange_name {
+                ExchangeName::Ftx | ExchangeName::FtxUs => {
+                    validate_01d_candles::<crate::exchanges::ftx::Candle>(
+                        &self.pool,
+                        &self.clients[&event.exchange_name],
+                        &event.exchange_name,
+                        market,
+                    )
+                    .await;
+                }
+                ExchangeName::Gdax => {
+                    validate_01d_candles::<crate::exchanges::gdax::Candle>(
+                        &self.pool,
+                        &self.clients[&event.exchange_name],
+                        &event.exchange_name,
+                        market,
+                    )
+                    .await;
+                }
+            };
         }
         // Close event
         update_event_status_processed(&self.pool, event)
