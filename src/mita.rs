@@ -13,7 +13,6 @@ use crate::trades::{
 };
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal::Decimal;
-use serde::de::DeserializeOwned;
 use sqlx::PgPool;
 use std::collections::HashMap;
 
@@ -96,9 +95,9 @@ impl Mita {
         time_since_last_restart
     }
 
-    pub async fn run<T: crate::utilities::Candle + DeserializeOwned>(&self) -> bool {
+    pub async fn run(&self) -> bool {
         // Backfill trades from last candle to first trade of live stream
-        self.historical::<T>("stream").await;
+        self.historical("stream").await;
         // Sync from last candle to current stream last trade
         println!("Starting sync.");
         let mut heartbeats = self.sync().await;

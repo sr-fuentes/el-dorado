@@ -7,19 +7,24 @@ use crate::mita::Mita;
 use crate::trades::*;
 use crate::utilities::Trade;
 use chrono::{DateTime, Duration, DurationRound, TimeZone, Utc};
-use serde::de::DeserializeOwned;
 use sqlx::PgPool;
 
 impl Mita {
-    pub async fn historical<T: crate::utilities::Candle + DeserializeOwned>(
-        &self,
-        end_source: &str,
-    ) {
+    pub async fn historical(&self, end_source: &str) {
         // Get REST client for exchange
         let client = RestClient::new(&self.exchange.name);
         for market in self.markets.iter() {
             // Validate hb, create and validate 01 candles
-            self.validate_candles::<T>(&client, market).await;
+            match &self.exchange.name {
+                ExchangeName::Ftx | ExchangeName::FtxUs => {
+                    self.validate_candles::<crate::exchanges::ftx::Candle>(&client, market)
+                        .await
+                }
+                ExchangeName::Gdax => {
+                    self.validate_candles::<crate::exchanges::gdax::Candle>(&client, market)
+                        .await
+                }
+            };
             // Set start and end times for backfill
             let (start_ts, start_id) = match select_last_candle(
                 &self.pool,
@@ -104,7 +109,16 @@ impl Mita {
             };
             // If `eod` end source then run validation on new backfill
             if end_source == "eod" {
-                self.validate_candles::<T>(&client, market).await;
+                match &self.exchange.name {
+                    ExchangeName::Ftx | ExchangeName::FtxUs => {
+                        self.validate_candles::<crate::exchanges::ftx::Candle>(&client, market)
+                            .await
+                    }
+                    ExchangeName::Gdax => {
+                        self.validate_candles::<crate::exchanges::gdax::Candle>(&client, market)
+                            .await
+                    }
+                };
             }
         }
     }
