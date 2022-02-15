@@ -181,7 +181,7 @@ impl Inquisidor {
         &self,
         validation: &CandleValidation,
         market: &MarketDetail,
-        hb_candles: &Vec<Candle>,
+        hb_candles: &[Candle],
     ) -> i32 {
         let trades = select_ftx_trades_by_time(
             &self.pool,
@@ -244,7 +244,7 @@ impl Inquisidor {
         &self,
         validation: &CandleValidation,
         market: &MarketDetail,
-        hb_candles: &Vec<Candle>,
+        hb_candles: &[Candle],
     ) -> i32 {
         let trades = select_gdax_trades_by_time(
             &self.pool,

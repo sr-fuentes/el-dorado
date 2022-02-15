@@ -357,7 +357,7 @@ impl Mita {
                     &previous_candle.last_trade_id.to_string(),
                 ),
                 _ => {
-                    filtered_trades.sort_by(|t1, t2| t1.trade_id().cmp(&t2.trade_id()));
+                    filtered_trades.sort_by_key(|t1| t1.trade_id());
                     Candle::new_from_trades(market.market_id, *d, &filtered_trades)
                 }
             };
@@ -795,7 +795,7 @@ pub async fn get_ftx_candles_daterange<T: crate::utilities::Candle + Deserialize
             candles.append(&mut new_candles);
         };
         // Sort candles to get next last
-        candles.sort_by(|c1, c2| c1.datetime().cmp(&c2.datetime()));
+        candles.sort_by_key(|c1| c1.datetime());
         end_or_last = candles.first().unwrap().datetime();
         if num_candles < 1501 {
             // Max pagination on candles is 1501
@@ -836,7 +836,7 @@ pub async fn get_gdax_candles_daterange<T: crate::utilities::Candle + Deserializ
         start = max_end;
     }
     // Sort and dedup
-    candles.sort_by(|c1, c2| c1.datetime().cmp(&c2.datetime()));
+    candles.sort_by_key(|c1| c1.datetime());
     candles.dedup_by(|c1, c2| c1.datetime() == c2.datetime());
     candles
 }

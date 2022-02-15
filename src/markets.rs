@@ -10,6 +10,7 @@ use sqlx::PgPool;
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use uuid::Uuid;
+use core::cmp::Reverse;
 
 #[derive(Debug, PartialEq, Eq, sqlx::FromRow)]
 pub struct MarketId {
@@ -246,7 +247,7 @@ impl Inquisidor {
         };
         // println!("Filtered markets: {:?}", filtered_markets);
         // Sort by 24h volume
-        filtered_markets.sort_by(|m1, m2| m2.usd_volume_24h().cmp(&m1.usd_volume_24h()));
+        filtered_markets.sort_by_key(|m2| Reverse(m2.usd_volume_24h()));
         // Create ranks table and select current contents
         create_market_ranks_table(&self.pool, exchange)
             .await
