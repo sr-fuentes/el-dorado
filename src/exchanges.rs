@@ -10,6 +10,7 @@ pub mod client;
 pub mod error;
 pub mod ftx;
 pub mod gdax;
+pub mod ws;
 
 #[derive(Debug, PartialEq, Eq, Clone, sqlx::Type)]
 pub struct Exchange {

@@ -1,4 +1,4 @@
-use crate::exchanges::{ftx::Channel, ftx::Data, ftx::WsClient, ftx::WsError, ExchangeName};
+use crate::exchanges::{error::WsError, ftx::Channel, ftx::Data, ftx::WsClient, ExchangeName};
 use crate::mita::Mita;
 use crate::trades::insert_ftx_trade;
 use futures::StreamExt;

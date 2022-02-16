@@ -1,4 +1,5 @@
-use super::{Trade, WsError};
+use super::Trade;
+use crate::exchanges::error::WsError;
 use futures::{
     ready,
     task::{Context, Poll},
