@@ -76,7 +76,7 @@ impl WebSocket {
     pub const FTXUS_ENDPOINT: &'static str = "wss://ftx.us/ws";
     pub const GDAX_ENDPOINT: &'static str = "wss://ws-feed.pro.coinbase.com";
 
-    pub async fn connect<T>(exchange: &ExchangeName) -> Result<Self, WsError> {
+    pub async fn connect(exchange: &ExchangeName) -> Result<Self, WsError> {
         let endpoint = match exchange {
             ExchangeName::Ftx => Self::FTX_ENDPOINT,
             ExchangeName::FtxUs => Self::FTXUS_ENDPOINT,
@@ -117,12 +117,13 @@ impl WebSocket {
                     {"type": "subscribe",
                     "channels":
                         [{"name": channel,
-                        "product": [symbol]}
+                        "product_ids": [symbol]}
                         ]
                     })
                     .to_string(),
                 ),
             };
+            println!("Message: {}", message);
             self.stream.send(message).await?;
             // Confirmation should arrive within 100 updates
             for _ in 0..100 {
@@ -170,7 +171,7 @@ impl WebSocket {
                     if let Some(msg) = self.stream.next().await {
                         let msg = msg?;
                         if let Message::Text(text) = msg {
-                            // println!("Text: {}", text);
+                            println!("Text: {}", text);
                             let response: Value = serde_json::from_str(&text)?;
                             return Ok(Response::Gdax(response));
                         }
@@ -228,6 +229,59 @@ impl Stream for WebSocket {
                 }
             };
             self.handle_response(response);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::exchanges::ws::{Channel, Data, WebSocket};
+    use crate::exchanges::ExchangeName;
+    use futures::StreamExt;
+
+    #[tokio::test]
+    async fn stream_ftx_trades() {
+        let mut ws = WebSocket::connect(&ExchangeName::Ftx)
+            .await
+            .expect("Could not connect ws");
+        let market = "BTC-PERP".to_string();
+        ws.subscribe(vec![Channel::Trades(market.to_owned())])
+            .await
+            .expect("Could not subscribe to market.");
+        loop {
+            let data = ws.next().await.expect("No data received.");
+            match data {
+                Ok((_, Data::FtxTrade(trade))) => {
+                    println!(
+                        "\n{:?} {} {} at {} - liquidation = {}",
+                        trade.side, trade.size, market, trade.price, trade.liquidation
+                    );
+                }
+                _ => panic!("Unexpected data type"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn stream_gdax_trades() {
+        let mut ws = WebSocket::connect(&ExchangeName::Gdax)
+            .await
+            .expect("Could not connect ws");
+        let market = "BTC-USD".to_string();
+        ws.subscribe(vec![Channel::Ticker(market.to_owned())])
+            .await
+            .expect("Could not subscribe to market.");
+        loop {
+            let data = ws.next().await.expect("No data received.");
+            match data {
+                Ok((_, Data::GdaxTrade(trade))) => {
+                    println!(
+                        "\n{:?} {} {} at {}",
+                        trade.side, trade.size, market, trade.price
+                    );
+                }
+                _ => panic!("Unexpected data type"),
+            }
         }
     }
 }
