@@ -171,7 +171,7 @@ impl WebSocket {
                     if let Some(msg) = self.stream.next().await {
                         let msg = msg?;
                         if let Message::Text(text) = msg {
-                            println!("Text: {}", text);
+                            // println!("Text: {}", text);
                             let response: Value = serde_json::from_str(&text)?;
                             return Ok(Response::Gdax(response));
                         }
@@ -197,7 +197,9 @@ impl WebSocket {
             }
             Response::Gdax(v) => {
                 if v["type"] == "ticker" {
-                    let product_id = v["product_id"].to_string();
+                    let product_id = serde_json::from_value(v["product_id"].clone()).unwrap();
+                    // println!("V: {:?}", v);
+                    // println!("Product Id: {:?}", product_id);
                     let trade: GdaxTrade = serde_json::from_value(v).unwrap();
                     self.buf
                         .push_back((Some(product_id), Data::GdaxTrade(trade)))
