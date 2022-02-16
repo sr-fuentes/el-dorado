@@ -64,6 +64,7 @@ impl crate::utilities::Market for Product {
 pub struct Trade {
     pub trade_id: i64,
     pub side: String,
+    #[serde(alias = "last_size")]
     pub size: Decimal,
     pub price: Decimal,
     pub time: DateTime<Utc>,

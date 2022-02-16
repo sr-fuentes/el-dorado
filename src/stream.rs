@@ -1,6 +1,6 @@
-use crate::exchanges::{ftx::Channel, ftx::Data, ftx::WsClient, ftx::WsError, ExchangeName};
+use crate::exchanges::{error::WsError, ws::Channel, ws::Data, ws::WebSocket, ExchangeName};
 use crate::mita::Mita;
-use crate::trades::insert_ftx_trade;
+use crate::trades::{insert_ftx_trade, insert_gdax_trade};
 use futures::StreamExt;
 use std::collections::HashMap;
 use std::io::ErrorKind;
@@ -14,19 +14,19 @@ impl Mita {
         let mut market_details = HashMap::new();
         // Drop and re-create _ws table for markets and populate data structures
         for market in self.markets.iter() {
-            channels.push(Channel::Trades(market.market_name.to_owned()));
+            match &self.exchange.name {
+                ExchangeName::Ftx | ExchangeName::FtxUs => {
+                    channels.push(Channel::Trades(market.market_name.to_owned()))
+                }
+                ExchangeName::Gdax => channels.push(Channel::Ticker(market.market_name.to_owned())),
+            };
             market_details.insert(market.market_name.as_str(), market);
         }
+        // println!("Market details map: {:?}", market_details);
         // Create ws client
-        let mut ws = match self.exchange.name {
-            ExchangeName::FtxUs => WsClient::connect_us()
-                .await
-                .expect("Could not connect to ws."),
-            ExchangeName::Ftx => WsClient::connect_intl()
-                .await
-                .expect("Could not connect ws."),
-            ExchangeName::Gdax => panic!(),
-        };
+        let mut ws = WebSocket::connect(&self.exchange.name)
+            .await
+            .expect("Failed to connect to ws.");
         // Subscribe to trades channels for each market
         ws.subscribe(channels)
             .await
@@ -35,7 +35,7 @@ impl Mita {
         loop {
             let data = ws.next().await.expect("No data received.");
             match data {
-                Ok((Some(market), Data::Trade(trade))) => {
+                Ok((Some(market), Data::FtxTrade(trade))) => {
                     insert_ftx_trade(
                         &self.pool,
                         &self.exchange.name,
@@ -46,8 +46,20 @@ impl Mita {
                     .await
                     .expect("Could not insert trade from ws into db.");
                 }
-                Ok((None, Data::Trade(trade))) => {
-                    panic!("Market missing from ws trade: {:?}", trade);
+                Ok((Some(market), Data::GdaxTrade(trade))) => {
+                    // println!("Market: {:?}", market);
+                    insert_gdax_trade(
+                        &self.pool,
+                        &self.exchange.name,
+                        market_details[market.as_str()],
+                        "ws",
+                        trade,
+                    )
+                    .await
+                    .expect("Failed to insert ws trade to db.");
+                }
+                Ok((None, d)) => {
+                    panic!("Market missing from ws data: {:?}", d);
                 }
                 Err(WsError::Tungstenite(e)) => match e {
                     tokio_tungstenite::tungstenite::Error::Io(ioerr) => match ioerr.kind() {
@@ -86,10 +98,7 @@ impl Mita {
 mod tests {
     use crate::configuration::get_configuration;
     use crate::exchanges::select_exchanges;
-    use crate::exchanges::{
-        ftx::{Channel, Data, WsClient},
-        ExchangeName,
-    };
+    use crate::exchanges::ws::{Channel, Data, WebSocket};
     use crate::markets::{select_market_detail, select_market_ids_by_exchange};
     use crate::trades::{create_ftx_trade_table, drop_trade_table, insert_ftx_trade};
     use futures::StreamExt;
@@ -125,20 +134,16 @@ mod tests {
         create_ftx_trade_table(&pool, &exchange.name, &market_detail, "ws_test")
             .await
             .expect("Could not create test ws table.");
-        let mut ws = match exchange.name {
-            ExchangeName::FtxUs => WsClient::connect_us().await.expect("Could not connect ws."),
-            ExchangeName::Ftx => WsClient::connect_intl()
-                .await
-                .expect("Could not connect ws."),
-            ExchangeName::Gdax => panic!(),
-        };
+        let mut ws = WebSocket::connect(&exchange.name)
+            .await
+            .expect("Failed to connect to ws.");
         ws.subscribe(vec![Channel::Trades(market_id.market_name.to_owned())])
             .await
             .expect("Could not subscribe to market.");
         loop {
             let data = ws.next().await.expect("No data received.");
             match data {
-                Ok((_, Data::Trade(trade))) => {
+                Ok((_, Data::FtxTrade(trade))) => {
                     insert_ftx_trade(&pool, &exchange.name, &market_detail, "ws_test", trade)
                         .await
                         .expect("Could not insert trade into db.");
