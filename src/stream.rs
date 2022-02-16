@@ -21,7 +21,7 @@ impl Mita {
                 ExchangeName::Gdax => channels.push(Channel::Ticker(market.market_name.to_owned())),
             };
             market_details.insert(market.market_name.as_str(), market);
-        };
+        }
         // println!("Market details map: {:?}", market_details);
         // Create ws client
         let mut ws = WebSocket::connect(&self.exchange.name)

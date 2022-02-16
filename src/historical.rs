@@ -156,35 +156,30 @@ impl Mita {
                 .await
             {
                 Err(RestError::Reqwest(e)) => {
-                    if e.is_timeout() {
-                        println!("Request timed out. Waiting 30 seconds before retrying.");
-                        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                        continue;
-                    } else if e.is_connect() {
+                    if e.is_timeout() || e.is_connect() || e.is_request() {
                         println!(
-                            "Connect error with reqwest. Waiting 30 seconds before retry. {:?}",
+                            "Timeout/Connect/Request error. Waiting 30 seconds before retry. {:?}",
                             e
                         );
                         tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
                         continue;
-                    } else if e.is_request() {
-                        println!(
-                            "Request error with reqwest. Waiting 30 seconds before retry. {:?}",
-                            e
-                        );
-                        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                        continue;
-                    } else if e.status() == Some(reqwest::StatusCode::BAD_GATEWAY) {
-                        println!("502 Bad Gateway. Waiting 30 seconds before retry. {:?}", e);
-                        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                        continue;
-                    } else if e.status() == Some(reqwest::StatusCode::SERVICE_UNAVAILABLE) {
-                        println!(
-                            "503 Service Unavailable. Waiting 60 seconds before retry. {:?}",
-                            e
-                        );
-                        tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
-                        continue;
+                    } else if e.is_status() {
+                        match e.status() {
+                            Some(s) => match s.as_u16() {
+                                502 | 503 | 520 | 530 => {
+                                    println!(
+                                        "{} status code. Waiting 30 seconds before retry {:?}",
+                                        s, e
+                                    );
+                                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                                    continue;
+                                }
+                                _ => {
+                                    panic!("Status code not handled: {:?} {:?}", s, e)
+                                }
+                            },
+                            None => panic!("No status code for request error: {:?}", e),
+                        }
                     } else {
                         panic!("Error (not timeout / connect / request): {:?}", e)
                     }
@@ -353,37 +348,32 @@ pub async fn backfill_ftx(
                 .await
             {
                 Err(RestError::Reqwest(e)) => {
-                    if e.is_timeout() {
-                        println!("Request timed out. Waiting 30 seconds before retrying.");
-                        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                        continue;
-                    } else if e.is_connect() {
+                    if e.is_timeout() || e.is_connect() || e.is_request() {
                         println!(
-                            "Connect error with reqwest. Waiting 30 seconds before retry. {:?}",
+                            "Timeout/Connect/Request error. Waiting 30 seconds before retry. {:?}",
                             e
                         );
                         tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
                         continue;
-                    } else if e.is_request() {
-                        println!(
-                            "Request error with reqwest. Waiting 30 seconds before retry. {:?}",
-                            e
-                        );
-                        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                        continue;
-                    } else if e.status() == Some(reqwest::StatusCode::BAD_GATEWAY) {
-                        println!("502 Bad Gateway. Waiting 30 seconds before retry. {:?}", e);
-                        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                        continue;
-                    } else if e.status() == Some(reqwest::StatusCode::SERVICE_UNAVAILABLE) {
-                        println!(
-                            "503 Service Unavailable. Waiting 60 seconds before retry. {:?}",
-                            e
-                        );
-                        tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
-                        continue;
+                    } else if e.is_status() {
+                        match e.status() {
+                            Some(s) => match s.as_u16() {
+                                502 | 503 | 520 | 530 => {
+                                    println!(
+                                        "{} status code. Waiting 30 seconds before retry {:?}",
+                                        s, e
+                                    );
+                                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                                    continue;
+                                }
+                                _ => {
+                                    panic!("Status code not handled: {:?} {:?}", s, e)
+                                }
+                            },
+                            None => panic!("No status code for request error: {:?}", e),
+                        }
                     } else {
-                        panic!("Error (not timeout or connect): {:?}", e)
+                        panic!("Error (not timeout / connect / request): {:?}", e)
                     }
                 }
                 Err(e) => panic!("Other RestError: {:?}", e),
