@@ -828,7 +828,7 @@ pub async fn get_gdax_candles_daterange<T: crate::utilities::Candle + Deserializ
     let mut candles: Vec<T> = Vec::new();
     // GDAX API returns 300 candles per call. Loop until start and end are completed.
     while start < end {
-        let max_end = (start + Duration::minutes(15 * 300)).max(end);
+        let max_end = (start + Duration::minutes(15 * 300)).min(end);
         // Prevent 429 errors by only request 1 per second
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         let mut new_candles = client
