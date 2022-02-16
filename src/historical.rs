@@ -167,6 +167,13 @@ impl Mita {
                         );
                         tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
                         continue;
+                    } else if e.is_request() {
+                        println!(
+                            "Request error with reqwest. Waiting 30 seconds before retry. {:?}",
+                            e
+                        );
+                        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                        continue;
                     } else if e.status() == Some(reqwest::StatusCode::BAD_GATEWAY) {
                         println!("502 Bad Gateway. Waiting 30 seconds before retry. {:?}", e);
                         tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
@@ -179,7 +186,7 @@ impl Mita {
                         tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
                         continue;
                     } else {
-                        panic!("Error (not timeout or connect): {:?}", e)
+                        panic!("Error (not timeout / connect / request): {:?}", e)
                     }
                 }
                 Err(e) => panic!("Other RestError: {:?}", e),
@@ -353,6 +360,13 @@ pub async fn backfill_ftx(
                     } else if e.is_connect() {
                         println!(
                             "Connect error with reqwest. Waiting 30 seconds before retry. {:?}",
+                            e
+                        );
+                        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                        continue;
+                    } else if e.is_request() {
+                        println!(
+                            "Request error with reqwest. Waiting 30 seconds before retry. {:?}",
                             e
                         );
                         tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;

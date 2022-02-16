@@ -759,6 +759,13 @@ impl Inquisidor {
                         );
                         tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
                         continue;
+                    } else if e.is_request() {
+                        println!(
+                            "Request error with reqwest. Waiting 30 seconds before retry. {:?}",
+                            e
+                        );
+                        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                        continue;
                     } else if e.status() == Some(reqwest::StatusCode::BAD_GATEWAY) {
                         println!("502 Bad Gateway. Waiting 30 seconds before retry. {:?}", e);
                         tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
