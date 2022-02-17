@@ -752,9 +752,20 @@ pub fn validate_gdax_candle<T: crate::utilities::Candle + DeserializeOwned>(
         Some(c) => {
             if c.volume() == candle.volume {
                 true
+            } else if candle.last_trade_id.parse::<i32>().unwrap()
+                - candle.first_trade_id.parse::<i32>().unwrap()
+                + 1
+                == candle.trade_count as i32
+            {
+                println!(
+                    "Volume Failed ({} ED v {} GDAX )but trade count complete. Marking valid.",
+                    candle.volume,
+                    c.volume()
+                );
+                true
             } else {
                 println!(
-                    "Failed to validate: El-D Val: {:?} Ftx Vol: {:?}",
+                    "Failed to validate: El-D Val: {:?} Gdax Vol: {:?}",
                     candle.volume,
                     c.volume()
                 );
