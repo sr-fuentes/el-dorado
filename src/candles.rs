@@ -903,7 +903,7 @@ pub async fn get_gdax_candles_daterange<T: crate::utilities::Candle + Deserializ
             }
             Err(e) => panic!("Other RestError: {:?}", e),
             Ok(result) => result,
-        };        
+        };
         if !new_candles.is_empty() {
             candles.append(&mut new_candles);
         };

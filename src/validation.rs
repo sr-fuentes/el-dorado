@@ -960,12 +960,11 @@ impl Inquisidor {
         .expect("Could not fetch trades from temp table.");
         // Create candle from interval trades, trades are already sorted and deduped
         // from select query and primary key uniqueness
-        let new_candle = if !interval_trades.is_empty() {
+        if !interval_trades.is_empty() {
             Candle::new_from_trades(market.market_id, start_ts, &interval_trades)
         } else {
             original_candle
-        };
-        new_candle
+        }
     }
 
     async fn process_revalidated_candle(
