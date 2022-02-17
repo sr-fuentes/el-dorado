@@ -858,11 +858,13 @@ pub async fn get_gdax_candles_daterange<T: crate::utilities::Candle + Deserializ
 ) -> Vec<T> {
     // Initialize empty vec to hold all exchange candles
     let mut candles: Vec<T> = Vec::new();
+    println!("Getting gdax candles from {} to {}", start, end);
     // GDAX API returns 300 candles per call. Loop until start and end are completed.
-    while start < end {
+    while start <= end {
         let max_end = (start + Duration::minutes(15 * 300)).min(end);
         // Prevent 429 errors by only request 1 per second
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        // println!("Api call start {} and end {}", start, max_end);
         let mut new_candles = match client
             .get_gdax_candles(
                 &market.market_name,
@@ -907,11 +909,17 @@ pub async fn get_gdax_candles_daterange<T: crate::utilities::Candle + Deserializ
         if !new_candles.is_empty() {
             candles.append(&mut new_candles);
         };
-        start = max_end;
+        // Increment start, however if start == max end, increment by one further second to break
+        if start == max_end {
+            start = max_end + Duration::seconds(1);
+        } else {
+            start = max_end;
+        };
     }
     // Sort and dedup
     candles.sort_by_key(|c1| c1.datetime());
     candles.dedup_by(|c1, c2| c1.datetime() == c2.datetime());
+    println!("returning {} candles.", candles.len());
     candles
 }
 

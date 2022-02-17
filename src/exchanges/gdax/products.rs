@@ -249,13 +249,13 @@ mod tests {
     async fn get_candles_daterange_returns_array_of_candles() {
         // Start and end are inclusive. For 1 candle set start = end
         let client = RestClient::new(&ExchangeName::Gdax);
-        let product_name = "BTC-USD";
+        let product_name = "ATOM-USD";
         let candles = client
             .get_gdax_candles::<crate::exchanges::gdax::Candle>(
                 &product_name,
-                Some(86400),
-                Some(Utc.ymd(2022, 1, 1).and_hms(0, 0, 0)),
-                Some(Utc.ymd(2022, 1, 1).and_hms(0, 0, 0)),
+                Some(900),
+                Some(Utc.ymd(2021, 11, 15).and_hms(21, 0, 0)),
+                Some(Utc.ymd(2021, 11, 15).and_hms(21, 0, 0)),
             )
             .await
             .expect("Failed to get BTC-USD product.");

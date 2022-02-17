@@ -373,6 +373,7 @@ impl Inquisidor {
                         900,
                     )
                     .await;
+                println!("Exchange candles: {:?}", exchange_candles);
                 // Validate new candle an d return validation status
                 let is_valid =
                     validate_candle(&validation.exchange_name, &candle, &mut exchange_candles);
