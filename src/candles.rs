@@ -1,5 +1,5 @@
 use crate::configuration::*;
-use crate::exchanges::{client::RestClient, ExchangeName};
+use crate::exchanges::{client::RestClient, error::RestError, ExchangeName};
 use crate::markets::{update_market_last_validated, MarketDetail};
 use crate::mita::Mita;
 use crate::trades::*;
@@ -791,7 +791,7 @@ pub async fn get_ftx_candles_daterange<T: crate::utilities::Candle + Deserialize
     while start < end_or_last {
         // Prevent 429 errors by only requesting 4 per second
         tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
-        let mut new_candles = client
+        let mut new_candles = match client
             .get_ftx_candles(
                 &market.market_name,
                 Some(seconds),
@@ -799,7 +799,39 @@ pub async fn get_ftx_candles_daterange<T: crate::utilities::Candle + Deserialize
                 Some(end_or_last),
             )
             .await
-            .expect("Could not fetch exchange candles.");
+        {
+            Err(RestError::Reqwest(e)) => {
+                if e.is_timeout() || e.is_connect() || e.is_request() {
+                    println!(
+                        "Timeout/Connect/Request error. Waiting 30 seconds before retry. {:?}",
+                        e
+                    );
+                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                    continue;
+                } else if e.is_status() {
+                    match e.status() {
+                        Some(s) => match s.as_u16() {
+                            502 | 503 | 520 | 530 => {
+                                println!(
+                                    "{} status code. Waiting 30 seconds before retry {:?}",
+                                    s, e
+                                );
+                                tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                                continue;
+                            }
+                            _ => {
+                                panic!("Status code not handled: {:?} {:?}", s, e)
+                            }
+                        },
+                        None => panic!("No status code for request error: {:?}", e),
+                    }
+                } else {
+                    panic!("Error (not timeout / connect / request): {:?}", e)
+                }
+            }
+            Err(e) => panic!("Other RestError: {:?}", e),
+            Ok(result) => result,
+        };
         let num_candles = new_candles.len();
         if num_candles > 0 {
             candles.append(&mut new_candles);
@@ -831,7 +863,7 @@ pub async fn get_gdax_candles_daterange<T: crate::utilities::Candle + Deserializ
         let max_end = (start + Duration::minutes(15 * 300)).min(end);
         // Prevent 429 errors by only request 1 per second
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-        let mut new_candles = client
+        let mut new_candles = match client
             .get_gdax_candles(
                 &market.market_name,
                 Some(seconds),
@@ -839,7 +871,39 @@ pub async fn get_gdax_candles_daterange<T: crate::utilities::Candle + Deserializ
                 Some(max_end),
             )
             .await
-            .expect("Failed to get gdax exchange candles.");
+        {
+            Err(RestError::Reqwest(e)) => {
+                if e.is_timeout() || e.is_connect() || e.is_request() {
+                    println!(
+                        "Timeout/Connect/Request error. Waiting 30 seconds before retry. {:?}",
+                        e
+                    );
+                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                    continue;
+                } else if e.is_status() {
+                    match e.status() {
+                        Some(s) => match s.as_u16() {
+                            502 | 503 | 520 | 530 => {
+                                println!(
+                                    "{} status code. Waiting 30 seconds before retry {:?}",
+                                    s, e
+                                );
+                                tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                                continue;
+                            }
+                            _ => {
+                                panic!("Status code not handled: {:?} {:?}", s, e)
+                            }
+                        },
+                        None => panic!("No status code for request error: {:?}", e),
+                    }
+                } else {
+                    panic!("Error (not timeout / connect / request): {:?}", e)
+                }
+            }
+            Err(e) => panic!("Other RestError: {:?}", e),
+            Ok(result) => result,
+        };
         if !new_candles.is_empty() {
             candles.append(&mut new_candles);
         };
