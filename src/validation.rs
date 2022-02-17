@@ -9,11 +9,11 @@ use crate::exchanges::{
 use crate::inquisidor::Inquisidor;
 use crate::markets::{select_market_details, MarketDetail};
 use crate::trades::{
-    create_ftx_trade_table, delete_trades_by_time, drop_table, drop_trade_table, insert_ftx_trades,
-    insert_gdax_trades, select_ftx_trades_by_table, select_ftx_trades_by_time,
-    select_gdax_trades_by_table, select_gdax_trades_by_time,
+    create_ftx_trade_table, create_gdax_trade_table, delete_trades_by_time, drop_table,
+    drop_trade_table, insert_ftx_trades, insert_gdax_trades, select_ftx_trades_by_table,
+    select_ftx_trades_by_time, select_gdax_trades_by_table, select_gdax_trades_by_time,
 };
-use crate::utilities::get_input;
+use crate::utilities::{get_input, Trade};
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal_macros::dec;
 use sqlx::PgPool;
@@ -848,21 +848,124 @@ impl Inquisidor {
         &self,
         validation: &CandleValidation,
         market: &MarketDetail,
-        candle_start: DateTime<Utc>,
+        start_ts: DateTime<Utc>,
     ) -> Candle {
-        // If it gets to this point the validaion failed. Return false and the original candle
+        // Get original candle that is not validated
         let original_candle = select_candles_by_daterange(
             &self.pool,
             &validation.exchange_name,
             &market.market_id,
-            candle_start,
-            candle_start + self.hbtf.as_dur(),
+            start_ts,
+            start_ts + self.hbtf.as_dur(),
         )
         .await
         .expect("Failed to select candle from db.")
         .pop()
         .unwrap();
-        original_candle
+        // Create temp tables to store new trades. Re-download trades for candle timeperiod
+        // Return new candle to be evaluated
+        let trade_table = format!("qc_{}", validation.validation_type.as_str());
+        drop_trade_table(&self.pool, &validation.exchange_name, market, &trade_table)
+            .await
+            .expect("Failed to drop qc table.");
+        create_gdax_trade_table(&self.pool, &validation.exchange_name, market, &trade_table)
+            .await
+            .expect("Failed to create qc table.");
+        // Set start and end for candle period
+        let mut after_ts = start_ts;
+        let end_ts = start_ts + self.hbtf.as_dur();
+        let mut start_id = original_candle.first_trade_id.parse::<i32>().unwrap();
+        // Download trades for candle period
+        while after_ts < end_ts {
+            // Prevent 429 errors by only requesting 1 per second
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            let mut new_trades = match self.clients[&validation.exchange_name]
+                .get_gdax_trades(
+                    market.market_name.as_str(),
+                    Some(1000),
+                    None,
+                    Some(start_id),
+                )
+                .await
+            {
+                Err(RestError::Reqwest(e)) => {
+                    if e.is_timeout() || e.is_connect() || e.is_request() {
+                        println!(
+                            "Timeout/Connect/Request error. Waiting 30 seconds before retry. {:?}",
+                            e
+                        );
+                        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                        continue;
+                    } else if e.is_status() {
+                        match e.status() {
+                            Some(s) => match s.as_u16() {
+                                502 | 503 | 520 | 530 => {
+                                    println!(
+                                        "{} status code. Waiting 30 seconds before retry {:?}",
+                                        s, e
+                                    );
+                                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                                    continue;
+                                }
+                                _ => {
+                                    panic!("Status code not handled: {:?} {:?}", s, e)
+                                }
+                            },
+                            None => panic!("No status code for request error: {:?}", e),
+                        }
+                    } else {
+                        panic!("Error (not timeout / connect / request): {:?}", e)
+                    }
+                }
+                Err(e) => panic!("Other RestError: {:?}", e),
+                Ok(result) => result,
+            };
+            if !new_trades.is_empty() {
+                new_trades.sort_by(|t1, t2| t1.trade_id.cmp(&t2.trade_id));
+                // Can unwrap first and last because there is at least one trade
+                let oldest_trade = new_trades.first().unwrap();
+                let newest_trade = new_trades.last().unwrap();
+                // Update start id and ts
+                after_ts = newest_trade.time();
+                start_id = newest_trade.trade_id() as i32 + 1000;
+                println!(
+                    "{} {} trades returned. First: {}, Last: {}",
+                    new_trades.len(),
+                    market.market_name,
+                    oldest_trade.time(),
+                    newest_trade.time()
+                );
+                // Temp table name can be used instead of exhcange name as logic for table name is
+                // located in the insert function
+                insert_gdax_trades(
+                    &self.pool,
+                    &validation.exchange_name,
+                    market,
+                    &trade_table,
+                    new_trades,
+                )
+                .await
+                .expect("Failed to insert tmp gdax trades.");
+            }
+        }
+        let interval_trades = select_gdax_trades_by_time(
+            &self.pool,
+            &validation.exchange_name,
+            market,
+            &trade_table,
+            start_ts,
+            end_ts,
+        )
+        .await
+        .expect("Could not fetch trades from temp table.");
+        // Create candle from interval trades, trades are already sorted and deduped
+        // from select query and primary key uniqueness
+        let new_candle = if !interval_trades.is_empty() {
+            Candle::new_from_trades(market.market_id, start_ts, &interval_trades)
+        } else {
+            original_candle
+        };
+        new_candle
     }
 
     async fn process_revalidated_candle(
