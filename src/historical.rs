@@ -30,6 +30,7 @@ impl Mita {
                 &self.pool,
                 &self.exchange.name,
                 &market.market_id,
+                self.hbtf,
             )
             .await
             {
@@ -438,6 +439,7 @@ pub async fn backfill_ftx(
                                 &exchange.name,
                                 &market.market_id,
                                 interval_start,
+                                TimeFrame::T15,
                             )
                             .await
                             .expect("No previous candle.");

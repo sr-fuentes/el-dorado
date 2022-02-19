@@ -339,6 +339,7 @@ impl Mita {
             &self.exchange.name,
             &market.market_id,
             *date_range.first().unwrap(),
+            self.hbtf,
         )
         .await
         {
@@ -751,18 +752,40 @@ pub fn validate_gdax_candle<T: crate::utilities::Candle + DeserializeOwned>(
     match exchange_candle {
         Some(c) => {
             if c.volume() == candle.volume {
+                // Volume matches - candle valid
                 true
             } else if candle.last_trade_id.parse::<i32>().unwrap()
                 - candle.first_trade_id.parse::<i32>().unwrap()
                 + 1
                 == candle.trade_count as i32
             {
-                println!(
-                    "Volume Failed ({} ED v {} GDAX )but trade count complete. Marking valid.",
-                    candle.volume,
-                    c.volume()
-                );
-                true
+                // Gdax volume does not always match the sum of all trades for the time period
+                // on lower time frame. Secondary validation is needed
+                // to match the trade count with the number of expected trades (last trade id -
+                // first trade id). This however does not guarentee validation if a trade is missing
+                // before the first trade or after the last trade. To confirm that no trade is
+                // missing before the first trade, the id can be compared to the id of the last
+                // trade of the previous candle if there is a previous candle.
+                let previous_candle = candle.clone();
+                if previous_candle.last_trade_id.parse::<i32>().unwrap() + 1
+                    == candle.first_trade_id.parse::<i32>().unwrap()
+                {
+                    println!(
+                        "Volume Failed ({} ED v {} GDAX) but trade count complete. Marking valid.",
+                        candle.volume,
+                        c.volume()
+                    );
+                    true
+                } else {
+                    println!(
+                        "Volume Failed ({} ED v {} GDAX) and trade count failed (Last Prev Can: {} First Cur Can: {}). Marking invalid.",
+                        candle.volume,
+                        c.volume(),
+                        previous_candle.last_trade_id.parse::<i32>().unwrap(),
+                        candle.first_trade_id.parse::<i32>().unwrap()
+                    );
+                    false
+                }
             } else {
                 println!(
                     "Failed to validate: El-D Val: {:?} Gdax Vol: {:?}",
@@ -1217,15 +1240,25 @@ pub async fn select_last_candle(
     pool: &PgPool,
     exchange_name: &ExchangeName,
     market_id: &Uuid,
+    tf: TimeFrame,
 ) -> Result<Candle, sqlx::Error> {
-    let sql = format!(
-        r#"
+    let sql = match tf {
+        TimeFrame::T15 => format!(
+            r#"
         SELECT * FROM candles_15t_{}
         WHERE market_id = $1
         ORDER BY datetime DESC
         "#,
-        exchange_name.as_str()
-    );
+            exchange_name.as_str()
+        ),
+        TimeFrame::D01 => r#"
+        SELECT * FROM candles_01d
+        WHERE market_id = $1
+        ORDER BY datetime DESC
+        "#
+        .to_string(),
+        _ => panic!("Candle resolution not supported."),
+    };
     let row = sqlx::query_as::<_, Candle>(&sql)
         .bind(market_id)
         .fetch_one(pool)
@@ -1256,16 +1289,27 @@ pub async fn select_previous_candle(
     exchange_name: &ExchangeName,
     market_id: &Uuid,
     datetime: DateTime<Utc>,
+    tf: TimeFrame,
 ) -> Result<Candle, sqlx::Error> {
-    let sql = format!(
-        r#"
+    let sql = match tf {
+        TimeFrame::T15 => format!(
+            r#"
             SELECT * FROM candles_15t_{}
             WHERE market_id = $1
             AND datetime < $2
             ORDER BY datetime DESC
         "#,
-        exchange_name.as_str()
-    );
+            exchange_name.as_str()
+        ),
+        TimeFrame::D01 => r#"
+            SELECT * FROM candles_01d
+            WHERE market_id = $1
+            AND datetime < $2
+            ORDER BY datetime DESC
+            "#
+        .to_string(),
+        _ => panic!("Candle resolution not supported"),
+    };
     let row = sqlx::query_as::<_, Candle>(&sql)
         .bind(market_id)
         .bind(datetime)
@@ -1453,7 +1497,7 @@ mod tests {
         // Select from empty table
         let row = sqlx::query_as::<_, DailyCandle>(
             r#"
-            SELECT * FROM candles_01d
+            SELECT * FROM candles_01d_none
             ORDER BY datetime DESC
             "#,
         )

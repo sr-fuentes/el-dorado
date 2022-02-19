@@ -159,7 +159,7 @@ impl Mita {
             .await
             .expect("Could not update market status.");
             // Get start time for candle sync
-            let start = match select_last_candle(&self.pool, &self.exchange.name, &market.market_id)
+            let start = match select_last_candle(&self.pool, &self.exchange.name, &market.market_id, self.hbtf)
                 .await
             {
                 Ok(c) => c.datetime + self.hbtf.as_dur(),
