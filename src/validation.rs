@@ -1,7 +1,7 @@
 use crate::candles::{
     delete_candle, delete_candle_01d, get_ftx_candles_daterange, get_gdax_candles_daterange,
     insert_candle, insert_candles_01d, resample_candles, select_candles_by_daterange,
-    validate_candle, Candle,
+    select_previous_candle, validate_candle, Candle, TimeFrame,
 };
 use crate::exchanges::{
     error::RestError, ftx::Trade as FtxTrade, gdax::Trade as GdaxTrade, ExchangeName,
@@ -355,8 +355,12 @@ impl Inquisidor {
                     )
                     .await;
                 // Validate new candle an d return validation status
-                let is_valid =
-                    validate_candle(&validation.exchange_name, &candle, &mut exchange_candles);
+                let is_valid = validate_candle(
+                    &validation.exchange_name,
+                    &candle,
+                    &mut exchange_candles,
+                    &None,
+                );
                 (candle, is_valid)
             }
             ExchangeName::Gdax => {
@@ -374,9 +378,26 @@ impl Inquisidor {
                     )
                     .await;
                 println!("Exchange candles: {:?}", exchange_candles);
-                // Validate new candle an d return validation status
-                let is_valid =
-                    validate_candle(&validation.exchange_name, &candle, &mut exchange_candles);
+                // Validate new candle and return validation status
+                let previous_candle = match select_previous_candle(
+                    &self.pool,
+                    &validation.exchange_name,
+                    &market.market_id,
+                    validation.datetime,
+                    TimeFrame::T15,
+                )
+                .await
+                {
+                    Ok(c) => Some(c),
+                    Err(sqlx::Error::RowNotFound) => None,
+                    Err(e) => panic!("Sqlx Error: {:?}", e),
+                };
+                let is_valid = validate_candle(
+                    &validation.exchange_name,
+                    &candle,
+                    &mut exchange_candles,
+                    &previous_candle,
+                );
                 (candle, is_valid)
             }
         };
@@ -455,7 +476,12 @@ impl Inquisidor {
                     )
                     .await;
                 // Validate new candle volume
-                validate_candle(&validation.exchange_name, &candle, &mut exchange_candles)
+                validate_candle(
+                    &validation.exchange_name,
+                    &candle,
+                    &mut exchange_candles,
+                    &None,
+                )
             }
             ExchangeName::Gdax => {
                 // Get exchange candle
@@ -468,8 +494,26 @@ impl Inquisidor {
                         86400,
                     )
                     .await;
+                let previous_candle = match select_previous_candle(
+                    &self.pool,
+                    &validation.exchange_name,
+                    &market.market_id,
+                    validation.datetime,
+                    TimeFrame::D01,
+                )
+                .await
+                {
+                    Ok(c) => Some(c),
+                    Err(sqlx::Error::RowNotFound) => None,
+                    Err(e) => panic!("Sqlx Error: {:?}", e),
+                };
                 // Validate new candle volume
-                validate_candle(&validation.exchange_name, &candle, &mut exchange_candles)
+                validate_candle(
+                    &validation.exchange_name,
+                    &candle,
+                    &mut exchange_candles,
+                    &previous_candle,
+                )
             }
         };
         if is_valid {

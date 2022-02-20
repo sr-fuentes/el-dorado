@@ -285,7 +285,8 @@ mod test {
             // Check if all hb candles are valid
             let hb_is_validated = hb_candles.iter().all(|c| c.is_validated == true);
             // Check if volume matches value
-            let vol_is_validated = validate_candle(&exchange.name, &candle, &mut exchange_candles);
+            let vol_is_validated =
+                validate_candle(&exchange.name, &candle, &mut exchange_candles, &None);
             // Update candle validation status
             if hb_is_validated && vol_is_validated {
                 update_candle_validation(
