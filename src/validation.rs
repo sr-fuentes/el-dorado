@@ -614,7 +614,7 @@ impl Inquisidor {
                     &self.pool,
                     &validation.exchange_name,
                     &market.market_id,
-                    validation.datetime - TimeFrame::T15.as_dur(),
+                    validation.datetime,
                     TimeFrame::T15,
                 )
                 .await
@@ -750,7 +750,7 @@ impl Inquisidor {
                     &self.pool,
                     &validation.exchange_name,
                     &market.market_id,
-                    validation.datetime - TimeFrame::D01.as_dur(),
+                    validation.datetime,
                     TimeFrame::D01,
                 )
                 .await
