@@ -336,7 +336,8 @@ impl Inquisidor {
     }
 
     pub async fn auto_validate_candle(&self, validation: &CandleValidation, market: &MarketDetail) {
-        // Recreate candle and then compare new candle to exchange candle for validation and return result.
+        // Recreate candle and then compare new candle to exchange candle for validation
+        // and return result.
         // Set start and end for candle period
         let candle_start = validation.datetime;
         let (candle, is_valid) = match validation.exchange_name {
