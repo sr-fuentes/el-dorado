@@ -610,6 +610,22 @@ impl Inquisidor {
                 println!("ED Value versus FTX Volume:");
                 println!("ElDorado: {:?}", candle.volume);
                 println!("Exchange: {:?}", exchange_candle.volume);
+                match select_previous_candle(
+                    &self.pool,
+                    &validation.exchange_name,
+                    &market.market_id,
+                    validation.datetime - TimeFrame::T15.as_dur(),
+                    TimeFrame::T15,
+                )
+                .await
+                {
+                    Ok(pc) => println!("PC Last ID {}: C First ID {}",
+                        pc.last_trade_id, candle.first_trade_id),
+                    Err(sqlx::Error::RowNotFound) => println!("No previous candle."),
+                    Err(e) => {
+                        panic!("Failed to select previoius candle. {:?}", e);
+                    }
+                };
                 let message = format!(
                     "Delta: {:?} & Percent: {:?}",
                     delta.round_dp(2),
@@ -728,6 +744,22 @@ impl Inquisidor {
                 println!("ED Value versus FTX Volume:");
                 println!("ElDorado: {:?}", candle.volume);
                 println!("Exchange: {:?}", exchange_candle.volume);
+                match select_previous_candle(
+                    &self.pool,
+                    &validation.exchange_name,
+                    &market.market_id,
+                    validation.datetime - TimeFrame::D01.as_dur(),
+                    TimeFrame::D01,
+                )
+                .await
+                {
+                    Ok(pc) => println!("PC Last ID {}: C First ID {}",
+                        pc.last_trade_id, candle.first_trade_id),
+                    Err(sqlx::Error::RowNotFound) => println!("No previous candle."),
+                    Err(e) => {
+                        panic!("Failed to select previoius candle. {:?}", e);
+                    }
+                };
                 let message = format!(
                     "Delta: {:?} & Percent: {:?}",
                     delta.round_dp(2),

@@ -542,7 +542,7 @@ pub async fn validate_hb_candles<T: crate::utilities::Candle + DeserializeOwned>
                     exchange_name,
                     &market.market_id,
                     unvalidated_candle.datetime,
-                    TimeFrame::D01,
+                    TimeFrame::T15,
                 )
                 .await
                 {
