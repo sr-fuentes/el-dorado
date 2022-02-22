@@ -619,8 +619,10 @@ impl Inquisidor {
                 )
                 .await
                 {
-                    Ok(pc) => println!("PC Last ID {}: C First ID {}",
-                        pc.last_trade_id, candle.first_trade_id),
+                    Ok(pc) => println!(
+                        "PC Last ID {}: C First ID {}",
+                        pc.last_trade_id, candle.first_trade_id
+                    ),
                     Err(sqlx::Error::RowNotFound) => println!("No previous candle."),
                     Err(e) => {
                         panic!("Failed to select previoius candle. {:?}", e);
@@ -753,8 +755,10 @@ impl Inquisidor {
                 )
                 .await
                 {
-                    Ok(pc) => println!("PC Last ID {}: C First ID {}",
-                        pc.last_trade_id, candle.first_trade_id),
+                    Ok(pc) => println!(
+                        "PC Last ID {}: C First ID {}",
+                        pc.last_trade_id, candle.first_trade_id
+                    ),
                     Err(sqlx::Error::RowNotFound) => println!("No previous candle."),
                     Err(e) => {
                         panic!("Failed to select previoius candle. {:?}", e);
