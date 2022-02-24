@@ -489,7 +489,7 @@ pub async fn select_ftx_trades_by_time(
         SELECT trade_id as id, price, size, side, liquidation, time
         FROM trades_{}_{}_{}
         WHERE time >= $1 and time < $2
-        ORDER BY time
+        ORDER BY id
         "#,
         exchange_name.as_str(),
         market.as_strip(),
@@ -517,7 +517,7 @@ pub async fn select_gdax_trades_by_time(
         SELECT trade_id, price, size, side, time
         FROM trades_{}_{}_{}
         WHERE time >= $1 and time < $2
-        ORDER BY time
+        ORDER BY trade_id
         "#,
         exchange_name.as_str(),
         market.as_strip(),
