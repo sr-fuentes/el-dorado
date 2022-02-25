@@ -797,7 +797,7 @@ pub fn validate_ftx_candle<T: crate::utilities::Candle + DeserializeOwned>(
 }
 
 pub fn validate_gdax_candle<T: crate::utilities::Candle + DeserializeOwned>(
-    candle: &Candle,        
+    candle: &Candle,
     exchange_candle: Option<&T>,
     previous_candle: &Option<Candle>,
 ) -> bool {
