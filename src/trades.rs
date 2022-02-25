@@ -540,7 +540,7 @@ pub async fn select_ftx_trades_by_table(
         r#"
         SELECT trade_id as id, price, size, side, liquidation, time
         FROM {}
-        ORDER BY time
+        ORDER BY trade_id
         "#,
         table
     );
@@ -557,7 +557,7 @@ pub async fn select_gdax_trades_by_table(
         r#"
         SELECT trade_id, price, size, side, time
         FROM {}
-        ORDER BY time
+        ORDER BY trade_id
         "#,
         table
     );
@@ -591,7 +591,7 @@ pub async fn select_ftx_trade_first_stream(
         r#"
         SELECT trade_id as id, price, size, side, liquidation, time
         FROM trades_{}_{}_ws
-        ORDER BY time
+        ORDER BY trade_id
         LIMIT 1
         "#,
         exchange_name.as_str(),
@@ -610,7 +610,7 @@ pub async fn select_gdax_trade_first_stream(
         r#"
         SELECT trade_id, price, size, side, time
         FROM trades_{}_{}_ws
-        ORDER BY time
+        ORDER BY trade_id
         LIMIT 1
         "#,
         exchange_name.as_str(),
