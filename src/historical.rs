@@ -230,7 +230,7 @@ impl Mita {
                 .expect("Could not select trades from db.");
                 // Sort and dedup
                 interval_trades.sort_by(|t1, t2| t1.trade_id.cmp(&t2.trade_id));
-                interval_trades.dedup_by(|t1, t2| t1.trade_id == t2.trade_id);
+                // interval_trades.dedup_by(|t1, t2| t1.trade_id == t2.trade_id);
                 // Create daterange
                 let date_range =
                     self.create_date_range(candle_ts, newest_floor, self.hbtf.as_dur());
@@ -453,9 +453,10 @@ pub async fn backfill_ftx(
                             )
                         }
                         _ => {
-                            // Sort and dedup
+                            // Sort and dedup - dedup not needed as table has unique constraint
+                            // on trade id and on insert conflict does nothing
                             interval_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
-                            interval_trades.dedup_by(|t1, t2| t1.id == t2.id);
+                            // interval_trades.dedup_by(|t1, t2| t1.id == t2.id);
                             // Create Candle
                             Candle::new_from_trades(
                                 market.market_id,
