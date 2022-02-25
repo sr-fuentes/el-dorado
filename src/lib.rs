@@ -1,5 +1,6 @@
 pub mod archive;
 pub mod candles;
+pub mod cleanup;
 pub mod configuration;
 pub mod events;
 pub mod exchanges;
@@ -12,4 +13,3 @@ pub mod stream;
 pub mod trades;
 pub mod utilities;
 pub mod validation;
-pub mod cleanup;
