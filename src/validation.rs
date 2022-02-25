@@ -336,7 +336,8 @@ impl Inquisidor {
     }
 
     pub async fn auto_validate_candle(&self, validation: &CandleValidation, market: &MarketDetail) {
-        // Recreate candle and then compare new candle to exchange candle for validation and return result.
+        // Recreate candle and then compare new candle to exchange candle for validation
+        // and return result.
         // Set start and end for candle period
         let candle_start = validation.datetime;
         let (candle, is_valid) = match validation.exchange_name {
@@ -398,6 +399,12 @@ impl Inquisidor {
                     &mut exchange_candles,
                     &previous_candle,
                 );
+                // Check for missing trades - gap from last trade id of previous candle to first
+                // trade id of current validation candle as cause of invalidation. If missing trades
+                // are found -> 1) if part of previous candle - mark previous candle as invalid,
+                // remove any candle validations for previous canle, create ne candle validtion for
+                // previous candle. 2) if part of current candle - re-create candle for the second
+                // time with the new trades and re-validate
                 (candle, is_valid)
             }
         };

@@ -828,23 +828,25 @@ pub fn validate_gdax_candle<T: crate::utilities::Candle + DeserializeOwned>(
                         false
                     }
                     Some(pc) => {
+                        println!(
+                            "PC Last ID: {} - C First ID: {}",
+                            pc.last_trade_id, candle.first_trade_id
+                        );
                         if pc.last_trade_id.parse::<i32>().unwrap() + 1
                             == candle.first_trade_id.parse::<i32>().unwrap()
                         {
                             println!(
-                            "Volume Failed ({} ED v {} GDAX) but trade count complete. Marking valid.",
-                            candle.volume,
-                            c.volume()
-                        );
+                                "Volume Failed ({} ED v {} GDAX) but trade count complete.",
+                                candle.volume,
+                                c.volume()
+                            );
                             true
                         } else {
                             println!(
-                            "Volume Failed ({} ED v {} GDAX) and trade count failed (Last Prev Can: {} First Cur Can: {}). Marking invalid.",
-                            candle.volume,
-                            c.volume(),
-                            pc.last_trade_id.parse::<i32>().unwrap(),
-                            candle.first_trade_id.parse::<i32>().unwrap()
-                        );
+                                "Volume Failed ({} ED v {} GDAX) and trade count failed.",
+                                candle.volume,
+                                c.volume(),
+                            );
                             false
                         }
                     }
@@ -854,6 +856,15 @@ pub fn validate_gdax_candle<T: crate::utilities::Candle + DeserializeOwned>(
                     "Failed to validate: El-D Val: {:?} Gdax Vol: {:?}",
                     candle.volume,
                     c.volume()
+                );
+                println!(
+                    "First Trade ID: {} Last Trade ID: {}. Num Trade {} Expected {}",
+                    candle.last_trade_id,
+                    candle.first_trade_id,
+                    candle.trade_count,
+                    candle.last_trade_id.parse::<i32>().unwrap()
+                        - candle.first_trade_id.parse::<i32>().unwrap()
+                        + 1,
                 );
                 false
             }

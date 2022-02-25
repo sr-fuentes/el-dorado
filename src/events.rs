@@ -281,7 +281,10 @@ impl Inquisidor {
         .await
         .expect("Failed to select markets.");
         for market in markets.iter() {
-            self.archive_validated_trades_for_market(market).await;
+            // Temporarily remove GDAX from archiving
+            if market.exchange_name != ExchangeName::Gdax {
+                self.archive_validated_trades_for_market(market).await;
+            };
         }
         // Close event
         update_event_status_processed(&self.pool, event)
