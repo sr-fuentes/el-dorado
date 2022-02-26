@@ -1,6 +1,7 @@
 use crate::inquisidor::Inquisidor;
 use crate::markets::{select_market_details_by_status_exchange, MarketStatus};
 use crate::exchanges::ExchangeName;
+use crate::trades::select_gdax_trades_by_table;
 
 impl Inquisidor {
     pub async fn cleanup_gdax(self) {
@@ -40,17 +41,20 @@ impl Inquisidor {
             sqlx::query(&sql).bind(market.market_id).execute(&self.pool).await.expect("Failed to delete 01d candles.");
             println!("01d candles deleted.");
             // b) Migrate all validated trades to processed
+            println!("Loading all validated trades.");
+            let table = format!("trades_gdax_{}_validated", market.as_strip());
+            let sql = select_gdax_trades_by_table(&self.pool, table).await.expect("Failed to select trades from validated_table.");
 
+            // c) Delete all hb candles
+
+            // d) Select all trades from processed and create candles for date range
+
+            // e) Migrate all trades to processed
+
+            // f) Validate / create 01d / Validate 01d
 
 
         }
-
-        // c) Delete all hb candles
-
-        // d) Select all trades from processed and create candles for date range
-
-        // e) Migrate all trades to processed
-
-        // f) Validate / create 01d / Validate 01d
+        println!("GDAX cleanup complete.");
     }
 }
