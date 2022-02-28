@@ -14,7 +14,7 @@ impl Inquisidor {
         // 1) Delete all gdax candle validations
         println!("Deleting gdax candle_validations.");
         let sql = r#"
-            DELETE FROM candles_validations
+            DELETE FROM candle_validations
             WHERE exchange_name = 'gdax'
             "#;
         sqlx::query(sql)
