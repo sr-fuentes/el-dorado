@@ -1,8 +1,8 @@
-use crate::candles::{insert_candle, Candle, TimeFrame};
+use crate::candles::{insert_candle, select_candles, Candle, TimeFrame};
 use crate::exchanges::{gdax::Trade, ExchangeName};
 use crate::inquisidor::Inquisidor;
 use crate::markets::{select_market_details_by_status_exchange, MarketStatus};
-use crate::trades::{insert_gdax_trades, select_gdax_trades_by_table};
+use crate::trades::{insert_gdax_trades, select_gdax_trades_by_time};
 use chrono::DurationRound;
 
 impl Inquisidor {
@@ -51,26 +51,61 @@ impl Inquisidor {
                 .expect("Failed to delete 01d candles.");
             println!("01d candles deleted.");
 
-            // b) Migrate all validated trades to processed
-            println!("Loading all validated trades.");
-            let table = format!("trades_gdax_{}_validated", market.as_strip());
-            let validated_trades = select_gdax_trades_by_table(&self.pool, &table)
+            // b) Migrate all validated trades to processed - process in 01d chunks
+            // as loading all trades leads to memory and cpu max constraints
+            // Load candles to get date range for days
+            let candles = select_candles(&self.pool, &ExchangeName::Gdax, &market.market_id, 900)
                 .await
-                .expect("Failed to select trades from validated_table.");
+                .expect("Failed to select candles.");
+            let mut first_day = candles
+                .first()
+                .unwrap()
+                .datetime
+                .duration_trunc(TimeFrame::D01.as_dur())
+                .unwrap();
+            let last_day = candles
+                .last()
+                .unwrap()
+                .datetime
+                .duration_trunc(TimeFrame::D01.as_dur())
+                .unwrap();
+            let mut dr = Vec::new();
+            while first_day < last_day {
+                dr.push(first_day);
+                first_day = first_day + TimeFrame::D01.as_dur();
+            }
             println!(
-                "{} Validated trades loaded. Inserting into procesesing.",
-                validated_trades.len()
+                "Processing validated trades in chunks for dr: {:?} to {:?}",
+                dr.first(),
+                dr.last().unwrap()
             );
-            insert_gdax_trades(
-                &self.pool,
-                &ExchangeName::Gdax,
-                market,
-                "processed",
-                validated_trades,
-            )
-            .await
-            .expect("Failed to insert trades into processed.");
-            println!("Trades inserted to procesed.");
+            println!("Loading all validated trades by day.");
+            for d in dr.iter() {
+                let validated_trades = select_gdax_trades_by_time(
+                    &self.pool,
+                    &ExchangeName::Gdax,
+                    market,
+                    "validated",
+                    *d,
+                    *d + TimeFrame::D01.as_dur())
+                    .await
+                    .expect("Failed to select trades from validated_table.");
+                println!(
+                    "{} Validated trades loaded for {:?}. Inserting into procesesing.",
+                    validated_trades.len(),
+                    d,
+                );
+                insert_gdax_trades(
+                    &self.pool,
+                    &ExchangeName::Gdax,
+                    market,
+                    "processed",
+                    validated_trades,
+                )
+                .await
+                .expect("Failed to insert trades into processed.");
+            }
+
 
             // c) Delete all hb candles
             let sql = r#"
