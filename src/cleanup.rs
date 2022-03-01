@@ -35,7 +35,7 @@ impl Inquisidor {
         .expect("Failed to select gdax markets.");
 
         for market in gdax_markets.iter() {
-            if market.market_name != "MANA-USD" {
+            if market.market_name == "MANA-USD" {
                 continue;
             };
             println!("Cleaning up {} candles.", market.market_name);
