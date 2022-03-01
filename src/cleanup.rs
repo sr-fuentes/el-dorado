@@ -2,7 +2,9 @@ use crate::candles::{insert_candle, select_candles, select_previous_candle, Cand
 use crate::exchanges::{gdax::Trade, ExchangeName};
 use crate::inquisidor::Inquisidor;
 use crate::markets::{select_market_details_by_status_exchange, MarketStatus};
-use crate::trades::{insert_gdax_trades, select_gdax_trades_by_time};
+use crate::trades::{
+    create_gdax_trade_table, drop_trade_table, insert_gdax_trades, select_gdax_trades_by_time,
+};
 use chrono::DurationRound;
 
 impl Inquisidor {
@@ -119,6 +121,14 @@ impl Inquisidor {
                 .await
                 .expect("Failed to delete gdax candle_validations.");
             println!("Deleted hb candles for {}", market.market_name);
+
+            // c2) Delete all validated trades
+            drop_trade_table(&self.pool, &ExchangeName::Gdax, market, "validated")
+                .await
+                .expect("Failed to drop trade table.");
+            create_gdax_trade_table(&self.pool, &ExchangeName::Gdax, market, "validated")
+                .await
+                .expect("Faild to create trade table.");
 
             // d) Select all trades from processed and create candles for date range
             println!("Sleeping for 5 seconds to let trade inserts and deletes complete.");
