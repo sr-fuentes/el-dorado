@@ -1,4 +1,7 @@
-use crate::candles::{insert_candle, select_candles, select_previous_candle, Candle, TimeFrame};
+use crate::candles::{
+    create_01d_candles, insert_candle, select_candles, select_previous_candle,
+    select_unvalidated_candles, validate_01d_candles, validate_hb_candles, Candle, TimeFrame,
+};
 use crate::exchanges::{gdax::Trade, ExchangeName};
 use crate::inquisidor::Inquisidor;
 use crate::markets::{select_market_details_by_status_exchange, MarketStatus};
@@ -223,5 +226,52 @@ impl Inquisidor {
             }
         }
         println!("GDAX cleanup complete.");
+    }
+
+    pub async fn cleanup_gdax_validate(self) {
+        // Clean up has been done an all candles re-created from trades in the
+        // _processed table.
+        // Validate the daily candles, create 01d candles and validated them.
+        let gdax_markets = select_market_details_by_status_exchange(
+            &self.pool,
+            &ExchangeName::Gdax,
+            &MarketStatus::Backfill,
+        )
+        .await
+        .expect("Failed to select gdax markets.");
+        for market in gdax_markets.iter() {
+            println!("Validating {}.", market.market_name);
+            let unvalidated_candles = select_unvalidated_candles(
+                &self.pool,
+                &ExchangeName::Gdax,
+                &market.market_id,
+                TimeFrame::T15,
+            )
+            .await
+            .expect("Could not fetch unvalidated candles.");
+            println!("Validting hb candles.");
+            // Validate heartbeat candles
+            validate_hb_candles::<crate::exchanges::gdax::Candle>(
+                &self.pool,
+                &self.clients[&ExchangeName::Gdax],
+                &ExchangeName::Gdax,
+                market,
+                &self.settings,
+                &unvalidated_candles,
+            )
+            .await;
+            // Create 01d candles
+            println!("Creating 01d candles");
+            create_01d_candles(&self.pool, &ExchangeName::Gdax, &market.market_id).await;
+            // Validate 01d candles
+            println!("Validating 01d candles.");
+            validate_01d_candles::<crate::exchanges::gdax::Candle>(
+                &self.pool,
+                &self.clients[&ExchangeName::Gdax],
+                &ExchangeName::Gdax,
+                market,
+            )
+            .await;
+        }
     }
 }
