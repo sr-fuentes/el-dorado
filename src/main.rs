@@ -102,7 +102,7 @@ async fn main() {
         Some("cleanup") => {
             // Create new admin instance and run cleanup
             let ig = Inquisidor::new().await;
-            ig.cleanup_gdax().await;
+            ig.cleanup_gdax_validate().await;
         }
         None => println!("Please run with subcommands: `add` `refresh` `edit` or `run`."),
         _ => unreachable!(), // CLAP will error out before running this arm
