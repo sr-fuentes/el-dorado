@@ -17,6 +17,7 @@ async fn main() {
         .subcommand(App::new("manual").about("manually validate bad candles"))
         .subcommand(App::new("archive").about("archive trade for valid candles"))
         .subcommand(App::new("stream").about("stream trades to db"))
+        .subcommand(App::new("cleanup").about("cleanup gdax validations"))
         .get_matches();
 
     // Match subcommand and route
@@ -97,6 +98,11 @@ async fn main() {
             let mita = Mita::new().await;
             mita.reset_trade_tables(&["ws"]).await;
             mita.stream().await;
+        }
+        Some("cleanup") => {
+            // Create new admin instance and run cleanup
+            let ig = Inquisidor::new().await;
+            ig.cleanup_gdax_validate().await;
         }
         None => println!("Please run with subcommands: `add` `refresh` `edit` or `run`."),
         _ => unreachable!(), // CLAP will error out before running this arm
