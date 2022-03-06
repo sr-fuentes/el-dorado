@@ -15,10 +15,7 @@ impl Inquisidor {
             .expect("Failed to fetch active markets.");
         // Check for trades to archive in each active market
         for market in markets.iter() {
-            // Add filter to remove GDAX validations temporarily until they are validated
-            if market.exchange_name != ExchangeName::Gdax {
-                self.archive_validated_trades_for_market(market).await;
-            }
+            self.archive_validated_trades_for_market(market).await;
         }
     }
 
