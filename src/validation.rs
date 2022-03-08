@@ -614,7 +614,8 @@ impl Inquisidor {
                 let delta = candle.volume - exchange_candle.volume;
                 let percent = delta / exchange_candle.volume * dec!(100.0);
                 println!("New Candle: {:?}", candle);
-                println!("ED Value versus FTX Volume:");
+                println!("Exch Candle: {:?}", exchange_candle);
+                println!("ED Value versus GDAX Volume:");
                 println!("ElDorado: {:?}", candle.volume);
                 println!("Exchange: {:?}", exchange_candle.volume);
                 match select_previous_candle(
@@ -641,6 +642,33 @@ impl Inquisidor {
                     percent.round_dp(4)
                 );
                 println!("{}", message);
+                println!(
+                    "First Id: {} Last Id: {}",
+                    candle.first_trade_id, candle.last_trade_id
+                );
+                // Get first 5 trades before candle and next 5 trades after candle
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                let trades_before = &self.clients[&validation.exchange_name]
+                    .get_gdax_trades(
+                        market.market_name.as_str(),
+                        Some(5),
+                        None,
+                        Some(candle.first_trade_id.parse::<i32>().unwrap()),
+                    )
+                    .await
+                    .expect("Failed to get 5 trades before candle.");
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                let trades_after = &self.clients[&validation.exchange_name]
+                    .get_gdax_trades(
+                        market.market_name.as_str(),
+                        Some(5),
+                        None,
+                        Some(candle.last_trade_id.parse::<i32>().unwrap() + 5),
+                    )
+                    .await
+                    .expect("Failed to get 5 trades after candle.");
+                println!("5 trade before: {:?}", trades_before);
+                println!("5 trades after: {:?}", trades_after);
                 message
             }
         };
@@ -938,7 +966,10 @@ impl Inquisidor {
         market: &MarketDetail,
         start_ts: DateTime<Utc>,
     ) -> Candle {
-        println!("Recreating GDAX {} candle for {:?}", market.market_name, start_ts);
+        println!(
+            "Recreating GDAX {} candle for {:?}",
+            market.market_name, start_ts
+        );
         // Get original candle that is not validated
         let original_candle = select_candles_by_daterange(
             &self.pool,
@@ -1017,7 +1048,7 @@ impl Inquisidor {
                 let oldest_trade = new_trades.first().unwrap();
                 let newest_trade = new_trades.last().unwrap();
                 // Update start id and ts
-                if oldest_trade.time() > start_ts && !start_is_covered{
+                if oldest_trade.time() > start_ts && !start_is_covered {
                     // The earliest trade is greater than the candle start. This can happen if a
                     // candle is not created entirely and the candle first trade is at 00:05 but the
                     // candle begins at 00:00 and there are trades from 00:00 to 00:05. Push the
