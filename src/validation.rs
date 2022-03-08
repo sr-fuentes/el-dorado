@@ -938,6 +938,7 @@ impl Inquisidor {
         market: &MarketDetail,
         start_ts: DateTime<Utc>,
     ) -> Candle {
+        println!("Recreating GDAX {} candle for {:?}", market.market_name, start_ts);
         // Get original candle that is not validated
         let original_candle = select_candles_by_daterange(
             &self.pool,
