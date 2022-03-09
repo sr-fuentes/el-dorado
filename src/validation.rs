@@ -626,11 +626,11 @@ impl Inquisidor {
                         );
                         println!("{}", message);
                         message
-                    },
+                    }
                     None => {
                         println!("No Exchange Candle :(");
                         "No Exchange Candle for cmp.".to_string()
-                    },
+                    }
                 };
                 match select_previous_candle(
                     &self.pool,
