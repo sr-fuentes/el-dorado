@@ -609,8 +609,11 @@ impl Inquisidor {
                     900,
                 )
                 .await
-                .pop()
-                .unwrap();
+                .pop();
+                match exchange_candle {
+                    Some(ec) => {},
+                    None => ,
+                }
                 let delta = candle.volume - exchange_candle.volume;
                 let percent = delta / exchange_candle.volume * dec!(100.0);
                 println!("New Candle: {:?}", candle);
