@@ -610,17 +610,28 @@ impl Inquisidor {
                 )
                 .await
                 .pop();
-                match exchange_candle {
-                    Some(ec) => {},
-                    None => ,
-                }
-                let delta = candle.volume - exchange_candle.volume;
-                let percent = delta / exchange_candle.volume * dec!(100.0);
                 println!("New Candle: {:?}", candle);
-                println!("Exch Candle: {:?}", exchange_candle);
-                println!("ED Value versus GDAX Volume:");
-                println!("ElDorado: {:?}", candle.volume);
-                println!("Exchange: {:?}", exchange_candle.volume);
+                let message = match exchange_candle {
+                    Some(ec) => {
+                        let delta = candle.volume - ec.volume;
+                        let percent = delta / ec.volume * dec!(100.0);
+                        println!("Exch Candle: {:?}", ec);
+                        println!("ED Value versus GDAX Volume:");
+                        println!("ElDorado: {:?}", candle.volume);
+                        println!("Exchange: {:?}", ec.volume);
+                        let message = format!(
+                            "Delta: {:?} & Percent: {:?}",
+                            delta.round_dp(2),
+                            percent.round_dp(4)
+                        );
+                        println!("{}", message);
+                        message
+                    },
+                    None => {
+                        println!("No Exchange Candle :(");
+                        "No Exchange Candle for cmp.".to_string()
+                    },
+                };
                 match select_previous_candle(
                     &self.pool,
                     &validation.exchange_name,
@@ -639,12 +650,6 @@ impl Inquisidor {
                         panic!("Failed to select previoius candle. {:?}", e);
                     }
                 };
-                let message = format!(
-                    "Delta: {:?} & Percent: {:?}",
-                    delta.round_dp(2),
-                    percent.round_dp(4)
-                );
-                println!("{}", message);
                 println!(
                     "First Id: {} Last Id: {}",
                     candle.first_trade_id, candle.last_trade_id
