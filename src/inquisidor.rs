@@ -10,7 +10,9 @@ use std::collections::HashMap;
 #[derive(Debug)]
 pub struct Inquisidor {
     pub settings: Settings,
-    pub pool: PgPool,
+    pub ig_pool: PgPool,
+    pub ftx_pool: PgPool,
+    pub gdax_pool: PgPool,
     pub clients: HashMap<ExchangeName, RestClient>,
     pub hbtf: TimeFrame,
 }
@@ -20,7 +22,13 @@ impl Inquisidor {
         // Load configuration settings
         let settings = get_configuration().expect("Failed to read configuration.");
         // Create db connection with pgpool
-        let pool = PgPool::connect_with(settings.database.with_db())
+        let ig_pool = PgPool::connect_with(settings.ftx_db.with_db())
+            .await
+            .expect("Failed to connect to postgres db.");
+        let ftx_pool = PgPool::connect_with(settings.ftx_db.with_db())
+            .await
+            .expect("Failed to connect to postgres db.");
+        let gdax_pool = PgPool::connect_with(settings.gdax_db.with_db())
             .await
             .expect("Failed to connect to postgres db.");
         let mut clients = HashMap::new();
@@ -29,7 +37,9 @@ impl Inquisidor {
         clients.insert(ExchangeName::Gdax, RestClient::new(&ExchangeName::Gdax));
         Self {
             settings,
-            pool,
+            ig_pool,
+            ftx_pool,
+            gdax_pool,
             clients,
             hbtf: TimeFrame::time_frames()[0],
         }
