@@ -12,7 +12,7 @@ impl Mita {
                 if *table == "processed" || *table == "validated" {
                     // Alter table, create, migrate, drop
                     alter_create_migrate_drop_trade_table(
-                        &self.pool,
+                        &self.trade_pool,
                         &self.exchange.name,
                         market,
                         *table,
@@ -21,7 +21,7 @@ impl Mita {
                     .expect("Failed to alter create migrate drop trade table.");
                 } else {
                     // "ws" or "rest", just drop and re-create each time
-                    drop_create_trade_table(&self.pool, &self.exchange.name, market, *table)
+                    drop_create_trade_table(&self.trade_pool, &self.exchange.name, market, *table)
                         .await
                         .expect("Failed to drop and create table.");
                 }
@@ -657,7 +657,7 @@ mod tests {
         println!("Configuration: {:?}", configuration);
 
         // Create db connection
-        let pool = PgPool::connect_with(configuration.database.with_db())
+        let pool = PgPool::connect_with(configuration.ftx_db.with_db())
             .await
             .expect("Failed to connect to Postgres.");
 
