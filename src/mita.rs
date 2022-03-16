@@ -60,11 +60,9 @@ impl Mita {
                     .await
                     .expect("Failed to connect to trade database.")
             }
-            ExchangeName::Gdax => {
-                PgPool::connect_with(settings.gdax_db.with_db())
-                    .await
-                    .expect("Failed to connect to trade database.")
-            }
+            ExchangeName::Gdax => PgPool::connect_with(settings.gdax_db.with_db())
+                .await
+                .expect("Failed to connect to trade database."),
         };
         // Get market details assigned to mita
         let markets = select_market_detail_by_exchange_mita(
@@ -259,10 +257,16 @@ impl Mita {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) {
-        let sync_trades =
-            select_ftx_trades_by_time(&self.trade_pool, &self.exchange.name, market, "ws", start, end)
-                .await
-                .expect("Failed to select ws trades.");
+        let sync_trades = select_ftx_trades_by_time(
+            &self.trade_pool,
+            &self.exchange.name,
+            market,
+            "ws",
+            start,
+            end,
+        )
+        .await
+        .expect("Failed to select ws trades.");
         // Get date range
         let date_range = self.create_date_range(start, end, self.hbtf.as_dur());
         // Make new candles
@@ -293,10 +297,16 @@ impl Mita {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) {
-        let sync_trades =
-            select_gdax_trades_by_time(&self.trade_pool, &self.exchange.name, market, "ws", start, end)
-                .await
-                .expect("Failed to select ws trades.");
+        let sync_trades = select_gdax_trades_by_time(
+            &self.trade_pool,
+            &self.exchange.name,
+            market,
+            "ws",
+            start,
+            end,
+        )
+        .await
+        .expect("Failed to select ws trades.");
         // Get date range
         let date_range = self.create_date_range(start, end, self.hbtf.as_dur());
         // Make new candles
