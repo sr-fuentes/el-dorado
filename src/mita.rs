@@ -22,6 +22,7 @@ pub struct Mita {
     pub markets: Vec<MarketDetail>,
     pub exchange: Exchange,
     pub pool: PgPool,
+    pub trade_pool: PgPool,
     pub restart: bool,
     pub last_restart: DateTime<Utc>,
     pub restart_count: i8,
@@ -40,9 +41,12 @@ impl Mita {
         // Load configuration settings
         let settings = get_configuration().expect("Failed to read configuration.");
         // Create db connection with pgpool
-        let pool = PgPool::connect_with(settings.database.with_db())
+        let pool = PgPool::connect_with(settings.ftx_db.with_db())
             .await
             .expect("Failed to connect to postgres db.");
+        let trade_pool = PgPool::connect_with(settings.gdax_db.with_db())
+            .await
+            .expect("Failed to connect to secondary database.");
         // Get exchange details
         let exchanges = select_exchanges(&pool)
             .await
@@ -65,6 +69,7 @@ impl Mita {
             markets,
             exchange,
             pool,
+            trade_pool,
             restart: true,
             last_restart: Utc::now(),
             restart_count: 0,

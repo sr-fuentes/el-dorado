@@ -1,10 +1,10 @@
-primary_db:
+ftx_db:
   host: "localhost"
   port: 5432
   username: "postgres"
   password: "password"
   database_name: "eldorado"
-secondary_db:
+gdax_db:
   host: "localhost"
   port: 5432
   username: "postgres"
