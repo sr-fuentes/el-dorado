@@ -102,11 +102,11 @@ impl TryFrom<String> for EventStatus {
 impl Inquisidor {
     pub async fn set_initial_event(&self) {
         // Get all active exchanges
-        let exchanges = select_exchanges_by_status(&self.pool, ExchangeStatus::Active)
+        let exchanges = select_exchanges_by_status(&self.ig_pool, ExchangeStatus::Active)
             .await
             .expect("Failed to select active exchanges.");
         // Get all open events
-        let events = select_open_events_for_droplet(&self.pool, "ig")
+        let events = select_open_events_for_droplet(&self.ig_pool, "ig")
             .await
             .expect("Failed to select events.");
         // For each exchange, check to see if there is a create daily candle event
@@ -115,7 +115,7 @@ impl Inquisidor {
                 e.event_type == EventType::CreateDailyCandles && e.exchange_name == exchange.name
             }) {
                 Some(_) => continue, // Event exists, nothing to do
-                None => insert_event_create_daily_candles(&self.pool, &exchange.name, Utc::now())
+                None => insert_event_create_daily_candles(&self.ig_pool, &exchange.name, Utc::now())
                     .await
                     .expect("Failed to insert create daily candles event."),
             }
@@ -125,11 +125,11 @@ impl Inquisidor {
     pub async fn process_events(&self) {
         // Get any open events for the droplet
         let open_events =
-            select_open_events_for_droplet(&self.pool, &self.settings.application.droplet)
+            select_open_events_for_droplet(&self.ig_pool, &self.settings.application.droplet)
                 .await
                 .expect("Failed to select open events.");
         // Get all market details - for market id and strip name fn in event processing
-        let markets = select_market_details(&self.pool)
+        let markets = select_market_details(&self.ig_pool)
             .await
             .expect("Failed to select all market details.");
         // Process events
@@ -158,7 +158,7 @@ impl Inquisidor {
     pub async fn process_event_validate_candle(&self, event: &Event, market: &MarketDetail) {
         // Get candles to validate based on event end date
         let unvalidated_candles = select_candles_unvalidated_lt_datetime(
-            &self.pool,
+            &self.ig_pool,
             &event.exchange_name,
             &event.market_id,
             event.end_ts.unwrap(),
@@ -171,7 +171,8 @@ impl Inquisidor {
             match event.exchange_name {
                 ExchangeName::Ftx | ExchangeName::FtxUs => {
                     validate_hb_candles::<crate::exchanges::ftx::Candle>(
-                        &self.pool,
+                        &self.ig_pool,
+                        &self.ftx_pool,
                         &self.clients[&event.exchange_name],
                         &event.exchange_name,
                         market,
@@ -182,7 +183,8 @@ impl Inquisidor {
                 }
                 ExchangeName::Gdax => {
                     validate_hb_candles::<crate::exchanges::gdax::Candle>(
-                        &self.pool,
+                        &self.ig_pool,
+                        &self.gdax_pool,
                         &self.clients[&event.exchange_name],
                         &event.exchange_name,
                         market,
@@ -194,7 +196,7 @@ impl Inquisidor {
             };
         };
         // Close event
-        update_event_status_processed(&self.pool, event)
+        update_event_status_processed(&self.ig_pool, event)
             .await
             .expect("Failed to update event status to done.");
     }
@@ -202,7 +204,7 @@ impl Inquisidor {
     pub async fn process_event_create_daily_candles(&self, event: &Event) {
         // Select active market from each exchange
         let markets = select_market_details_by_status_exchange(
-            &self.pool,
+            &self.ig_pool,
             &event.exchange_name,
             &MarketStatus::Active,
         )
@@ -210,21 +212,21 @@ impl Inquisidor {
         .expect("Failed to select markets.");
         for market in markets.iter() {
             // Create 01d candles if needed
-            create_01d_candles(&self.pool, &event.exchange_name, &market.market_id).await;
+            create_01d_candles(&self.ig_pool, &event.exchange_name, &market.market_id).await;
         }
         // Create event for next day
         let next_event_ts = Utc::now().duration_trunc(TimeFrame::D01.as_dur()).unwrap()
             + Duration::days(1)
             + Duration::minutes(2);
-        insert_event_create_daily_candles(&self.pool, &event.exchange_name, next_event_ts)
+        insert_event_create_daily_candles(&self.ig_pool, &event.exchange_name, next_event_ts)
             .await
             .expect("Failed insert create daily candle event.");
         // Create validation event
-        insert_event_validate_daily_candles(&self.pool, &event.exchange_name)
+        insert_event_validate_daily_candles(&self.ig_pool, &event.exchange_name)
             .await
             .expect("Frailed to insert validated daily candles.");
         // Close event
-        update_event_status_processed(&self.pool, event)
+        update_event_status_processed(&self.ig_pool, event)
             .await
             .expect("Failed to update event status to done.");
     }
@@ -232,7 +234,7 @@ impl Inquisidor {
     pub async fn process_event_validate_daily_candles(&self, event: &Event) {
         // Select active market from each exchange
         let markets = select_market_details_by_status_exchange(
-            &self.pool,
+            &self.ig_pool,
             &event.exchange_name,
             &MarketStatus::Active,
         )
@@ -243,7 +245,7 @@ impl Inquisidor {
             match event.exchange_name {
                 ExchangeName::Ftx | ExchangeName::FtxUs => {
                     validate_01d_candles::<crate::exchanges::ftx::Candle>(
-                        &self.pool,
+                        &self.ig_pool,
                         &self.clients[&event.exchange_name],
                         &event.exchange_name,
                         market,
@@ -252,7 +254,7 @@ impl Inquisidor {
                 }
                 ExchangeName::Gdax => {
                     validate_01d_candles::<crate::exchanges::gdax::Candle>(
-                        &self.pool,
+                        &self.ig_pool,
                         &self.clients[&event.exchange_name],
                         &event.exchange_name,
                         market,
@@ -262,11 +264,11 @@ impl Inquisidor {
             };
         }
         // Close event
-        update_event_status_processed(&self.pool, event)
+        update_event_status_processed(&self.ig_pool, event)
             .await
             .expect("Failed to update event status to done.");
         // Create archive event
-        insert_event_archive_daily_candles(&self.pool, &event.exchange_name)
+        insert_event_archive_daily_candles(&self.ig_pool, &event.exchange_name)
             .await
             .expect("Failed to insert archive daily candles event.");
     }
@@ -274,7 +276,7 @@ impl Inquisidor {
     pub async fn process_event_archive_daily_candles(&self, event: &Event) {
         // Select active market from each exchange
         let markets = select_market_details_by_status_exchange(
-            &self.pool,
+            &self.ig_pool,
             &event.exchange_name,
             &MarketStatus::Active,
         )
@@ -287,7 +289,7 @@ impl Inquisidor {
             };
         }
         // Close event
-        update_event_status_processed(&self.pool, event)
+        update_event_status_processed(&self.ig_pool, event)
             .await
             .expect("Failed to update event status to done.");
     }
@@ -297,11 +299,11 @@ impl Mita {
     pub async fn process_events(&self) {
         // Get any open events for the droplet
         let open_events =
-            select_open_events_for_droplet(&self.pool, &self.settings.application.droplet)
+            select_open_events_for_droplet(&self.ed_pool, &self.settings.application.droplet)
                 .await
                 .expect("Failed to select open events.");
         // Get all market details - for market id and strip name fn in event processing
-        let markets = select_market_details(&self.pool)
+        let markets = select_market_details(&self.ed_pool)
             .await
             .expect("Failed to select all market details.");
         // Process events
@@ -324,7 +326,7 @@ impl Mita {
     pub async fn process_event_process_trades(&self, event: &Event, market: &MarketDetail) {
         // Select insert delete the trades from ws to processed
         select_insert_delete_trades(
-            &self.pool,
+            &self.trade_pool,
             &event.exchange_name,
             market,
             event.start_ts.unwrap(),
@@ -335,11 +337,11 @@ impl Mita {
         .await
         .expect("Failed to select insert delete trades.");
         // Update event status to done
-        update_event_status_processed(&self.pool, event)
+        update_event_status_processed(&self.ed_pool, event)
             .await
             .expect("Failed to update event status to done.");
         // Add validation event
-        insert_event_validated_candles(&self.pool, "ig", event.start_ts.unwrap(), market)
+        insert_event_validated_candles(&self.ed_pool, "ig", event.start_ts.unwrap(), market)
             .await
             .expect("Failed in insert event - validate candle.");
     }
