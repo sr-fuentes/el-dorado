@@ -131,7 +131,7 @@ impl Inquisidor {
         // Parse input to see if it is a valid exchange
         let exchange: ExchangeName = exchange.try_into().unwrap();
         // Get current exchanges from db
-        let exchanges = select_exchanges(&self.pool)
+        let exchanges = select_exchanges(&self.ig_pool)
             .await
             .expect("Failed to fetch exchanges.");
         // Compare input to existing exchanges
@@ -161,7 +161,7 @@ impl Inquisidor {
         // Get USD markets from exchange
         let markets: Vec<T> = get_usd_markets(&self.clients[exchange], exchange).await;
         // Get existing markets for exchange from db.
-        let market_ids = select_market_ids_by_exchange(&self.pool, exchange)
+        let market_ids = select_market_ids_by_exchange(&self.ig_pool, exchange)
             .await
             .expect("Failed to get markets from db.");
         // For each market that is not in the exchange, insert into db.
@@ -170,7 +170,7 @@ impl Inquisidor {
                 // Exchange market not in database.
                 println!("Adding {:?} market for {:?}", market.name(), exchange);
                 insert_new_market(
-                    &self.pool,
+                    &self.ig_pool,
                     exchange,
                     market,
                     self.settings.application.ip_addr.as_str(),
@@ -187,7 +187,7 @@ impl Inquisidor {
         // Parse input to see if there is a valid exchange
         let exchange: ExchangeName = exchange.try_into().unwrap();
         // Get current exchanges from db
-        let exchanges = select_exchanges(&self.pool)
+        let exchanges = select_exchanges(&self.ig_pool)
             .await
             .expect("Failed to fetch exchanges.");
         // Compare input to existing exchanges
@@ -217,14 +217,14 @@ impl Inquisidor {
     ) {
         // Get terminated markets from database
         let markets_terminated = select_market_details_by_status_exchange(
-            &self.pool,
+            &self.ig_pool,
             exchange,
             &MarketStatus::Terminated,
         )
         .await
         .expect("Failed to select terminated markets.");
         // Get market details from db TODO: derive market term from this list to reduce db calls
-        let market_details = select_market_details(&self.pool)
+        let market_details = select_market_details(&self.ig_pool)
             .await
             .expect("Failed to select market details.");
         // Get USD markets from exchange
@@ -249,10 +249,10 @@ impl Inquisidor {
         // Sort by 24h volume
         filtered_markets.sort_by_key(|m2| Reverse(m2.usd_volume_24h()));
         // Create ranks table and select current contents
-        create_market_ranks_table(&self.pool, exchange)
+        create_market_ranks_table(&self.ig_pool, exchange)
             .await
             .expect("Failed to create market ranks table.");
-        let previous_ranks = select_market_ranks(&self.pool, exchange)
+        let previous_ranks = select_market_ranks(&self.ig_pool, exchange)
             .await
             .expect("Failed to select market ranks.");
         // Create empty vec to hold new ranks
@@ -300,17 +300,17 @@ impl Inquisidor {
             rank += 1;
         }
         // Drop market ranks table
-        drop_market_ranks_table(&self.pool, exchange)
+        drop_market_ranks_table(&self.ig_pool, exchange)
             .await
             .expect("Failed to drop market ranks.");
         // Create market ranks table
-        create_market_ranks_table(&self.pool, exchange)
+        create_market_ranks_table(&self.ig_pool, exchange)
             .await
             .expect("Failed to create market ranks table.");
         // Insert markets
         for new_rank in new_ranks.iter() {
             // Insert rank
-            insert_market_rank(&self.pool, exchange, new_rank)
+            insert_market_rank(&self.ig_pool, exchange, new_rank)
                 .await
                 .expect("Failed to insert market rank.");
         }
@@ -322,7 +322,7 @@ impl Inquisidor {
         // Parse input to see if there is a valid exchange
         let exchange: ExchangeName = exchange.try_into().unwrap();
         // Get current exchanges from db
-        let exchanges = select_exchanges(&self.pool)
+        let exchanges = select_exchanges(&self.ig_pool)
             .await
             .expect("Failed to fetch exchanges.");
         // Compare input to existing exchanges
@@ -332,19 +332,19 @@ impl Inquisidor {
             return;
         }
         // Get market ranks for exchange
-        let ranks = select_market_ranks(&self.pool, &exchange)
+        let ranks = select_market_ranks(&self.ig_pool, &exchange)
             .await
             .expect("Failed to select market ranks.");
         // For each rank - update market mita column, update rank set current = proposed
         for rank in ranks.iter() {
             if rank.mita_current != rank.mita_proposed {
                 // Update mita in markets table
-                update_market_mita(&self.pool, &rank.market_id, &rank.mita_proposed)
+                update_market_mita(&self.ig_pool, &rank.market_id, &rank.mita_proposed)
                     .await
                     .expect("Failed to update mita in markets.");
                 // Update mita_current in market_ranks table
                 update_market_ranks_current_mita(
-                    &self.pool,
+                    &self.ig_pool,
                     &exchange,
                     &rank.mita_proposed,
                     &rank.market_id,
@@ -818,7 +818,7 @@ mod tests {
         println!("Configuration: {:?}", configuration);
 
         // Create db connection
-        let pool = PgPool::connect_with(configuration.database.with_db())
+        let pool = PgPool::connect_with(configuration.ftx_db.with_db())
             .await
             .expect("Failed to connect to Postgres.");
 
@@ -851,7 +851,7 @@ mod tests {
     async fn select_active_markets_returns_active_markets() {
         let ig = Inquisidor::new().await;
         let markets = select_market_details_by_status_exchange(
-            &ig.pool,
+            &ig.ig_pool,
             &ExchangeName::FtxUs,
             &MarketStatus::Active,
         )

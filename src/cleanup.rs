@@ -23,14 +23,14 @@ impl Inquisidor {
             WHERE exchange_name = 'gdax'
             "#;
         sqlx::query(sql)
-            .execute(&self.pool)
+            .execute(&self.ig_pool)
             .await
             .expect("Failed to delete gdax candle_validations.");
         println!("Gdax candle_validations deleted.");
 
         // 2) For each GDAX market:
         let gdax_markets = select_market_details_by_status_exchange(
-            &self.pool,
+            &self.ig_pool,
             &ExchangeName::Gdax,
             &MarketStatus::Backfill,
         )
@@ -51,7 +51,7 @@ impl Inquisidor {
             println!("Deleting 01d candles.");
             sqlx::query(sql)
                 .bind(market.market_id)
-                .execute(&self.pool)
+                .execute(&self.ig_pool)
                 .await
                 .expect("Failed to delete 01d candles.");
             println!("01d candles deleted.");
@@ -59,7 +59,7 @@ impl Inquisidor {
             // b) Migrate all validated trades to processed - process in 01d chunks
             // as loading all trades leads to memory and cpu max constraints
             // Load candles to get date range for days
-            let candles = select_candles(&self.pool, &ExchangeName::Gdax, &market.market_id, 900)
+            let candles = select_candles(&self.ig_pool, &ExchangeName::Gdax, &market.market_id, 900)
                 .await
                 .expect("Failed to select candles.");
             let mut first_day = candles
@@ -87,7 +87,7 @@ impl Inquisidor {
             println!("Loading all validated trades by day.");
             for d in dr.iter() {
                 let validated_trades = select_gdax_trades_by_time(
-                    &self.pool,
+                    &self.ftx_pool, // Trade were in main db before split
                     &ExchangeName::Gdax,
                     market,
                     "validated",
@@ -102,7 +102,7 @@ impl Inquisidor {
                     d,
                 );
                 insert_gdax_trades(
-                    &self.pool,
+                    &self.ftx_pool,
                     &ExchangeName::Gdax,
                     market,
                     "processed",
@@ -120,16 +120,16 @@ impl Inquisidor {
             println!("Deleting the hb candles.");
             sqlx::query(sql)
                 .bind(market.market_id)
-                .execute(&self.pool)
+                .execute(&self.ig_pool)
                 .await
                 .expect("Failed to delete gdax candle_validations.");
             println!("Deleted hb candles for {}", market.market_name);
 
             // c2) Delete all validated trades
-            drop_trade_table(&self.pool, &ExchangeName::Gdax, market, "validated")
+            drop_trade_table(&self.ftx_pool, &ExchangeName::Gdax, market, "validated")
                 .await
                 .expect("Failed to drop trade table.");
-            create_gdax_trade_table(&self.pool, &ExchangeName::Gdax, market, "validated")
+            create_gdax_trade_table(&self.ftx_pool, &ExchangeName::Gdax, market, "validated")
                 .await
                 .expect("Faild to create trade table.");
 
@@ -138,7 +138,7 @@ impl Inquisidor {
             tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
             for d in dr.iter() {
                 let mut trades = select_gdax_trades_by_time(
-                    &self.pool,
+                    &self.ftx_pool,
                     &ExchangeName::Gdax,
                     market,
                     "processed",
@@ -168,7 +168,7 @@ impl Inquisidor {
                     date_range.last().unwrap()
                 );
                 let mut previous_candle = match select_previous_candle(
-                    &self.pool,
+                    &self.ig_pool,
                     &ExchangeName::Gdax,
                     &market.market_id,
                     *d,
@@ -213,7 +213,7 @@ impl Inquisidor {
                 println!("Created {} candles to insert.", candles.len());
                 for candle in candles.into_iter() {
                     insert_candle(
-                        &self.pool,
+                        &self.ig_pool,
                         &ExchangeName::Gdax,
                         &market.market_id,
                         candle,
@@ -233,7 +233,7 @@ impl Inquisidor {
         // _processed table.
         // Validate the daily candles, create 01d candles and validated them.
         let gdax_markets = select_market_details_by_status_exchange(
-            &self.pool,
+            &self.ig_pool,
             &ExchangeName::Gdax,
             &MarketStatus::Backfill,
         )
@@ -242,7 +242,7 @@ impl Inquisidor {
         for market in gdax_markets.iter() {
             println!("Validating {}.", market.market_name);
             let unvalidated_candles = select_unvalidated_candles(
-                &self.pool,
+                &self.ig_pool,
                 &ExchangeName::Gdax,
                 &market.market_id,
                 TimeFrame::T15,
@@ -252,7 +252,8 @@ impl Inquisidor {
             println!("Validting hb candles.");
             // Validate heartbeat candles
             validate_hb_candles::<crate::exchanges::gdax::Candle>(
-                &self.pool,
+                &self.ig_pool,
+                &self.gdax_pool,
                 &self.clients[&ExchangeName::Gdax],
                 &ExchangeName::Gdax,
                 market,
@@ -262,11 +263,11 @@ impl Inquisidor {
             .await;
             // Create 01d candles
             println!("Creating 01d candles");
-            create_01d_candles(&self.pool, &ExchangeName::Gdax, &market.market_id).await;
+            create_01d_candles(&self.ig_pool, &ExchangeName::Gdax, &market.market_id).await;
             // Validate 01d candles
             println!("Validating 01d candles.");
             validate_01d_candles::<crate::exchanges::gdax::Candle>(
-                &self.pool,
+                &self.ig_pool,
                 &self.clients[&ExchangeName::Gdax],
                 &ExchangeName::Gdax,
                 market,
