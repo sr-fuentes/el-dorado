@@ -275,4 +275,27 @@ impl Inquisidor {
             .await;
         }
     }
+
+    pub async fn migrate_gdax_trades(self) {
+        // Select all gdax markets that have trades. Drop any _rest or _ws tables in ftx db.
+        // Then migrate all trades from _processed and validated from ftx to gdax db creating tables
+        // as needed.
+        let gdax_markets = select_market_details_by_status_exchange(
+            &self.ig_pool, 
+            &ExchangeName::Gdax, 
+            &MarketStatus::Backfill,
+        )
+        .await
+        .expect("Failed to select gdax markets.");
+        for market in gdax_markets.iter() {
+            println!("Migrating {} trades to gdax db.", market.market_name);
+            println!("Dropping _rest and _ws table in old db.");
+            drop_trade_table(&self.ftx_pool, &ExchangeName::Gdax, market, "rest").await.expect("Failed to drop rest table.");
+            drop_trade_table(&self.ftx_pool, &ExchangeName::Gdax, market, "ws").await.expect("Failed to drop ws table.");
+            println!("Migrating _processed table.");
+            create_gdax_trade_table(&self.gdax_pool, &ExchangeName::Gdax, market, "processed").await.expect("Failed to create processed table.");
+            
+        }
+
+    }
 }
