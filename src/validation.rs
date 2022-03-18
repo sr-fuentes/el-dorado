@@ -175,13 +175,13 @@ impl Inquisidor {
         match validation.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
                 drop_table(&self.ftx_pool, &qc_table)
-                .await
-                .expect("Failed to drop qc table.");
+                    .await
+                    .expect("Failed to drop qc table.");
             }
             ExchangeName::Gdax => {
                 drop_table(&self.gdax_pool, &qc_table)
-                .await
-                .expect("Failed to drop qc table.");
+                    .await
+                    .expect("Failed to drop qc table.");
             }
         }
     }
@@ -448,13 +448,13 @@ impl Inquisidor {
         match validation.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
                 drop_table(&self.ftx_pool, &qc_table)
-                .await
-                .expect("Failed to drop qc table.");
+                    .await
+                    .expect("Failed to drop qc table.");
             }
             ExchangeName::Gdax => {
                 drop_table(&self.gdax_pool, &qc_table)
-                .await
-                .expect("Failed to drop qc table.");
+                    .await
+                    .expect("Failed to drop qc table.");
             }
         }
     }
@@ -729,13 +729,13 @@ impl Inquisidor {
         match validation.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
                 drop_table(&self.ftx_pool, &qc_table)
-                .await
-                .expect("Failed to drop qc table.");
+                    .await
+                    .expect("Failed to drop qc table.");
             }
             ExchangeName::Gdax => {
                 drop_table(&self.gdax_pool, &qc_table)
-                .await
-                .expect("Failed to drop qc table.");
+                    .await
+                    .expect("Failed to drop qc table.");
             }
         }
     }
@@ -876,12 +876,22 @@ impl Inquisidor {
         // Create temp tables to store new trades. Re-download trades for candle timeperiod
         // Return new candle to be evaluated
         let trade_table = format!("qc_{}", validation.validation_type.as_str());
-        drop_trade_table(&self.ftx_pool, &validation.exchange_name, market, &trade_table)
-            .await
-            .expect("Failed to drop qc table.");
-        create_ftx_trade_table(&self.ftx_pool, &validation.exchange_name, market, &trade_table)
-            .await
-            .expect("Failed to create qc table.");
+        drop_trade_table(
+            &self.ftx_pool,
+            &validation.exchange_name,
+            market,
+            &trade_table,
+        )
+        .await
+        .expect("Failed to drop qc table.");
+        create_ftx_trade_table(
+            &self.ftx_pool,
+            &validation.exchange_name,
+            market,
+            &trade_table,
+        )
+        .await
+        .expect("Failed to create qc table.");
         // Set start and end for candle period
         let candle_end = candle_start + self.hbtf.as_dur();
         let mut candle_end_or_last_trade = candle_end;
@@ -1020,12 +1030,22 @@ impl Inquisidor {
         // Create temp tables to store new trades. Re-download trades for candle timeperiod
         // Return new candle to be evaluated
         let trade_table = format!("qc_{}", validation.validation_type.as_str());
-        drop_trade_table(&self.gdax_pool, &validation.exchange_name, market, &trade_table)
-            .await
-            .expect("Failed to drop qc table.");
-        create_gdax_trade_table(&self.gdax_pool, &validation.exchange_name, market, &trade_table)
-            .await
-            .expect("Failed to create qc table.");
+        drop_trade_table(
+            &self.gdax_pool,
+            &validation.exchange_name,
+            market,
+            &trade_table,
+        )
+        .await
+        .expect("Failed to drop qc table.");
+        create_gdax_trade_table(
+            &self.gdax_pool,
+            &validation.exchange_name,
+            market,
+            &trade_table,
+        )
+        .await
+        .expect("Failed to create qc table.");
         // Set start and end for candle period
         let mut after_ts = start_ts;
         let end_ts = start_ts + self.hbtf.as_dur();
@@ -1203,9 +1223,10 @@ impl Inquisidor {
         );
         match validation.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
-                let validated_trades = select_ftx_trades_by_table(&self.ftx_pool, qc_table.as_str())
-                    .await
-                    .expect("Failed to select trades from temp table.");
+                let validated_trades =
+                    select_ftx_trades_by_table(&self.ftx_pool, qc_table.as_str())
+                        .await
+                        .expect("Failed to select trades from temp table.");
                 // Insert trades into _validated
                 insert_ftx_trades(
                     &self.ftx_pool,
@@ -1218,9 +1239,10 @@ impl Inquisidor {
                 .expect("Could not insert validated trades.");
             }
             ExchangeName::Gdax => {
-                let validated_trades = select_gdax_trades_by_table(&self.gdax_pool, qc_table.as_str())
-                    .await
-                    .expect("Failed to select trades from temp table.");
+                let validated_trades =
+                    select_gdax_trades_by_table(&self.gdax_pool, qc_table.as_str())
+                        .await
+                        .expect("Failed to select trades from temp table.");
                 // Insert trades into _validated
                 insert_gdax_trades(
                     &self.gdax_pool,

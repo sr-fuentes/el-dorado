@@ -115,9 +115,11 @@ impl Inquisidor {
                 e.event_type == EventType::CreateDailyCandles && e.exchange_name == exchange.name
             }) {
                 Some(_) => continue, // Event exists, nothing to do
-                None => insert_event_create_daily_candles(&self.ig_pool, &exchange.name, Utc::now())
-                    .await
-                    .expect("Failed to insert create daily candles event."),
+                None => {
+                    insert_event_create_daily_candles(&self.ig_pool, &exchange.name, Utc::now())
+                        .await
+                        .expect("Failed to insert create daily candles event.")
+                }
             }
         }
     }
