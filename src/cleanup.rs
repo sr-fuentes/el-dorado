@@ -6,7 +6,8 @@ use crate::exchanges::{gdax::Trade, ExchangeName};
 use crate::inquisidor::Inquisidor;
 use crate::markets::{select_market_details_by_status_exchange, MarketStatus};
 use crate::trades::{
-    create_gdax_trade_table, drop_trade_table, insert_gdax_trades, select_gdax_trades_by_time,
+    create_gdax_trade_table, drop_trade_table, insert_gdax_trades, select_gdax_trades_by_table,
+    select_gdax_trades_by_time,
 };
 use chrono::DurationRound;
 
@@ -59,9 +60,10 @@ impl Inquisidor {
             // b) Migrate all validated trades to processed - process in 01d chunks
             // as loading all trades leads to memory and cpu max constraints
             // Load candles to get date range for days
-            let candles = select_candles(&self.ig_pool, &ExchangeName::Gdax, &market.market_id, 900)
-                .await
-                .expect("Failed to select candles.");
+            let candles =
+                select_candles(&self.ig_pool, &ExchangeName::Gdax, &market.market_id, 900)
+                    .await
+                    .expect("Failed to select candles.");
             let mut first_day = candles
                 .first()
                 .unwrap()
@@ -281,8 +283,8 @@ impl Inquisidor {
         // Then migrate all trades from _processed and validated from ftx to gdax db creating tables
         // as needed.
         let gdax_markets = select_market_details_by_status_exchange(
-            &self.ig_pool, 
-            &ExchangeName::Gdax, 
+            &self.ig_pool,
+            &ExchangeName::Gdax,
             &MarketStatus::Backfill,
         )
         .await
@@ -290,12 +292,58 @@ impl Inquisidor {
         for market in gdax_markets.iter() {
             println!("Migrating {} trades to gdax db.", market.market_name);
             println!("Dropping _rest and _ws table in old db.");
-            drop_trade_table(&self.ftx_pool, &ExchangeName::Gdax, market, "rest").await.expect("Failed to drop rest table.");
-            drop_trade_table(&self.ftx_pool, &ExchangeName::Gdax, market, "ws").await.expect("Failed to drop ws table.");
+            drop_trade_table(&self.ftx_pool, &ExchangeName::Gdax, market, "rest")
+                .await
+                .expect("Failed to drop rest table.");
+            drop_trade_table(&self.ftx_pool, &ExchangeName::Gdax, market, "ws")
+                .await
+                .expect("Failed to drop ws table.");
             println!("Migrating _processed table.");
-            create_gdax_trade_table(&self.gdax_pool, &ExchangeName::Gdax, market, "processed").await.expect("Failed to create processed table.");
-            
+            create_gdax_trade_table(&self.gdax_pool, &ExchangeName::Gdax, market, "processed")
+                .await
+                .expect("Failed to create processed table.");
+            println!("Loading _processed trades from old db.");
+            let table = format!("trades_gdax_{}_processed", market.as_strip());
+            let processed_trades = select_gdax_trades_by_table(&self.ftx_pool, &table)
+                .await
+                .expect("Failed to select trades.");
+            println!("Trades loaded. Inserting into new db.");
+            insert_gdax_trades(
+                &self.gdax_pool,
+                &ExchangeName::Gdax,
+                market,
+                "processed",
+                processed_trades,
+            )
+            .await
+            .expect("Failed to insert trades to new db.");
+            println!("Trades inserted. Dropping old table.");
+            drop_trade_table(&self.ftx_pool, &ExchangeName::Gdax, market, "processed")
+                .await
+                .expect("Failed to drop rest table.");
+            println!("Migrating _validated table.");
+            create_gdax_trade_table(&self.gdax_pool, &ExchangeName::Gdax, market, "validated")
+                .await
+                .expect("Failed to create processed table.");
+            println!("Loading _validated trades from old db.");
+            let table = format!("trades_gdax_{}_validated", market.as_strip());
+            let validated_trades = select_gdax_trades_by_table(&self.ftx_pool, &table)
+                .await
+                .expect("Failed to select trades.");
+            println!("Trades loaded. Inserting into new db.");
+            insert_gdax_trades(
+                &self.gdax_pool,
+                &ExchangeName::Gdax,
+                market,
+                "validated",
+                validated_trades,
+            )
+            .await
+            .expect("Failed to insert trades to new db.");
+            println!("Trades inserted. Dropping old table.");
+            drop_trade_table(&self.ftx_pool, &ExchangeName::Gdax, market, "validated")
+                .await
+                .expect("Failed to drop rest table.");
         }
-
     }
 }
