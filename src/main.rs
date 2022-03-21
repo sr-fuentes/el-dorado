@@ -49,7 +49,7 @@ async fn main() {
             while mita.restart {
                 // Set restart value to false, error handling must explicity set back to true
                 mita.restart = false;
-                mita.reset_trade_tables(&["ws", "rest", "processed", "validated"])
+                mita.reset_trade_tables(&["ws", "rest"])
                     .await;
                 let restart = tokio::select! {
                     res1 = mita.run() => res1,
@@ -73,7 +73,7 @@ async fn main() {
         Some("historical") => {
             // Create new mita instance and backfill until start of current day
             let mita = Mita::new().await;
-            mita.reset_trade_tables(&["rest", "processed", "validated"])
+            mita.reset_trade_tables(&["rest"])
                 .await;
             mita.historical("eod").await;
         }
