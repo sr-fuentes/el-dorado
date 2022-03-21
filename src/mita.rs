@@ -90,10 +90,10 @@ impl Mita {
         let mut sleep_duration = match self.restart_count {
             0 => tokio::time::Duration::from_secs(5),
             1 => tokio::time::Duration::from_secs(30),
-            2 => tokio::time::Duration::from_secs(60),
-            3 => tokio::time::Duration::from_secs(300),
-            4 => tokio::time::Duration::from_secs(300),
-            _ => tokio::time::Duration::from_secs(300),
+            _ => tokio::time::Duration::from_secs(60),
+            // 3 => tokio::time::Duration::from_secs(300),
+            // 4 => tokio::time::Duration::from_secs(300),
+            // _ => tokio::time::Duration::from_secs(300),
         };
         // Get time from last restart
         let time_since_last_restart = Utc::now() - self.last_restart;
