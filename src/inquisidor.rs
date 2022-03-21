@@ -56,7 +56,7 @@ impl Inquisidor {
             // Process any validation events
             self.process_candle_validations(ValidationStatus::New).await;
             // Sleep for 200 ms to give control back to tokio scheduler
-            tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
         }
     }
 }
