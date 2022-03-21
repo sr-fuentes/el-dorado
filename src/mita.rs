@@ -124,7 +124,7 @@ impl Mita {
             for market in self.markets.iter() {
                 if timestamp > heartbeats[&market.market_name.as_str()].ts + self.hbtf.as_dur() {
                     println!(
-                        "New heartbeat interval. Create candle for {}. Heartbeat: {:?}, Timestamp: {:?}",
+                        "New heartbeat interval. Create candle for {}. HB: {:?}, TS: {:?}",
                         market.market_name,
                         heartbeats[&market.market_name.as_str()].ts,
                         timestamp,
