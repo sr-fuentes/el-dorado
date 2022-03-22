@@ -1082,6 +1082,95 @@
       "nullable": []
     }
   },
+  "fc12e84f05cafaf41bf0722d349cbaf7eb9ac6a9d0fd76b4a38929a126aeff77": {
+    "query": "\n        SELECT event_id, droplet,\n            event_type as \"event_type: EventType\",\n            exchange_name as \"exchange_name: ExchangeName\",\n            market_id, start_ts, end_ts, event_ts, created_ts, processed_ts,\n            event_status as \"event_status: EventStatus\", \n            notes\n        FROM events\n        WHERE droplet = $1\n        AND event_ts < $2\n        AND event_status != $3\n        AND exchange_name = $4\n        ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "event_id",
+          "type_info": "Uuid"
+        },
+        {
+          "ordinal": 1,
+          "name": "droplet",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 2,
+          "name": "event_type: EventType",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 3,
+          "name": "exchange_name: ExchangeName",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "market_id",
+          "type_info": "Uuid"
+        },
+        {
+          "ordinal": 5,
+          "name": "start_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 6,
+          "name": "end_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 7,
+          "name": "event_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 8,
+          "name": "created_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 9,
+          "name": "processed_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 10,
+          "name": "event_status: EventStatus",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 11,
+          "name": "notes",
+          "type_info": "Text"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Timestamptz",
+          "Text",
+          "Text"
+        ]
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        false,
+        false,
+        true,
+        false,
+        true
+      ]
+    }
+  },
   "ff1fa3c9c013e4c96bbf43b5f2e470f0f1a9d59c29df17c132607a958caec92f": {
     "query": "\n        INSERT INTO markets (\n            market_id, exchange_name, market_name, market_type, base_currency,\n            quote_currency, underlying, market_status, market_data_status,\n            candle_base_interval, candle_base_in_seconds, last_update_ts, last_update_ip_address)\n        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)    \n        ",
     "describe": {

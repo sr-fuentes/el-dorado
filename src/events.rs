@@ -300,10 +300,13 @@ impl Inquisidor {
 impl Mita {
     pub async fn process_events(&self) {
         // Get any open events for the droplet
-        let open_events =
-            select_open_events_for_droplet(&self.ed_pool, &self.settings.application.droplet)
-                .await
-                .expect("Failed to select open events.");
+        let open_events = select_open_events_for_droplet_exchange(
+            &self.ed_pool,
+            &self.exchange.name,
+            &self.settings.application.droplet,
+        )
+        .await
+        .expect("Failed to select open events.");
         // Get all market details - for market id and strip name fn in event processing
         let markets = select_market_details(&self.ed_pool)
             .await
@@ -506,6 +509,36 @@ pub async fn select_open_events_for_droplet(
         droplet,
         Utc::now(),
         EventStatus::Done.as_str(),
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+pub async fn select_open_events_for_droplet_exchange(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+    droplet: &str,
+) -> Result<Vec<Event>, sqlx::Error> {
+    let rows = sqlx::query_as!(
+        Event,
+        r#"
+        SELECT event_id, droplet,
+            event_type as "event_type: EventType",
+            exchange_name as "exchange_name: ExchangeName",
+            market_id, start_ts, end_ts, event_ts, created_ts, processed_ts,
+            event_status as "event_status: EventStatus", 
+            notes
+        FROM events
+        WHERE droplet = $1
+        AND event_ts < $2
+        AND event_status != $3
+        AND exchange_name = $4
+        "#,
+        droplet,
+        Utc::now(),
+        EventStatus::Done.as_str(),
+        exchange_name.as_str(),
     )
     .fetch_all(pool)
     .await?;
