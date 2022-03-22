@@ -7,7 +7,6 @@ use crate::mita::Mita;
 use crate::trades::*;
 use crate::utilities::Trade;
 use chrono::{DateTime, Duration, DurationRound, TimeZone, Utc};
-use sqlx::PgPool;
 
 impl Mita {
     pub async fn historical(&self, end_source: &str) {
@@ -27,7 +26,7 @@ impl Mita {
             };
             // Set start and end times for backfill
             let (start_ts, start_id) = match select_last_candle(
-                &self.pool,
+                &self.ed_pool,
                 &self.exchange.name,
                 &market.market_id,
                 self.hbtf,
@@ -40,7 +39,7 @@ impl Mita {
                 ),
                 Err(sqlx::Error::RowNotFound) => match &self.exchange.name {
                     ExchangeName::Ftx | ExchangeName::FtxUs => {
-                        (get_ftx_start(&client, market).await, None)
+                        (self.get_ftx_start(&client, market).await, None)
                     }
                     ExchangeName::Gdax => self.get_gdax_start(&client, market).await,
                 },
@@ -59,8 +58,12 @@ impl Mita {
                         market.market_name
                     );
                     loop {
-                        match select_trade_first_stream(&self.pool, &self.exchange.name, market)
-                            .await
+                        match select_trade_first_stream(
+                            &self.trade_pool,
+                            &self.exchange.name,
+                            market,
+                        )
+                        .await
                         {
                             Ok((t, i)) => break (t + Duration::microseconds(1), i), // set trade time + 1 micro
                             Err(sqlx::Error::RowNotFound) => {
@@ -76,7 +79,7 @@ impl Mita {
             };
             // Update market data status to 'Syncing'
             update_market_data_status(
-                &self.pool,
+                &self.ed_pool,
                 &market.market_id,
                 &MarketStatus::Backfill,
                 self.settings.application.ip_addr.as_str(),
@@ -86,15 +89,8 @@ impl Mita {
             // Backfill from start to end
             match self.exchange.name {
                 ExchangeName::Ftx | ExchangeName::FtxUs => {
-                    backfill_ftx(
-                        &self.pool,
-                        &client,
-                        &self.exchange,
-                        market,
-                        start_ts,
-                        end_ts,
-                    )
-                    .await
+                    self.backfill_ftx(&client, &self.exchange, market, start_ts, end_ts)
+                        .await
                 }
                 ExchangeName::Gdax => {
                     self.backfill_gdax(
@@ -209,9 +205,15 @@ impl Mita {
                     interval_start_id, interval_start_ts
                 );
                 // Insert trades into db
-                insert_gdax_trades(&self.pool, &self.exchange.name, market, "rest", new_trades)
-                    .await
-                    .expect("Failed to insert gdax rest trades.");
+                insert_gdax_trades(
+                    &self.trade_pool,
+                    &self.exchange.name,
+                    market,
+                    "rest",
+                    new_trades,
+                )
+                .await
+                .expect("Failed to insert gdax rest trades.");
             }
             // Make new candles if trades moves to new interval
             let newest_floor = interval_start_ts
@@ -219,7 +221,7 @@ impl Mita {
                 .unwrap();
             if newest_floor > candle_ts {
                 let mut interval_trades = select_gdax_trades_by_time(
-                    &self.pool,
+                    &self.trade_pool,
                     &self.exchange.name,
                     market,
                     "rest",
@@ -244,7 +246,7 @@ impl Mita {
                 self.insert_candles(market, candles).await;
                 // Delete trades for market between start and end interval
                 insert_delete_gdax_trades(
-                    &self.pool,
+                    &self.trade_pool,
                     &self.exchange.name,
                     market,
                     candle_ts,
@@ -310,206 +312,213 @@ impl Mita {
         println!("Final start: {} {}", mid, first_trade_ts);
         (first_trade_ts, Some(mid))
     }
-}
 
-pub async fn backfill_ftx(
-    pool: &PgPool,
-    client: &RestClient,
-    exchange: &Exchange,
-    market: &MarketDetail,
-    start: DateTime<Utc>,
-    end: DateTime<Utc>,
-) {
-    // From start to end fill forward trades in 15m buckets and create candle
-    // Pagination returns trades in desc order from end timestamp in 100 trade batches
-    // Use last trade out of 100 (earliest timestamp) to set as end time for next request for trades
-    // Until trades returned is < 100 meaning there are no further trades for interval
-    // Then advance interval start by interval length and set new end timestamp and begin
-    // To reterive trades.
-    let mut interval_start = start;
-    while interval_start < end {
-        // Set end of bucket to end of interval
-        let interval_end = interval_start + Duration::seconds(900);
-        let mut interval_end_or_last_trade =
-            std::cmp::min(interval_start + Duration::seconds(900), end);
-        println!(
-            "Filling {} trades for interval from {} to {}.",
-            market.market_name, interval_start, interval_end_or_last_trade
-        );
-        while interval_start < interval_end_or_last_trade {
-            // Prevent 429 errors by only requesting 4 per second
-            tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
-            let mut new_trades = match client
-                .get_ftx_trades(
-                    market.market_name.as_str(),
-                    Some(5000),
-                    Some(interval_start),
-                    Some(interval_end_or_last_trade),
-                )
-                .await
-            {
-                Err(RestError::Reqwest(e)) => {
-                    if e.is_timeout() || e.is_connect() || e.is_request() {
-                        println!(
-                            "Timeout/Connect/Request error. Waiting 30 seconds before retry. {:?}",
-                            e
-                        );
-                        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                        continue;
-                    } else if e.is_status() {
-                        match e.status() {
-                            Some(s) => match s.as_u16() {
-                                502 | 503 | 520 | 530 => {
-                                    println!(
-                                        "{} status code. Waiting 30 seconds before retry {:?}",
-                                        s, e
-                                    );
-                                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                                    continue;
-                                }
-                                _ => {
-                                    panic!("Status code not handled: {:?} {:?}", s, e)
-                                }
-                            },
-                            None => panic!("No status code for request error: {:?}", e),
-                        }
-                    } else {
-                        panic!("Error (not timeout / connect / request): {:?}", e)
-                    }
-                }
-                Err(e) => panic!("Other RestError: {:?}", e),
-                Ok(result) => result,
-            };
-            let num_trades = new_trades.len();
-            if num_trades > 0 {
-                new_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
-                // Unwrap can be used because it will only be called
-                // if there is at least one element in new_trades vec
-                // Set end of interval to last trade returned for pagination
-                interval_end_or_last_trade = new_trades.first().unwrap().time;
-                let first_trade = new_trades.last().unwrap().time;
-                println!(
-                    "{} {} trades returned. First: {}, Last: {}",
-                    num_trades, market.market_name, interval_end_or_last_trade, first_trade
-                );
-                println!("New last trade ts: {}", interval_end_or_last_trade);
-                // FTX trades API takes time in microseconds. This could lead to a
-                // endless loop if there are more than 5000 trades in that microsecond.
-                // In that case move the end to last trade minus one microsecond.
-                if interval_end_or_last_trade == first_trade {
-                    interval_end_or_last_trade =
-                        interval_end_or_last_trade - Duration::microseconds(1);
-                    println!(
-                        "More than 100 trades in microsecond. Resetting to: {}",
-                        interval_end_or_last_trade
-                    );
-                }
-                // Save trades to db
-                insert_ftx_trades(pool, &exchange.name, market, "rest", new_trades)
-                    .await
-                    .expect("Failed to insert ftx trades.");
-            };
-            // If new trades returns less than 100 trades then there are no more trades
-            // for that interval, create the candle and process the trades for that period
-            // Do not create candle for last interval (when interval_end is greater than end time)
-            // because the interval_end may not be complete (ie interval_end = 9:15 and current time
-            // is 9:13, you dont want to create the candle because it is not closed yet).
-            if num_trades < 5000 {
-                if interval_end <= end {
-                    // Move trades from _rest to _processed and create candle
-                    // Select trades for market between start and end interval
-                    let mut interval_trades = select_ftx_trades_by_time(
-                        pool,
-                        &exchange.name,
-                        market,
-                        "rest",
-                        interval_start,
-                        interval_end,
+    pub async fn backfill_ftx(
+        &self,
+        client: &RestClient,
+        exchange: &Exchange,
+        market: &MarketDetail,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) {
+        // From start to end fill forward trades in 15m buckets and create candle
+        // Pagination returns trades in desc order from end timestamp in 100 trade batches
+        // Use last trade out of 100 (earliest timestamp) to set as end time for next request for trades
+        // Until trades returned is < 100 meaning there are no further trades for interval
+        // Then advance interval start by interval length and set new end timestamp and begin
+        // To reterive trades.
+        let mut interval_start = start;
+        while interval_start < end {
+            // Set end of bucket to end of interval
+            let interval_end = interval_start + Duration::seconds(900);
+            let mut interval_end_or_last_trade =
+                std::cmp::min(interval_start + Duration::seconds(900), end);
+            println!(
+                "Filling {} trades for interval from {} to {}.",
+                market.market_name, interval_start, interval_end_or_last_trade
+            );
+            while interval_start < interval_end_or_last_trade {
+                // Prevent 429 errors by only requesting 4 per second
+                tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
+                let mut new_trades = match client
+                    .get_ftx_trades(
+                        market.market_name.as_str(),
+                        Some(5000),
+                        Some(interval_start),
+                        Some(interval_end_or_last_trade),
                     )
                     .await
-                    .expect("Could not fetch trades from db.");
-                    // Check if there are interval trades, if there are: create candle and archive
-                    // trades. If there are not, get previous trade details from previous candle
-                    // and build candle from last
-                    let new_candle = match interval_trades.len() {
-                        0 => {
-                            // Get previous candle
-                            let previous_candle = select_previous_candle(
-                                pool,
-                                &exchange.name,
-                                &market.market_id,
-                                interval_start,
-                                TimeFrame::T15,
-                            )
-                            .await
-                            .expect("No previous candle.");
-                            // Create Candle
-                            Candle::new_from_last(
-                                market.market_id,
-                                interval_start,
-                                previous_candle.close,
-                                previous_candle.last_trade_ts,
-                                &previous_candle.last_trade_id.to_string(),
-                            )
+                {
+                    Err(RestError::Reqwest(e)) => {
+                        if e.is_timeout() || e.is_connect() || e.is_request() {
+                            println!(
+                                "Timeout/Connect/Request error. Waiting 30 seconds before retry. {:?}",
+                                e
+                            );
+                            tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                            continue;
+                        } else if e.is_status() {
+                            match e.status() {
+                                Some(s) => match s.as_u16() {
+                                    502 | 503 | 520 | 530 => {
+                                        println!(
+                                            "{} status code. Waiting 30 seconds before retry {:?}",
+                                            s, e
+                                        );
+                                        tokio::time::sleep(tokio::time::Duration::from_secs(30))
+                                            .await;
+                                        continue;
+                                    }
+                                    _ => {
+                                        panic!("Status code not handled: {:?} {:?}", s, e)
+                                    }
+                                },
+                                None => panic!("No status code for request error: {:?}", e),
+                            }
+                        } else {
+                            panic!("Error (not timeout / connect / request): {:?}", e)
                         }
-                        _ => {
-                            // Sort and dedup - dedup not needed as table has unique constraint
-                            // on trade id and on insert conflict does nothing
-                            interval_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
-                            // interval_trades.dedup_by(|t1, t2| t1.id == t2.id);
-                            // Create Candle
-                            Candle::new_from_trades(
-                                market.market_id,
-                                interval_start,
-                                &interval_trades,
-                            )
-                        }
-                    };
-                    // Insert into candles
-                    insert_candle(pool, &exchange.name, &market.market_id, new_candle, false)
+                    }
+                    Err(e) => panic!("Other RestError: {:?}", e),
+                    Ok(result) => result,
+                };
+                let num_trades = new_trades.len();
+                if num_trades > 0 {
+                    new_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
+                    // Unwrap can be used because it will only be called
+                    // if there is at least one element in new_trades vec
+                    // Set end of interval to last trade returned for pagination
+                    interval_end_or_last_trade = new_trades.first().unwrap().time;
+                    let first_trade = new_trades.last().unwrap().time;
+                    println!(
+                        "{} {} trades returned. First: {}, Last: {}",
+                        num_trades, market.market_name, interval_end_or_last_trade, first_trade
+                    );
+                    println!("New last trade ts: {}", interval_end_or_last_trade);
+                    // FTX trades API takes time in microseconds. This could lead to a
+                    // endless loop if there are more than 5000 trades in that microsecond.
+                    // In that case move the end to last trade minus one microsecond.
+                    if interval_end_or_last_trade == first_trade {
+                        interval_end_or_last_trade =
+                            interval_end_or_last_trade - Duration::microseconds(1);
+                        println!(
+                            "More than 100 trades in microsecond. Resetting to: {}",
+                            interval_end_or_last_trade
+                        );
+                    }
+                    // Save trades to db
+                    insert_ftx_trades(&self.trade_pool, &exchange.name, market, "rest", new_trades)
+                        .await
+                        .expect("Failed to insert ftx trades.");
+                };
+                // If new trades returns less than 100 trades then there are no more trades
+                // for that interval, create the candle and process the trades for that period
+                // Do not create candle for last interval (when interval_end is greater than end time)
+                // because the interval_end may not be complete (ie interval_end = 9:15 and current time
+                // is 9:13, you dont want to create the candle because it is not closed yet).
+                if num_trades < 5000 {
+                    if interval_end <= end {
+                        // Move trades from _rest to _processed and create candle
+                        // Select trades for market between start and end interval
+                        let mut interval_trades = select_ftx_trades_by_time(
+                            &self.trade_pool,
+                            &exchange.name,
+                            market,
+                            "rest",
+                            interval_start,
+                            interval_end,
+                        )
+                        .await
+                        .expect("Could not fetch trades from db.");
+                        // Check if there are interval trades, if there are: create candle and archive
+                        // trades. If there are not, get previous trade details from previous candle
+                        // and build candle from last
+                        let new_candle = match interval_trades.len() {
+                            0 => {
+                                // Get previous candle
+                                let previous_candle = select_previous_candle(
+                                    &self.ed_pool,
+                                    &exchange.name,
+                                    &market.market_id,
+                                    interval_start,
+                                    TimeFrame::T15,
+                                )
+                                .await
+                                .expect("No previous candle.");
+                                // Create Candle
+                                Candle::new_from_last(
+                                    market.market_id,
+                                    interval_start,
+                                    previous_candle.close,
+                                    previous_candle.last_trade_ts,
+                                    &previous_candle.last_trade_id.to_string(),
+                                )
+                            }
+                            _ => {
+                                // Sort and dedup - dedup not needed as table has unique constraint
+                                // on trade id and on insert conflict does nothing
+                                interval_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
+                                // interval_trades.dedup_by(|t1, t2| t1.id == t2.id);
+                                // Create Candle
+                                Candle::new_from_trades(
+                                    market.market_id,
+                                    interval_start,
+                                    &interval_trades,
+                                )
+                            }
+                        };
+                        // Insert into candles
+                        insert_candle(
+                            &self.ed_pool,
+                            &exchange.name,
+                            &market.market_id,
+                            new_candle,
+                            false,
+                        )
                         .await
                         .expect("Could not insert new candle.");
-                    println!("Candle {:?} inserted", interval_start);
-                    // Delete trades for market between start and end interval
-                    insert_delete_ftx_trades(
-                        pool,
-                        &exchange.name,
-                        market,
-                        interval_start,
-                        interval_end,
-                        "rest",
-                        "processed",
-                        interval_trades,
-                    )
-                    .await
-                    .expect("Failed to insert and delete ftx trades.");
+                        println!("Candle {:?} inserted", interval_start);
+                        // Delete trades for market between start and end interval
+                        insert_delete_ftx_trades(
+                            &self.trade_pool,
+                            &exchange.name,
+                            market,
+                            interval_start,
+                            interval_end,
+                            "rest",
+                            "processed",
+                            interval_trades,
+                        )
+                        .await
+                        .expect("Failed to insert and delete ftx trades.");
+                    };
+                    // Move to next interval start
+                    interval_start = interval_start + Duration::seconds(900); // TODO! set to market heartbeat
                 };
-                // Move to next interval start
-                interval_start = interval_start + Duration::seconds(900); // TODO! set to market heartbeat
-            };
+            }
         }
     }
-}
 
-pub async fn get_ftx_start(client: &RestClient, market: &MarketDetail) -> DateTime<Utc> {
-    // Set end time to floor of today's date, start time to 90 days prior. Check each day if there
-    // are trades and return the start date - 1 that first returns trades
-    let end_time = Utc::now().duration_trunc(Duration::days(1)).unwrap();
-    let mut start_time = end_time - Duration::days(90);
-    while start_time < end_time {
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-        let new_trades = client
-            .get_ftx_trades(market.market_name.as_str(), Some(1), None, Some(start_time))
-            .await
-            .expect("Failed to get trades.");
-        println!("New Trades: {:?}", new_trades);
-        if !new_trades.is_empty() {
-            return start_time;
-        } else {
-            start_time = start_time + Duration::days(1)
-        };
+    pub async fn get_ftx_start(&self, client: &RestClient, market: &MarketDetail) -> DateTime<Utc> {
+        // Set end time to floor of today's date, start time to 90 days prior. Check each day if there
+        // are trades and return the start date - 1 that first returns trades
+        let end_time = Utc::now().duration_trunc(Duration::days(1)).unwrap();
+        let mut start_time = end_time - Duration::days(90);
+        while start_time < end_time {
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            let new_trades = client
+                .get_ftx_trades(market.market_name.as_str(), Some(1), None, Some(start_time))
+                .await
+                .expect("Failed to get trades.");
+            println!("New Trades: {:?}", new_trades);
+            if !new_trades.is_empty() {
+                return start_time;
+            } else {
+                start_time = start_time + Duration::days(1)
+            };
+        }
+        start_time
     }
-    start_time
 }
 
 #[cfg(test)]
@@ -528,7 +537,7 @@ mod tests {
         let configuration = get_configuration().expect("Failed to read configuration.");
         println!("Configuration: {:?}", configuration);
         // Create db connection
-        let pool = PgPool::connect_with(configuration.database.with_db())
+        let pool = PgPool::connect_with(configuration.ftx_db.with_db())
             .await
             .expect("Failed to connect to Postgres.");
         // Create rest client
@@ -555,7 +564,7 @@ mod tests {
         let configuration = get_configuration().expect("Failed to read configuration.");
         println!("Configuration: {:?}", configuration);
         // Create db connection
-        let pool = PgPool::connect_with(configuration.database.with_db())
+        let pool = PgPool::connect_with(configuration.ftx_db.with_db())
             .await
             .expect("Failed to connect to Postgres.");
         // Create rest client

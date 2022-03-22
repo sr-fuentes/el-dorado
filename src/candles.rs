@@ -303,7 +303,7 @@ impl Mita {
         market: &MarketDetail,
     ) {
         let unvalidated_candles = select_unvalidated_candles(
-            &self.pool,
+            &self.ed_pool,
             &market.exchange_name,
             &market.market_id,
             TimeFrame::T15,
@@ -312,7 +312,8 @@ impl Mita {
         .expect("Could not fetch unvalidated candles.");
         // Validate heartbeat candles
         validate_hb_candles::<T>(
-            &self.pool,
+            &self.ed_pool,
+            &self.trade_pool,
             client,
             &self.exchange.name,
             market,
@@ -321,9 +322,9 @@ impl Mita {
         )
         .await;
         // Create 01d candles
-        create_01d_candles(&self.pool, &self.exchange.name, &market.market_id).await;
+        create_01d_candles(&self.ed_pool, &self.exchange.name, &market.market_id).await;
         // Validate 01d candles
-        validate_01d_candles::<T>(&self.pool, client, &self.exchange.name, market).await;
+        validate_01d_candles::<T>(&self.ed_pool, client, &self.exchange.name, market).await;
     }
 
     pub async fn create_interval_candles<T: Trade + std::clone::Clone>(
@@ -335,7 +336,7 @@ impl Mita {
         // Takes a vec of trades and a date range and builds candles for each date in the range
         // Get previous candle - to be used to forward fill if there are no trades
         let mut previous_candle = match select_previous_candle(
-            &self.pool,
+            &self.ed_pool,
             &self.exchange.name,
             &market.market_id,
             *date_range.first().unwrap(),
@@ -382,7 +383,7 @@ impl Mita {
     pub async fn insert_candles(&self, market: &MarketDetail, candles: Vec<Candle>) {
         for candle in candles.into_iter() {
             insert_candle(
-                &self.pool,
+                &self.ed_pool,
                 &self.exchange.name,
                 &market.market_id,
                 candle,
@@ -508,6 +509,7 @@ pub async fn create_01d_candles(pool: &PgPool, exchange_name: &ExchangeName, mar
 
 pub async fn validate_hb_candles<T: crate::utilities::Candle + DeserializeOwned>(
     pool: &PgPool,
+    trade_pool: &PgPool,
     client: &RestClient,
     exchange_name: &ExchangeName,
     market: &MarketDetail,
@@ -562,6 +564,7 @@ pub async fn validate_hb_candles<T: crate::utilities::Candle + DeserializeOwned>
         );
         process_validation_result(
             pool,
+            trade_pool,
             exchange_name,
             market,
             config,
@@ -574,6 +577,7 @@ pub async fn validate_hb_candles<T: crate::utilities::Candle + DeserializeOwned>
 
 pub async fn process_validation_result(
     pool: &PgPool,
+    trade_pool: &PgPool,
     exchange_name: &ExchangeName,
     market: &MarketDetail,
     config: &Settings,
@@ -603,7 +607,7 @@ pub async fn process_validation_result(
         if unvalidated_candle.volume > dec!(0) {
             // Update validated trades and move from processed to validated
             select_insert_delete_trades(
-                pool,
+                trade_pool,
                 exchange_name,
                 market,
                 unvalidated_candle.datetime,
@@ -1528,7 +1532,7 @@ mod tests {
         println!("Configuration: {:?}", configuration);
 
         // Create db connection
-        let pool = PgPool::connect_with(configuration.database.with_db())
+        let pool = PgPool::connect_with(configuration.ftx_db.with_db())
             .await
             .expect("Failed to connect to Postgres.");
 
@@ -1595,7 +1599,7 @@ mod tests {
         println!("Configuration: {:?}", configuration);
 
         // Create db connection
-        let _pool = PgPool::connect_with(configuration.database.with_db())
+        let _pool = PgPool::connect_with(configuration.ftx_db.with_db())
             .await
             .expect("Failed to connect to Postgres.");
     }
@@ -1607,7 +1611,7 @@ mod tests {
         println!("Configuration: {:?}", configuration);
 
         // Create db connection
-        let pool = PgPool::connect_with(configuration.database.with_db())
+        let pool = PgPool::connect_with(configuration.ftx_db.with_db())
             .await
             .expect("Failed to connect to Postgres.");
 
@@ -1710,7 +1714,7 @@ mod tests {
         let configuration = get_configuration().expect("Failed to read configuration.");
         println!("Configuration: {:?}", configuration);
         // Create db connection
-        let pool = PgPool::connect_with(configuration.database.with_db())
+        let pool = PgPool::connect_with(configuration.ftx_db.with_db())
             .await
             .expect("Failed to connect to Postgres.");
         // Get exchanges from database

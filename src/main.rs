@@ -49,8 +49,7 @@ async fn main() {
             while mita.restart {
                 // Set restart value to false, error handling must explicity set back to true
                 mita.restart = false;
-                mita.reset_trade_tables(&["ws", "rest", "processed", "validated"])
-                    .await;
+                mita.reset_trade_tables(&["ws", "rest"]).await;
                 let restart = tokio::select! {
                     res1 = mita.run() => res1,
                     res2 = mita.stream() => res2,
@@ -73,8 +72,7 @@ async fn main() {
         Some("historical") => {
             // Create new mita instance and backfill until start of current day
             let mita = Mita::new().await;
-            mita.reset_trade_tables(&["rest", "processed", "validated"])
-                .await;
+            mita.reset_trade_tables(&["rest"]).await;
             mita.historical("eod").await;
         }
         Some("manage") => {
@@ -102,7 +100,7 @@ async fn main() {
         Some("cleanup") => {
             // Create new admin instance and run cleanup
             let ig = Inquisidor::new().await;
-            ig.cleanup_gdax_validate().await;
+            ig.migrate_gdax_trades().await;
         }
         None => println!("Please run with subcommands: `add` `refresh` `edit` or `run`."),
         _ => unreachable!(), // CLAP will error out before running this arm

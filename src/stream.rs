@@ -37,7 +37,7 @@ impl Mita {
             match data {
                 Ok((Some(market), Data::FtxTrade(trade))) => {
                     insert_ftx_trade(
-                        &self.pool,
+                        &self.trade_pool,
                         &self.exchange.name,
                         market_details[market.as_str()],
                         "ws",
@@ -49,7 +49,7 @@ impl Mita {
                 Ok((Some(market), Data::GdaxTrade(trade))) => {
                     // println!("Market: {:?}", market);
                     insert_gdax_trade(
-                        &self.pool,
+                        &self.trade_pool,
                         &self.exchange.name,
                         market_details[market.as_str()],
                         "ws",
@@ -108,7 +108,7 @@ mod tests {
     async fn stream_trades_to_db() {
         // Grab config settings and stream those trades to db table
         let configuration = get_configuration().expect("Could not get configuration.");
-        let pool = PgPool::connect_with(configuration.database.with_db())
+        let pool = PgPool::connect_with(configuration.ftx_db.with_db())
             .await
             .expect("Failed to connect to Postgres.");
         let exchanges = select_exchanges(&pool)

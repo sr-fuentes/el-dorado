@@ -1,4 +1,6 @@
-database:
+ftx_db:
+  require_ssl: false
+gdax_db:
   require_ssl: false
 application:
   exchange: "gdax"

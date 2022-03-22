@@ -21,7 +21,8 @@ pub struct Mita {
     pub settings: Settings,
     pub markets: Vec<MarketDetail>,
     pub exchange: Exchange,
-    pub pool: PgPool,
+    pub ed_pool: PgPool,
+    pub trade_pool: PgPool,
     pub restart: bool,
     pub last_restart: DateTime<Utc>,
     pub restart_count: i8,
@@ -40,11 +41,11 @@ impl Mita {
         // Load configuration settings
         let settings = get_configuration().expect("Failed to read configuration.");
         // Create db connection with pgpool
-        let pool = PgPool::connect_with(settings.database.with_db())
+        let ed_pool = PgPool::connect_with(settings.ftx_db.with_db())
             .await
             .expect("Failed to connect to postgres db.");
         // Get exchange details
-        let exchanges = select_exchanges(&pool)
+        let exchanges = select_exchanges(&ed_pool)
             .await
             .expect("Could not select exchanges from db.");
         // Match exchange to exchanges in database
@@ -52,9 +53,20 @@ impl Mita {
             .into_iter()
             .find(|e| e.name.as_str() == settings.application.exchange)
             .unwrap();
+        // Create db pool for trades
+        let trade_pool = match exchange.name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                PgPool::connect_with(settings.ftx_db.with_db())
+                    .await
+                    .expect("Failed to connect to trade database.")
+            }
+            ExchangeName::Gdax => PgPool::connect_with(settings.gdax_db.with_db())
+                .await
+                .expect("Failed to connect to trade database."),
+        };
         // Get market details assigned to mita
         let markets = select_market_detail_by_exchange_mita(
-            &pool,
+            &ed_pool,
             &exchange.name,
             &settings.application.droplet,
         )
@@ -64,7 +76,8 @@ impl Mita {
             settings,
             markets,
             exchange,
-            pool,
+            ed_pool,
+            trade_pool,
             restart: true,
             last_restart: Utc::now(),
             restart_count: 0,
@@ -77,10 +90,10 @@ impl Mita {
         let mut sleep_duration = match self.restart_count {
             0 => tokio::time::Duration::from_secs(5),
             1 => tokio::time::Duration::from_secs(30),
-            2 => tokio::time::Duration::from_secs(60),
-            3 => tokio::time::Duration::from_secs(300),
-            4 => tokio::time::Duration::from_secs(300),
-            _ => tokio::time::Duration::from_secs(300),
+            _ => tokio::time::Duration::from_secs(60),
+            // 3 => tokio::time::Duration::from_secs(300),
+            // 4 => tokio::time::Duration::from_secs(300),
+            // _ => tokio::time::Duration::from_secs(300),
         };
         // Get time from last restart
         let time_since_last_restart = Utc::now() - self.last_restart;
@@ -111,7 +124,7 @@ impl Mita {
             for market in self.markets.iter() {
                 if timestamp > heartbeats[&market.market_name.as_str()].ts + self.hbtf.as_dur() {
                     println!(
-                        "New heartbeat interval. Create candle for {}. Heartbeat: {:?}, Timestamp: {:?}",
+                        "New heartbeat interval. Create candle for {}. HB: {:?}, TS: {:?}",
                         market.market_name,
                         heartbeats[&market.market_name.as_str()].ts,
                         timestamp,
@@ -151,7 +164,7 @@ impl Mita {
         for market in self.markets.iter() {
             // Update status to sync
             update_market_data_status(
-                &self.pool,
+                &self.ed_pool,
                 &market.market_id,
                 &MarketStatus::Sync,
                 self.settings.application.ip_addr.as_str(),
@@ -160,7 +173,7 @@ impl Mita {
             .expect("Could not update market status.");
             // Get start time for candle sync
             let start = match select_last_candle(
-                &self.pool,
+                &self.ed_pool,
                 &self.exchange.name,
                 &market.market_id,
                 self.hbtf,
@@ -179,7 +192,7 @@ impl Mita {
             );
             // Migrate rest trades to ws
             select_insert_drop_trades(
-                &self.pool,
+                &self.trade_pool,
                 &self.exchange.name,
                 market,
                 start,
@@ -206,7 +219,7 @@ impl Mita {
             // Update mita heartbeat interval
             heartbeats.insert(market.market_name.as_str(), heartbeat);
             // Delete metrics for market from table
-            delete_metrics_ap_by_exchange_market(&self.pool, &self.exchange.name, market)
+            delete_metrics_ap_by_exchange_market(&self.ed_pool, &self.exchange.name, market)
                 .await
                 .expect("Failed to delete metrics.");
             // Create metrics for all time frames
@@ -221,13 +234,13 @@ impl Mita {
                 metrics.append(&mut new_metrics);
             }
             for metric in metrics.iter() {
-                insert_metric_ap(&self.pool, metric)
+                insert_metric_ap(&self.ed_pool, metric)
                     .await
                     .expect("Failed to insert metric.");
             }
             // Update status to sync
             update_market_data_status(
-                &self.pool,
+                &self.ed_pool,
                 &market.market_id,
                 &MarketStatus::Active,
                 self.settings.application.ip_addr.as_str(),
@@ -244,10 +257,16 @@ impl Mita {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) {
-        let sync_trades =
-            select_ftx_trades_by_time(&self.pool, &self.exchange.name, market, "ws", start, end)
-                .await
-                .expect("Failed to select ws trades.");
+        let sync_trades = select_ftx_trades_by_time(
+            &self.trade_pool,
+            &self.exchange.name,
+            market,
+            "ws",
+            start,
+            end,
+        )
+        .await
+        .expect("Failed to select ws trades.");
         // Get date range
         let date_range = self.create_date_range(start, end, self.hbtf.as_dur());
         // Make new candles
@@ -259,7 +278,7 @@ impl Mita {
         self.insert_candles(market, candles).await;
         // Move trades from ws to processed and delete from ws
         insert_delete_ftx_trades(
-            &self.pool,
+            &self.trade_pool,
             &self.exchange.name,
             market,
             start,
@@ -278,10 +297,16 @@ impl Mita {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) {
-        let sync_trades =
-            select_gdax_trades_by_time(&self.pool, &self.exchange.name, market, "ws", start, end)
-                .await
-                .expect("Failed to select ws trades.");
+        let sync_trades = select_gdax_trades_by_time(
+            &self.trade_pool,
+            &self.exchange.name,
+            market,
+            "ws",
+            start,
+            end,
+        )
+        .await
+        .expect("Failed to select ws trades.");
         // Get date range
         let date_range = self.create_date_range(start, end, self.hbtf.as_dur());
         // Make new candles
@@ -293,7 +318,7 @@ impl Mita {
         self.insert_candles(market, candles).await;
         // Move trades from ws to processed and delete from ws
         insert_delete_gdax_trades(
-            &self.pool,
+            &self.trade_pool,
             &self.exchange.name,
             market,
             start,
@@ -318,7 +343,7 @@ impl Mita {
         let mut new_candles = match self.exchange.name {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
                 let trades = select_ftx_trades_by_time(
-                    &self.pool,
+                    &self.trade_pool,
                     &self.exchange.name,
                     market,
                     "ws",
@@ -342,7 +367,7 @@ impl Mita {
             }
             ExchangeName::Gdax => {
                 let trades = select_gdax_trades_by_time(
-                    &self.pool,
+                    &self.trade_pool,
                     &self.exchange.name,
                     market,
                     "ws",
@@ -423,13 +448,13 @@ impl Mita {
         self.insert_candles(market, new_candles.to_vec()).await;
         // Insert new metrics
         for metric in metrics.iter() {
-            insert_metric_ap(&self.pool, metric)
+            insert_metric_ap(&self.ed_pool, metric)
                 .await
                 .expect("Failed to insert metric ap.");
         }
         // Insert new processing event
         insert_event_process_trades(
-            &self.pool,
+            &self.ed_pool,
             &self.settings.application.droplet,
             start,
             end,
@@ -449,7 +474,7 @@ impl Mita {
         // Get candles from the past 97 days. Metrics are calculated with a DON lbp of 192 max for
         // timeframes of 12H. 192 / 12H = 96 days. Add one to get clean calcs.
         let candles = select_candles_gte_datetime(
-            &self.pool,
+            &self.ed_pool,
             &market.exchange_name,
             &market.market_id,
             Utc::now() - Duration::days(97),

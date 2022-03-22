@@ -98,11 +98,11 @@ impl TryFrom<String> for ValidationStatus {
 impl Inquisidor {
     pub async fn process_candle_validations(&self, status: ValidationStatus) {
         // Get all candle validations from the table
-        let validations = select_candle_validations_by_status(&self.pool, status)
+        let validations = select_candle_validations_by_status(&self.ig_pool, status)
             .await
             .expect("Failed to select candle validations.");
         // Get all market details - for market id and strip name fn in validation
-        let markets = select_market_details(&self.pool)
+        let markets = select_market_details(&self.ig_pool)
             .await
             .expect("Failed to select all market details.");
         // Validate all entries
@@ -139,7 +139,7 @@ impl Inquisidor {
         // to the number of trades in the processed table. If there are difference, re-download
         // trades, validate and insert into processed.
         let hb_candles = select_candles_by_daterange(
-            &self.pool,
+            &self.ig_pool,
             &validation.exchange_name,
             &validation.market_id,
             validation.datetime,
@@ -162,7 +162,7 @@ impl Inquisidor {
         // trades. TODO add a check on the insert to see if a validtion exists that is closed and
         // raise a manual validation.
         let message = format!("{} candles updated to fix trades.", updated_count);
-        update_candle_validation_status_processed(&self.pool, validation, &message)
+        update_candle_validation_status_processed(&self.ig_pool, validation, &message)
             .await
             .expect("Failed to update validation status to done.");
         // Drop the validation trade table
@@ -172,9 +172,18 @@ impl Inquisidor {
             market.as_strip(),
             validation.validation_type.as_str(),
         );
-        drop_table(&self.pool, &qc_table)
-            .await
-            .expect("Failed to drop qc table.");
+        match validation.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                drop_table(&self.ftx_pool, &qc_table)
+                    .await
+                    .expect("Failed to drop qc table.");
+            }
+            ExchangeName::Gdax => {
+                drop_table(&self.gdax_pool, &qc_table)
+                    .await
+                    .expect("Failed to drop qc table.");
+            }
+        }
     }
 
     pub async fn process_ftx_candle_count_validation(
@@ -184,7 +193,7 @@ impl Inquisidor {
         hb_candles: &[Candle],
     ) -> i32 {
         let trades = select_ftx_trades_by_time(
-            &self.pool,
+            &self.ftx_pool,
             &validation.exchange_name,
             market,
             "validated",
@@ -222,11 +231,11 @@ impl Inquisidor {
                         validation.validation_type.as_str(),
                     );
                     let validated_trades =
-                        select_ftx_trades_by_table(&self.pool, qc_table.as_str())
+                        select_ftx_trades_by_table(&self.ftx_pool, qc_table.as_str())
                             .await
                             .expect("Failed to select qc trades.");
                     insert_ftx_trades(
-                        &self.pool,
+                        &self.ftx_pool,
                         &validation.exchange_name,
                         market,
                         "validated",
@@ -247,7 +256,7 @@ impl Inquisidor {
         hb_candles: &[Candle],
     ) -> i32 {
         let trades = select_gdax_trades_by_time(
-            &self.pool,
+            &self.gdax_pool,
             &validation.exchange_name,
             market,
             "validated",
@@ -285,11 +294,11 @@ impl Inquisidor {
                         validation.validation_type.as_str(),
                     );
                     let validated_trades =
-                        select_gdax_trades_by_table(&self.pool, qc_table.as_str())
+                        select_gdax_trades_by_table(&self.gdax_pool, qc_table.as_str())
                             .await
                             .expect("Failed to select qc trades.");
                     insert_gdax_trades(
-                        &self.pool,
+                        &self.gdax_pool,
                         &validation.exchange_name,
                         market,
                         "validated",
@@ -381,7 +390,7 @@ impl Inquisidor {
                 println!("Exchange candles: {:?}", exchange_candles);
                 // Validate new candle and return validation status
                 let previous_candle = match select_previous_candle(
-                    &self.pool,
+                    &self.ig_pool,
                     &validation.exchange_name,
                     &market.market_id,
                     validation.datetime,
@@ -414,13 +423,13 @@ impl Inquisidor {
             self.process_revalidated_candle(validation, market, candle)
                 .await;
             // Update validation to complete
-            update_candle_validation_status_processed(&self.pool, validation, &message)
+            update_candle_validation_status_processed(&self.ig_pool, validation, &message)
                 .await
                 .expect("Failed to update valdiations status to done.");
         } else {
             // Candle was not auto validated, update type to manual and status to open
             update_candle_validations_type_status(
-                &self.pool,
+                &self.ig_pool,
                 validation,
                 ValidationType::Manual,
                 ValidationStatus::Open,
@@ -436,9 +445,18 @@ impl Inquisidor {
             market.as_strip(),
             validation.validation_type.as_str(),
         );
-        drop_table(&self.pool, &qc_table)
-            .await
-            .expect("Failed to drop qc table.");
+        match validation.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                drop_table(&self.ftx_pool, &qc_table)
+                    .await
+                    .expect("Failed to drop qc table.");
+            }
+            ExchangeName::Gdax => {
+                drop_table(&self.gdax_pool, &qc_table)
+                    .await
+                    .expect("Failed to drop qc table.");
+            }
+        }
     }
 
     pub async fn auto_validate_01d_candle(
@@ -449,7 +467,7 @@ impl Inquisidor {
         // Check that all of the hb candles are validated before continuing. If they are all
         // validated then re-create the daily candle from the heartbeat candles and re-validate.
         let hb_candles = select_candles_by_daterange(
-            &self.pool,
+            &self.ig_pool,
             &validation.exchange_name,
             &validation.market_id,
             validation.datetime,
@@ -502,7 +520,7 @@ impl Inquisidor {
                     )
                     .await;
                 let previous_candle = match select_previous_candle(
-                    &self.pool,
+                    &self.ig_pool,
                     &validation.exchange_name,
                     &market.market_id,
                     validation.datetime,
@@ -529,14 +547,14 @@ impl Inquisidor {
             self.process_revalidated_01d_candle(validation, candle)
                 .await;
             // Update validation to complete
-            update_candle_validation_status_processed(&self.pool, validation, &message)
+            update_candle_validation_status_processed(&self.ig_pool, validation, &message)
                 .await
                 .expect("Failed to update validation status to done.");
         } else {
             // Candle was not validated, update to manual and open
             println!("Failed to validated 01D candle.");
             update_candle_validations_type_status(
-                &self.pool,
+                &self.ig_pool,
                 validation,
                 ValidationType::Manual,
                 ValidationStatus::Open,
@@ -633,7 +651,7 @@ impl Inquisidor {
                     }
                 };
                 match select_previous_candle(
-                    &self.pool,
+                    &self.ig_pool,
                     &validation.exchange_name,
                     &market.market_id,
                     validation.datetime,
@@ -697,7 +715,7 @@ impl Inquisidor {
             self.process_revalidated_candle(validation, market, candle)
                 .await;
             // Update validation to complete
-            update_candle_validation_status_processed(&self.pool, validation, &message)
+            update_candle_validation_status_processed(&self.ig_pool, validation, &message)
                 .await
                 .expect("Failed to update validation status to done.");
         }
@@ -708,9 +726,18 @@ impl Inquisidor {
             market.as_strip(),
             validation.validation_type.as_str(),
         );
-        drop_table(&self.pool, &qc_table)
-            .await
-            .expect("Failed to drop qc table.");
+        match validation.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                drop_table(&self.ftx_pool, &qc_table)
+                    .await
+                    .expect("Failed to drop qc table.");
+            }
+            ExchangeName::Gdax => {
+                drop_table(&self.gdax_pool, &qc_table)
+                    .await
+                    .expect("Failed to drop qc table.");
+            }
+        }
     }
 
     pub async fn manual_validate_01_candle(
@@ -720,7 +747,7 @@ impl Inquisidor {
     ) {
         // Get hb candles and resample to daily candle
         let hb_candles = select_candles_by_daterange(
-            &self.pool,
+            &self.ig_pool,
             &validation.exchange_name,
             &validation.market_id,
             validation.datetime,
@@ -733,7 +760,7 @@ impl Inquisidor {
             .pop()
             .unwrap();
         // Get hb validations
-        let hb_validations = select_candle_validations_for_01d(&self.pool, validation)
+        let hb_validations = select_candle_validations_for_01d(&self.ig_pool, validation)
             .await
             .expect("Failed to get hb validations.");
         // Present candle data versus exchange data and get input from user to validate
@@ -790,7 +817,7 @@ impl Inquisidor {
                 println!("ElDorado: {:?}", candle.volume);
                 println!("Exchange: {:?}", exchange_candle.volume);
                 match select_previous_candle(
-                    &self.pool,
+                    &self.ig_pool,
                     &validation.exchange_name,
                     &market.market_id,
                     validation.datetime,
@@ -834,7 +861,7 @@ impl Inquisidor {
             self.process_revalidated_01d_candle(validation, candle)
                 .await;
             // Update validation to complete
-            update_candle_validation_status_processed(&self.pool, validation, &message)
+            update_candle_validation_status_processed(&self.ig_pool, validation, &message)
                 .await
                 .expect("Failed to update validation status to done.");
         }
@@ -849,12 +876,22 @@ impl Inquisidor {
         // Create temp tables to store new trades. Re-download trades for candle timeperiod
         // Return new candle to be evaluated
         let trade_table = format!("qc_{}", validation.validation_type.as_str());
-        drop_trade_table(&self.pool, &validation.exchange_name, market, &trade_table)
-            .await
-            .expect("Failed to drop qc table.");
-        create_ftx_trade_table(&self.pool, &validation.exchange_name, market, &trade_table)
-            .await
-            .expect("Failed to create qc table.");
+        drop_trade_table(
+            &self.ftx_pool,
+            &validation.exchange_name,
+            market,
+            &trade_table,
+        )
+        .await
+        .expect("Failed to drop qc table.");
+        create_ftx_trade_table(
+            &self.ftx_pool,
+            &validation.exchange_name,
+            market,
+            &trade_table,
+        )
+        .await
+        .expect("Failed to create qc table.");
         // Set start and end for candle period
         let candle_end = candle_start + self.hbtf.as_dur();
         let mut candle_end_or_last_trade = candle_end;
@@ -923,7 +960,7 @@ impl Inquisidor {
                 // Temp table name can be used instead of exhcange name as logic for table name is
                 // located in the insert function
                 insert_ftx_trades(
-                    &self.pool,
+                    &self.ftx_pool,
                     &validation.exchange_name,
                     market,
                     &trade_table,
@@ -940,7 +977,7 @@ impl Inquisidor {
                     market.as_strip(),
                     validation.validation_type.as_str(),
                 );
-                let interval_trades = select_ftx_trades_by_table(&self.pool, qc_table.as_str())
+                let interval_trades = select_ftx_trades_by_table(&self.ftx_pool, qc_table.as_str())
                     .await
                     .expect("Could not fetch trades from temp table.");
                 // Create candle from interval trades, trades are already sorted and deduped
@@ -955,7 +992,7 @@ impl Inquisidor {
         }
         // If it gets to this point the validaion failed. Return false and the original candle
         let original_candle = select_candles_by_daterange(
-            &self.pool,
+            &self.ig_pool,
             &validation.exchange_name,
             &market.market_id,
             candle_start,
@@ -980,7 +1017,7 @@ impl Inquisidor {
         );
         // Get original candle that is not validated
         let original_candle = select_candles_by_daterange(
-            &self.pool,
+            &self.ig_pool,
             &validation.exchange_name,
             &market.market_id,
             start_ts,
@@ -993,12 +1030,22 @@ impl Inquisidor {
         // Create temp tables to store new trades. Re-download trades for candle timeperiod
         // Return new candle to be evaluated
         let trade_table = format!("qc_{}", validation.validation_type.as_str());
-        drop_trade_table(&self.pool, &validation.exchange_name, market, &trade_table)
-            .await
-            .expect("Failed to drop qc table.");
-        create_gdax_trade_table(&self.pool, &validation.exchange_name, market, &trade_table)
-            .await
-            .expect("Failed to create qc table.");
+        drop_trade_table(
+            &self.gdax_pool,
+            &validation.exchange_name,
+            market,
+            &trade_table,
+        )
+        .await
+        .expect("Failed to drop qc table.");
+        create_gdax_trade_table(
+            &self.gdax_pool,
+            &validation.exchange_name,
+            market,
+            &trade_table,
+        )
+        .await
+        .expect("Failed to create qc table.");
         // Set start and end for candle period
         let mut after_ts = start_ts;
         let end_ts = start_ts + self.hbtf.as_dur();
@@ -1080,7 +1127,7 @@ impl Inquisidor {
                 // Temp table name can be used instead of exhcange name as logic for table name is
                 // located in the insert function
                 insert_gdax_trades(
-                    &self.pool,
+                    &self.gdax_pool,
                     &validation.exchange_name,
                     market,
                     &trade_table,
@@ -1091,7 +1138,7 @@ impl Inquisidor {
             }
         }
         let interval_trades = select_gdax_trades_by_time(
-            &self.pool,
+            &self.gdax_pool,
             &validation.exchange_name,
             market,
             &trade_table,
@@ -1117,19 +1164,35 @@ impl Inquisidor {
     ) {
         // Delete all trades from _processed (_rest and _ws will drop on next restart)
         println!("New candle is validated. Deleting old trades.");
-        delete_trades_by_time(
-            &self.pool,
-            &validation.exchange_name,
-            market,
-            "processed",
-            validation.datetime,
-            validation.datetime + Duration::seconds(900),
-        )
-        .await
-        .expect("Could not delete processed trades.");
+        match validation.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                delete_trades_by_time(
+                    &self.ftx_pool,
+                    &validation.exchange_name,
+                    market,
+                    "processed",
+                    validation.datetime,
+                    validation.datetime + Duration::seconds(900),
+                )
+                .await
+                .expect("Could not delete processed trades.");
+            }
+            ExchangeName::Gdax => {
+                delete_trades_by_time(
+                    &self.gdax_pool,
+                    &validation.exchange_name,
+                    market,
+                    "processed",
+                    validation.datetime,
+                    validation.datetime + Duration::seconds(900),
+                )
+                .await
+                .expect("Could not delete processed trades.");
+            }
+        };
         // Delete existing candle
         delete_candle(
-            &self.pool,
+            &self.ig_pool,
             &validation.exchange_name,
             &market.market_id,
             &validation.datetime,
@@ -1138,7 +1201,7 @@ impl Inquisidor {
         .expect("Could not delete old candle.");
         // Insert candle with validated status
         insert_candle(
-            &self.pool,
+            &self.ig_pool,
             &validation.exchange_name,
             &market.market_id,
             candle,
@@ -1160,12 +1223,13 @@ impl Inquisidor {
         );
         match validation.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
-                let validated_trades = select_ftx_trades_by_table(&self.pool, qc_table.as_str())
-                    .await
-                    .expect("Failed to select trades from temp table.");
+                let validated_trades =
+                    select_ftx_trades_by_table(&self.ftx_pool, qc_table.as_str())
+                        .await
+                        .expect("Failed to select trades from temp table.");
                 // Insert trades into _validated
                 insert_ftx_trades(
-                    &self.pool,
+                    &self.ftx_pool,
                     &validation.exchange_name,
                     market,
                     "validated",
@@ -1175,12 +1239,13 @@ impl Inquisidor {
                 .expect("Could not insert validated trades.");
             }
             ExchangeName::Gdax => {
-                let validated_trades = select_gdax_trades_by_table(&self.pool, qc_table.as_str())
-                    .await
-                    .expect("Failed to select trades from temp table.");
+                let validated_trades =
+                    select_gdax_trades_by_table(&self.gdax_pool, qc_table.as_str())
+                        .await
+                        .expect("Failed to select trades from temp table.");
                 // Insert trades into _validated
                 insert_gdax_trades(
-                    &self.pool,
+                    &self.gdax_pool,
                     &validation.exchange_name,
                     market,
                     "validated",
@@ -1198,11 +1263,11 @@ impl Inquisidor {
         candle: Candle,
     ) {
         // Delete existing candle
-        delete_candle_01d(&self.pool, &validation.market_id, &validation.datetime)
+        delete_candle_01d(&self.ig_pool, &validation.market_id, &validation.datetime)
             .await
             .expect("Failed to delete 01D candle.");
         // Insert candle with validated status
-        insert_candles_01d(&self.pool, &validation.market_id, &vec![candle], true)
+        insert_candles_01d(&self.ig_pool, &validation.market_id, &vec![candle], true)
             .await
             .expect("Failed to insert 01D candle.");
     }
@@ -1387,7 +1452,7 @@ mod tests {
         println!("Configuration: {:?}", configuration);
 
         // Create db connection
-        let pool = PgPool::connect_with(configuration.database.with_db())
+        let pool = PgPool::connect_with(configuration.ftx_db.with_db())
             .await
             .expect("Failed to connect to Postgres.");
 
@@ -1560,7 +1625,7 @@ mod tests {
         // Create ig instance and process new validation
         let ig = Inquisidor::new().await;
         insert_candle(
-            &ig.pool,
+            &ig.ig_pool,
             &ExchangeName::Ftx,
             &Uuid::parse_str("b3bf21db-92bb-4613-972a-1d0f1aab1e95").unwrap(),
             candle,

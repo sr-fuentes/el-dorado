@@ -10,7 +10,7 @@ use csv::Writer;
 impl Inquisidor {
     pub async fn archive_validated_trades(&self) {
         // Get Active markets
-        let markets = select_markets_active(&self.pool)
+        let markets = select_markets_active(&self.ig_pool)
             .await
             .expect("Failed to fetch active markets.");
         // Check for trades to archive in each active market
@@ -30,9 +30,10 @@ impl Inquisidor {
         );
         std::fs::create_dir_all(&p).expect("Failed to create directories.");
         // Get validated but not archived 01d candles
-        let candles_to_archive = select_candles_valid_not_archived(&self.pool, &market.market_id)
-            .await
-            .expect("Failed to fetch candles to archive.");
+        let candles_to_archive =
+            select_candles_valid_not_archived(&self.ig_pool, &market.market_id)
+                .await
+                .expect("Failed to fetch candles to archive.");
         // Archive trades
         for candle in candles_to_archive.iter() {
             println!(
@@ -49,17 +50,33 @@ impl Inquisidor {
             };
             if archive_success {
                 // Delete trades from validate table
-                delete_trades_by_time(
-                    &self.pool,
-                    &market.exchange_name,
-                    market,
-                    "validated",
-                    candle.datetime,
-                    candle.datetime + Duration::days(1),
-                )
-                .await
-                .expect("Failed to delete archived trades.");
-                update_candle_archived(&self.pool, &market.market_id, candle)
+                match market.exchange_name {
+                    ExchangeName::Ftx | ExchangeName::FtxUs => {
+                        delete_trades_by_time(
+                            &self.ftx_pool,
+                            &market.exchange_name,
+                            market,
+                            "validated",
+                            candle.datetime,
+                            candle.datetime + Duration::days(1),
+                        )
+                        .await
+                        .expect("Failed to delete archived trades.");
+                    }
+                    ExchangeName::Gdax => {
+                        delete_trades_by_time(
+                            &self.gdax_pool,
+                            &market.exchange_name,
+                            market,
+                            "validated",
+                            candle.datetime,
+                            candle.datetime + Duration::days(1),
+                        )
+                        .await
+                        .expect("Failed to delete archived trades.");
+                    }
+                }
+                update_candle_archived(&self.ig_pool, &market.market_id, candle)
                     .await
                     .expect("Failed to update candle archive status.");
             }
@@ -73,7 +90,7 @@ impl Inquisidor {
         path: &str,
     ) -> bool {
         let trades_to_archive = select_ftx_trades_by_time(
-            &self.pool,
+            &self.ftx_pool,
             &market.exchange_name,
             market,
             "validated",
@@ -91,7 +108,7 @@ impl Inquisidor {
             );
             // Insert count validation
             insert_candle_count_validation(
-                &self.pool,
+                &self.ig_pool,
                 &market.exchange_name,
                 &market.market_id,
                 &candle.datetime,
@@ -120,7 +137,7 @@ impl Inquisidor {
         path: &str,
     ) -> bool {
         let trades_to_archive = select_gdax_trades_by_time(
-            &self.pool,
+            &self.gdax_pool,
             &ExchangeName::Gdax,
             market,
             "validated",
@@ -138,7 +155,7 @@ impl Inquisidor {
             );
             // Insert count validation
             insert_candle_count_validation(
-                &self.pool,
+                &self.ig_pool,
                 &market.exchange_name,
                 &market.market_id,
                 &candle.datetime,
@@ -183,7 +200,7 @@ mod test {
         println!("Configuration: {:?}", configuration);
 
         // Create db connection
-        let pool = PgPool::connect_with(configuration.database.with_db())
+        let pool = PgPool::connect_with(configuration.ftx_db.with_db())
             .await
             .expect("Failed to connect to Postgres.");
 
@@ -332,7 +349,7 @@ mod test {
         println!("Configuration: {:?}", configuration);
 
         // Create db connection
-        let pool = PgPool::connect_with(configuration.database.with_db())
+        let pool = PgPool::connect_with(configuration.ftx_db.with_db())
             .await
             .expect("Failed to connect to Postgres.");
 
@@ -368,7 +385,7 @@ mod test {
         println!("Configuration: {:?}", configuration);
 
         // Create db connection
-        let pool = PgPool::connect_with(configuration.database.with_db())
+        let pool = PgPool::connect_with(configuration.ftx_db.with_db())
             .await
             .expect("Failed to connect to Postgres.");
 

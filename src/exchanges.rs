@@ -87,7 +87,7 @@ impl Inquisidor {
         // Parse input to see if there is a valid exchange
         let exchange: ExchangeName = exchange.try_into().unwrap();
         // Get current exchanges from db
-        let exchanges = select_exchanges(&self.pool)
+        let exchanges = select_exchanges(&self.ig_pool)
             .await
             .expect("Could not fetch exchanges.");
         // Compare input to existing exchanges
@@ -102,7 +102,7 @@ impl Inquisidor {
             id: Uuid::new_v4(),
             name: exchange,
         };
-        insert_new_exchange(&self.pool, &new_exchange)
+        insert_new_exchange(&self.ig_pool, &new_exchange)
             .await
             .expect("Failed to insert new exchange.");
         // Refresh markets for new exchange (should insert all)
@@ -118,7 +118,7 @@ impl Inquisidor {
             }
         };
         // Create candle table for exchange
-        create_exchange_candle_table(&self.pool, &new_exchange.name)
+        create_exchange_candle_table(&self.ig_pool, &new_exchange.name)
             .await
             .expect("Failed to create exchange table.");
     }
@@ -192,7 +192,7 @@ mod tests {
         println!("Configuration: {:?}", configuration);
 
         // Create db connection
-        let connection_pool = PgPool::connect_with(configuration.database.with_db())
+        let connection_pool = PgPool::connect_with(configuration.ftx_db.with_db())
             .await
             .expect("Failed to connect to Postgres.");
 
@@ -234,7 +234,7 @@ mod tests {
         println!("Configuration: {:?}", configuration);
 
         // Create db connection
-        let connection_pool = PgPool::connect_with(configuration.database.with_db())
+        let connection_pool = PgPool::connect_with(configuration.ftx_db.with_db())
             .await
             .expect("Failed to connect to Postgres.");
 
@@ -288,7 +288,7 @@ mod tests {
         println!("Configuration: {:?}", configuration);
 
         // Create db connection
-        let pool = PgPool::connect_with(configuration.database.with_db())
+        let pool = PgPool::connect_with(configuration.ftx_db.with_db())
             .await
             .expect("Failed to connect to Postgres.");
 

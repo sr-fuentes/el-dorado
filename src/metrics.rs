@@ -486,7 +486,7 @@ mod tests {
         let configuration = get_configuration().expect("Failed to read configuration.");
         println!("Configuration: {:?}", configuration);
         // Create db connection
-        let pool = PgPool::connect_with(configuration.database.with_db())
+        let pool = PgPool::connect_with(configuration.ftx_db.with_db())
             .await
             .expect("Failed to connect to Postgres.");
         // Get candles from db
