@@ -35,10 +35,24 @@ impl Mita {
                 // Create the trade table to exchange specifications
                 match self.exchange.name {
                     ExchangeName::Ftx | ExchangeName::FtxUs => {
-                        create_ftx_trade_table(&self.trade_pool, &self.exchange.name, market, *table).await.expect("Failed to create trade table.");
+                        create_ftx_trade_table(
+                            &self.trade_pool,
+                            &self.exchange.name,
+                            market,
+                            *table,
+                        )
+                        .await
+                        .expect("Failed to create trade table.");
                     }
                     ExchangeName::Gdax => {
-                        create_gdax_trade_table(&self.trade_pool, &self.exchange.name, market, *table).await.expect("Failed to create trade table.");
+                        create_gdax_trade_table(
+                            &self.trade_pool,
+                            &self.exchange.name,
+                            market,
+                            *table,
+                        )
+                        .await
+                        .expect("Failed to create trade table.");
                     }
                 }
             }

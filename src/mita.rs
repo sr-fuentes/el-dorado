@@ -114,6 +114,8 @@ impl Mita {
         // Sync from last candle to current stream last trade
         println!("Starting sync.");
         let mut heartbeats = self.sync().await;
+        // Set events heartbeat ts
+        let mut events_ts = Utc::now();
         // Loop forever making a new candle at each new interval
         // println!("Heartbeats: {:?}", heartbeats);
         println!("Starting MITA loop.");
@@ -151,7 +153,10 @@ impl Mita {
                 }
             }
             // Process any events for the droplet mita
-            self.process_events().await;
+            let events_processed = self.process_events(events_ts).await;
+            if events_processed {
+                events_ts = Utc::now();
+            };
             // Reload heartbeats if needed (ie when a candle validation is updated)
             // Sleep for 200 ms to give control back to tokio scheduler
             tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
