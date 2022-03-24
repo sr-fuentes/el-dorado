@@ -154,7 +154,9 @@ impl Mita {
             }
             // Process any events for the droplet mita
             let events_processed = self.process_events(events_ts).await;
-            if events_processed {events_ts = Utc::now();};
+            if events_processed {
+                events_ts = Utc::now();
+            };
             // Reload heartbeats if needed (ie when a candle validation is updated)
             // Sleep for 200 ms to give control back to tokio scheduler
             tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;

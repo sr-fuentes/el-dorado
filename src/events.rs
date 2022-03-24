@@ -302,7 +302,7 @@ impl Mita {
         // Check time versus mita event_ts, if at least 1 minute has not elapsed, return
         let now = Utc::now();
         if now - events_ts < Duration::minutes(1) {
-            return false
+            return false;
         };
         // Get any open events for the droplet
         let open_events = select_open_events_for_droplet_exchange(
