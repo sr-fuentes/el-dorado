@@ -298,7 +298,12 @@ impl Inquisidor {
 }
 
 impl Mita {
-    pub async fn process_events(&self) {
+    pub async fn process_events(&self, events_ts: DateTime<Utc>) -> bool {
+        // Check time versus mita event_ts, if at least 1 minute has not elapsed, return
+        let now = Utc::now();
+        if now - events_ts < Duration::minutes(1) {
+            return false
+        };
         // Get any open events for the droplet
         let open_events = select_open_events_for_droplet_exchange(
             &self.ed_pool,
@@ -326,6 +331,7 @@ impl Mita {
                 EventType::ArchiveDailyCandles => continue, // IG only
             }
         }
+        true
     }
 
     pub async fn process_event_process_trades(&self, event: &Event, market: &MarketDetail) {
