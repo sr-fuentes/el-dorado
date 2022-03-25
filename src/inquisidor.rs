@@ -22,7 +22,7 @@ impl Inquisidor {
         // Load configuration settings
         let settings = get_configuration().expect("Failed to read configuration.");
         // Create db connection with pgpool
-        let ig_pool = PgPool::connect_with(settings.ftx_db.with_db())
+        let ig_pool = PgPool::connect_with(settings.ed_db.with_db())
             .await
             .expect("Failed to connect to postgres db.");
         let ftx_pool = PgPool::connect_with(settings.ftx_db.with_db())

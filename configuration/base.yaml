@@ -1,3 +1,9 @@
+ed_db:
+  host: "localhost"
+  port: 5432
+  username: "postgres"
+  password: "password"
+  database_name: "eldorado"
 ftx_db:
   host: "localhost"
   port: 5432

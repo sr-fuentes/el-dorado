@@ -1,3 +1,5 @@
+ed_db:
+  require_ssl: true
 ftx_db:
   require_ssl: true
 gdax_db:
