@@ -4,10 +4,13 @@ use crate::candles::{
 };
 use crate::exchanges::{gdax::Trade, ExchangeName};
 use crate::inquisidor::Inquisidor;
-use crate::markets::{select_market_details_by_status_exchange, MarketStatus};
+use crate::markets::{
+    select_market_detail_by_exchange_mita, select_market_details_by_status_exchange, MarketStatus,
+};
 use crate::trades::{
-    create_gdax_trade_table, drop_trade_table, insert_gdax_trades, select_gdax_trades_by_table,
-    select_gdax_trades_by_time, create_ftx_trade_table, select_ftx_trades_by_table, insert_ftx_trades
+    create_ftx_trade_table, create_gdax_trade_table, drop_trade_table, insert_ftx_trades,
+    insert_gdax_trades, select_ftx_trades_by_table, select_gdax_trades_by_table,
+    select_gdax_trades_by_time,
 };
 use chrono::DurationRound;
 
@@ -351,13 +354,10 @@ impl Inquisidor {
         // Select all gdax markets that have trades. Drop any _rest or _ws tables in ftx db.
         // Then migrate all trades from _processed and validated from ftx to gdax db creating tables
         // as needed.
-        let ftx_markets = select_market_details_by_status_exchange(
-            &self.ig_pool,
-            &ExchangeName::Gdax,
-            &MarketStatus::Backfill,
-        )
-        .await
-        .expect("Failed to select gdax markets.");
+        let ftx_markets =
+            select_market_detail_by_exchange_mita(&self.ig_pool, &ExchangeName::Gdax, "mita-01")
+                .await
+                .expect("Failed to select gdax markets.");
         for market in ftx_markets.iter() {
             println!("Migrating {} trades to gdax db.", market.market_name);
             println!("Dropping _rest and _ws table in old db.");
