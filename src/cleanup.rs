@@ -415,4 +415,15 @@ impl Inquisidor {
                 .expect("Failed to drop rest table.");
         }
     }
+
+    pub async fn migrate_static_tables(self) {
+        // Migrate the tables that are not updated frequently first
+        // candles_01d, exchanges, market_ranks_ftx, markets
+
+    }
+
+    pub async fn migrate_frequent_tables(self) {
+        // Shut down all instances and migrate the frequently update tables
+        // candle_validations, candles_15t_ftx, candles_15t_gdax, events, metrics_ap
+    }
 }
