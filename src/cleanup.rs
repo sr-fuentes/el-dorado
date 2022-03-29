@@ -1,6 +1,7 @@
 use crate::candles::{
     create_01d_candles, insert_candle, select_candles, select_previous_candle,
-    select_unvalidated_candles, validate_01d_candles, validate_hb_candles, Candle, TimeFrame,
+    select_unvalidated_candles, validate_01d_candles, validate_hb_candles, Candle, DailyCandle,
+    TimeFrame,
 };
 use crate::exchanges::{gdax::Trade, ExchangeName};
 use crate::inquisidor::Inquisidor;
@@ -9,8 +10,7 @@ use crate::markets::{
 };
 use crate::trades::{
     create_ftx_trade_table, create_gdax_trade_table, drop_trade_table, insert_ftx_trades,
-    insert_gdax_trades, select_ftx_trades_by_table,
-    select_gdax_trades_by_time,
+    insert_gdax_trades, select_ftx_trades_by_table, select_gdax_trades_by_time,
 };
 use chrono::DurationRound;
 
@@ -419,11 +419,56 @@ impl Inquisidor {
     pub async fn migrate_static_tables(self) {
         // Migrate the tables that are not updated frequently first
         // candles_01d, exchanges, market_ranks_ftx, markets
-
+        // Start with candles_01d
+        println!("Migrating candles_01d.");
+        let sql = r#"
+            SELECT * FROM candles_01d
+            "#;
+        let candles_01d = sqlx::query_as::<_, DailyCandle>(sql)
+            .fetch_all(&self.ig_pool)
+            .await
+            .expect("Failed select daily candles.");
+        let sql = r#"
+            INSERT INTO candles_01d (
+                datetime, open, high, low, close, volume, volume_net, volume_liquidation, value,
+                trade_count, liquidation_count, last_trade_ts, last_trade_id, is_validated,
+                market_id, first_trade_ts, first_trade_id, is_archived, is_complete)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 
+                $16, $17, $18, $19)
+            "#;
+        for candle in candles_01d.iter() {
+            sqlx::query(sql)
+                .bind(candle.datetime)
+                .bind(candle.open)
+                .bind(candle.high)
+                .bind(candle.low)
+                .bind(candle.close)
+                .bind(candle.volume)
+                .bind(candle.volume_net)
+                .bind(candle.volume_liquidation)
+                .bind(candle.value)
+                .bind(candle.trade_count)
+                .bind(candle.liquidation_count)
+                .bind(candle.last_trade_ts)
+                .bind(&candle.last_trade_id)
+                .bind(candle.is_validated)
+                .bind(candle.market_id)
+                .bind(candle.first_trade_ts)
+                .bind(&candle.first_trade_id)
+                .bind(candle.is_archived)
+                .bind(candle.is_complete)
+                .execute(&self.new_ig_pool)
+                .await
+                .expect("Failed to insert daily candle.");
+        };
+        // Exchanges
+        println!("Migrating exchanges.");
+        
+        
     }
 
     pub async fn migrate_frequent_tables(self) {
         // Shut down all instances and migrate the frequently update tables
-        // candle_validations, candles_15t_ftx, candles_15t_gdax, events, metrics_ap
+        // candle_validations, candles_15t_ftx, candles_15t_gdax, events
     }
 }
