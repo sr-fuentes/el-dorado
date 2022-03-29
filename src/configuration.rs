@@ -3,7 +3,8 @@ use std::convert::{TryFrom, TryInto};
 
 #[derive(serde::Deserialize, Debug)]
 pub struct Settings {
-    pub ed_db: DatabaseSettings,
+    pub old_ed_db: DatabaseSettings,
+    pub new_ed_db: DatabaseSettings,
     pub ftx_db: DatabaseSettings,
     pub gdax_db: DatabaseSettings,
     pub application: ApplicationSettings,

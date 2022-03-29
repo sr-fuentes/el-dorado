@@ -1,4 +1,6 @@
-ed_db:
+old_ed_db:
+  require_ssl: true
+new_ed_db:
   require_ssl: true
 ftx_db:
   require_ssl: true

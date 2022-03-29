@@ -22,6 +22,7 @@ pub struct Mita {
     pub markets: Vec<MarketDetail>,
     pub exchange: Exchange,
     pub ed_pool: PgPool,
+    pub new_ed_pool: PgPool,
     pub trade_pool: PgPool,
     pub restart: bool,
     pub last_restart: DateTime<Utc>,
@@ -41,7 +42,10 @@ impl Mita {
         // Load configuration settings
         let settings = get_configuration().expect("Failed to read configuration.");
         // Create db connection with pgpool
-        let ed_pool = PgPool::connect_with(settings.ed_db.with_db())
+        let ed_pool = PgPool::connect_with(settings.old_ed_db.with_db())
+            .await
+            .expect("Failed to connect to postgres db.");
+        let new_ed_pool = PgPool::connect_with(settings.new_ed_db.with_db())
             .await
             .expect("Failed to connect to postgres db.");
         // Get exchange details
@@ -77,6 +81,7 @@ impl Mita {
             markets,
             exchange,
             ed_pool,
+            new_ed_pool,
             trade_pool,
             restart: true,
             last_restart: Utc::now(),
