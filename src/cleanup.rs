@@ -460,7 +460,7 @@ impl Inquisidor {
                 .bind(&candle.first_trade_id)
                 .bind(candle.is_archived)
                 .bind(candle.is_complete)
-                .execute(&self.new_ig_pool)
+                .execute(&self.ig_pool)
                 .await
                 .expect("Failed to insert daily candle.");
         }
@@ -470,7 +470,7 @@ impl Inquisidor {
             .await
             .expect("Failed to select exchanges.");
         for exchange in exchanges.iter() {
-            insert_new_exchange(&self.new_ig_pool, exchange)
+            insert_new_exchange(&self.ig_pool, exchange)
                 .await
                 .expect("Failed to insert exchange.");
         }
@@ -480,7 +480,7 @@ impl Inquisidor {
             .await
             .expect("Failed to select market ranks ftx.");
         for mr in market_ranks.iter() {
-            insert_market_rank(&self.new_ig_pool, &ExchangeName::Ftx, mr)
+            insert_market_rank(&self.ig_pool, &ExchangeName::Ftx, mr)
                 .await
                 .expect("Failed to insert market rank ftx.");
         }
@@ -526,7 +526,7 @@ impl Inquisidor {
                 .bind(market.first_candle)
                 .bind(market.last_candle)
                 .bind(&market.mita)
-                .execute(&self.new_ig_pool)
+                .execute(&self.ig_pool)
                 .await
                 .expect("Failed to insert market.");
         }
@@ -569,7 +569,7 @@ impl Inquisidor {
                 .bind(cv.processed_ts)
                 .bind(cv.validation_status.as_str())
                 .bind(&cv.notes)
-                .execute(&self.new_ig_pool)
+                .execute(&self.ig_pool)
                 .await
                 .expect("Failed to insert candle_validation.");
         }
@@ -607,7 +607,7 @@ impl Inquisidor {
                 .bind(candle.market_id)
                 .bind(candle.first_trade_ts)
                 .bind(&candle.first_trade_id)
-                .execute(&self.new_ig_pool)
+                .execute(&self.ig_pool)
                 .await
                 .expect("Failed to insert ftx candle.");
         }
@@ -645,7 +645,7 @@ impl Inquisidor {
                 .bind(candle.market_id)
                 .bind(candle.first_trade_ts)
                 .bind(&candle.first_trade_id)
-                .execute(&self.new_ig_pool)
+                .execute(&self.ig_pool)
                 .await
                 .expect("Failed to insert ftx candle.");
         }
@@ -685,7 +685,7 @@ impl Inquisidor {
                 .bind(event.processed_ts)
                 .bind(event.event_status.as_str())
                 .bind(&event.notes)
-                .execute(&self.new_ig_pool)
+                .execute(&self.ig_pool)
                 .await
                 .expect("failed to insert event");
         }
