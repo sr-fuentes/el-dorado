@@ -3,7 +3,7 @@ use crate::candles::{
     select_unvalidated_candles, validate_01d_candles, validate_hb_candles, Candle, DailyCandle,
     TimeFrame,
 };
-use crate::events::Event;
+use crate::events::{Event, EventStatus, EventType};
 use crate::exchanges::{gdax::Trade, insert_new_exchange, select_exchanges, ExchangeName};
 use crate::inquisidor::Inquisidor;
 use crate::markets::{
@@ -14,7 +14,7 @@ use crate::trades::{
     create_ftx_trade_table, create_gdax_trade_table, drop_trade_table, insert_ftx_trades,
     insert_gdax_trades, select_ftx_trades_by_table, select_gdax_trades_by_time,
 };
-use crate::validation::CandleValidation;
+use crate::validation::{CandleValidation, ValidationStatus, ValidationType};
 use chrono::DurationRound;
 
 impl Inquisidor {
@@ -536,13 +536,21 @@ impl Inquisidor {
         // Shut down all instances and migrate the frequently update tables
         // candle_validations, candles_15t_ftx, candles_15t_gdax, events
         println!("Migrating candle_validations.");
-        let sql = r#"
-            SELECT * FROM candle_validations
-            "#;
-        let candle_validations = sqlx::query_as::<_, CandleValidation>(sql)
-            .fetch_all(&self.ig_pool)
-            .await
-            .expect("Failed to select candle validations.");
+        let candle_validations = sqlx::query_as!(
+            CandleValidation,
+            r#"
+            SELECT exchange_name as "exchange_name: ExchangeName",
+                market_id, datetime, duration,
+                validation_type as "validation_type: ValidationType",
+                created_ts, processed_ts,
+                validation_status as "validation_status: ValidationStatus",
+                notes
+            FROM candle_validations
+            "#
+        )
+        .fetch_all(&self.ig_pool)
+        .await
+        .expect("Failed to select candle validations.");
         let sql = r#"
             INSERT INTO candle_validations (
                 exchange_name, market_id, datetime, duration, validation_type, created_ts,
@@ -642,13 +650,21 @@ impl Inquisidor {
                 .expect("Failed to insert ftx candle.");
         }
         println!("Migrating events.");
-        let sql = r#"
-            SELECT * FROM events
-            "#;
-        let events = sqlx::query_as::<_, Event>(sql)
-            .fetch_all(&self.ig_pool)
-            .await
-            .expect("Failed to fetch events.");
+        let events = sqlx::query_as!(
+            Event,
+            r#"
+            SELECT event_id, droplet,
+            event_type as "event_type: EventType",
+            exchange_name as "exchange_name: ExchangeName",
+            market_id, start_ts, end_ts, event_ts, created_ts, processed_ts,
+            event_status as "event_status: EventStatus", 
+            notes
+        FROM events
+        "#
+        )
+        .fetch_all(&self.ig_pool)
+        .await
+        .expect("Failed to fetch events.");
         let sql = r#"
             INSERT INTO events (
                 event_id, droplet, event_type, exchange_name, market_id, start_ts, end_ts, event_ts, created_ts,
