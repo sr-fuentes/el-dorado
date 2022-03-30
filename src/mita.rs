@@ -41,7 +41,7 @@ impl Mita {
         // Load configuration settings
         let settings = get_configuration().expect("Failed to read configuration.");
         // Create db connection with pgpool
-        let ed_pool = PgPool::connect_with(settings.ed_db.with_db())
+        let ed_pool = PgPool::connect_with(settings.old_ed_db.with_db())
             .await
             .expect("Failed to connect to postgres db.");
         // Get exchange details

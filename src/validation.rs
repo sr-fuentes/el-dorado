@@ -20,7 +20,7 @@ use sqlx::PgPool;
 use std::convert::TryFrom;
 use uuid::Uuid;
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, sqlx::FromRow)]
 pub struct CandleValidation {
     pub exchange_name: ExchangeName,
     pub market_id: Uuid,
