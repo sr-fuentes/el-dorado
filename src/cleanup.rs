@@ -3,16 +3,18 @@ use crate::candles::{
     select_unvalidated_candles, validate_01d_candles, validate_hb_candles, Candle, DailyCandle,
     TimeFrame,
 };
+use crate::events::Event;
 use crate::exchanges::{gdax::Trade, insert_new_exchange, select_exchanges, ExchangeName};
 use crate::inquisidor::Inquisidor;
 use crate::markets::{
-    select_market_detail_by_exchange_mita, select_market_details_by_status_exchange,
-    select_market_ranks, MarketStatus, insert_market_rank, select_market_details,
+    insert_market_rank, select_market_detail_by_exchange_mita, select_market_details,
+    select_market_details_by_status_exchange, select_market_ranks, MarketStatus,
 };
 use crate::trades::{
     create_ftx_trade_table, create_gdax_trade_table, drop_trade_table, insert_ftx_trades,
     insert_gdax_trades, select_ftx_trades_by_table, select_gdax_trades_by_time,
 };
+use crate::validation::CandleValidation;
 use chrono::DurationRound;
 
 impl Inquisidor {
@@ -478,11 +480,15 @@ impl Inquisidor {
             .await
             .expect("Failed to select market ranks ftx.");
         for mr in market_ranks.iter() {
-            insert_market_rank(&self.new_ig_pool, &ExchangeName::Ftx, mr).await.expect("Failed to insert market rank ftx.");
-        };
+            insert_market_rank(&self.new_ig_pool, &ExchangeName::Ftx, mr)
+                .await
+                .expect("Failed to insert market rank ftx.");
+        }
         // markets
         println!("Migrating markets.");
-        let markets = select_market_details(&self.ig_pool).await.expect("Failed to select market details.");
+        let markets = select_market_details(&self.ig_pool)
+            .await
+            .expect("Failed to select market details.");
         let sql = r#"
             INSERT INTO markets (
                 market_id, exchange_name, market_name, market_type, base_currency,
@@ -529,5 +535,143 @@ impl Inquisidor {
     pub async fn migrate_frequent_tables(self) {
         // Shut down all instances and migrate the frequently update tables
         // candle_validations, candles_15t_ftx, candles_15t_gdax, events
+        println!("Migrating candle_validations.");
+        let sql = r#"
+            SELECT * FROM candle_validations
+            "#;
+        let candle_validations = sqlx::query_as::<_, CandleValidation>(sql)
+            .fetch_all(&self.ig_pool)
+            .await
+            .expect("Failed to select candle validations.");
+        let sql = r#"
+            INSERT INTO candle_validations (
+                exchange_name, market_id, datetime, duration, validation_type, created_ts,
+                processed_ts, validation_status, notes)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (exchange_name, market_id, datetime, duration) DO NOTHING
+            "#;
+        for cv in candle_validations.iter() {
+            sqlx::query(sql)
+                .bind(cv.exchange_name.as_str())
+                .bind(cv.market_id)
+                .bind(cv.datetime)
+                .bind(cv.duration)
+                .bind(cv.validation_type.as_str())
+                .bind(cv.created_ts)
+                .bind(cv.processed_ts)
+                .bind(cv.validation_status.as_str())
+                .bind(&cv.notes)
+                .execute(&self.new_ig_pool)
+                .await
+                .expect("Failed to insert candle_validation.");
+        }
+        println!("Migrating ftx candles.");
+        let sql = r#"
+            SELECT * from candles_15t_ftx
+            "#;
+        let ftx_candles = sqlx::query_as::<_, Candle>(sql)
+            .fetch_all(&self.ig_pool)
+            .await
+            .expect("Failed to select FTX candles.");
+        let sql = r#"
+                INSERT INTO candles_15T_ftx (
+                    datetime, open, high, low, close, volume, volume_net, volume_liquidation, value, 
+                    trade_count, liquidation_count, last_trade_ts, last_trade_id, is_validated, 
+                    market_id, first_trade_ts, first_trade_id)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+            "#;
+        for candle in ftx_candles.iter() {
+            sqlx::query(sql)
+                .bind(candle.datetime)
+                .bind(candle.open)
+                .bind(candle.high)
+                .bind(candle.low)
+                .bind(candle.close)
+                .bind(candle.volume)
+                .bind(candle.volume_net)
+                .bind(candle.volume_liquidation)
+                .bind(candle.value)
+                .bind(candle.trade_count)
+                .bind(candle.liquidation_count)
+                .bind(candle.last_trade_ts)
+                .bind(&candle.last_trade_id)
+                .bind(candle.is_validated)
+                .bind(candle.market_id)
+                .bind(candle.first_trade_ts)
+                .bind(&candle.first_trade_id)
+                .execute(&self.new_ig_pool)
+                .await
+                .expect("Failed to insert ftx candle.");
+        }
+        println!("Migrating gdax candles.");
+        let sql = r#"
+            SELECT * from candles_15t_gdax
+            "#;
+        let ftx_candles = sqlx::query_as::<_, Candle>(sql)
+            .fetch_all(&self.ig_pool)
+            .await
+            .expect("Failed to select GDAX candles.");
+        let sql = r#"
+                INSERT INTO candles_15T_gdax (
+                    datetime, open, high, low, close, volume, volume_net, volume_liquidation, value, 
+                    trade_count, liquidation_count, last_trade_ts, last_trade_id, is_validated, 
+                    market_id, first_trade_ts, first_trade_id)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+            "#;
+        for candle in ftx_candles.iter() {
+            sqlx::query(sql)
+                .bind(candle.datetime)
+                .bind(candle.open)
+                .bind(candle.high)
+                .bind(candle.low)
+                .bind(candle.close)
+                .bind(candle.volume)
+                .bind(candle.volume_net)
+                .bind(candle.volume_liquidation)
+                .bind(candle.value)
+                .bind(candle.trade_count)
+                .bind(candle.liquidation_count)
+                .bind(candle.last_trade_ts)
+                .bind(&candle.last_trade_id)
+                .bind(candle.is_validated)
+                .bind(candle.market_id)
+                .bind(candle.first_trade_ts)
+                .bind(&candle.first_trade_id)
+                .execute(&self.new_ig_pool)
+                .await
+                .expect("Failed to insert ftx candle.");
+        }
+        println!("Migrating events.");
+        let sql = r#"
+            SELECT * FROM events
+            "#;
+        let events = sqlx::query_as::<_, Event>(sql)
+            .fetch_all(&self.ig_pool)
+            .await
+            .expect("Failed to fetch events.");
+        let sql = r#"
+            INSERT INTO events (
+                event_id, droplet, event_type, exchange_name, market_id, start_ts, end_ts, event_ts, created_ts,
+                processed_ts, event_status, notes)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            "#;
+        for event in events.iter() {
+            sqlx::query(sql)
+                .bind(event.event_id)
+                .bind(&event.droplet)
+                .bind(event.event_type.as_str())
+                .bind(event.exchange_name.as_str())
+                .bind(event.market_id)
+                .bind(event.start_ts)
+                .bind(event.end_ts)
+                .bind(event.event_ts)
+                .bind(event.created_ts)
+                .bind(event.processed_ts)
+                .bind(event.event_status.as_str())
+                .bind(&event.notes)
+                .execute(&self.new_ig_pool)
+                .await
+                .expect("failed to insert event");
+        }
     }
 }

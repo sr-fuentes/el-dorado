@@ -14,7 +14,7 @@ use sqlx::PgPool;
 use std::convert::TryFrom;
 use uuid::Uuid;
 
-#[derive(Debug)]
+#[derive(Debug, sqlx::FromRow)]
 pub struct Event {
     pub event_id: Uuid,
     pub droplet: String,
