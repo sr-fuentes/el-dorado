@@ -197,6 +197,72 @@
       ]
     }
   },
+  "5b2fbbe3e75e014681d37fcc3bab32d8215f44d1c10d5dbb0ca456b0cd660c5d": {
+    "query": "\n            SELECT exchange_name as \"exchange_name: ExchangeName\",\n                market_id, datetime, duration,\n                validation_type as \"validation_type: ValidationType\",\n                created_ts, processed_ts,\n                validation_status as \"validation_status: ValidationStatus\",\n                notes\n            FROM candle_validations\n            ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "exchange_name: ExchangeName",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 1,
+          "name": "market_id",
+          "type_info": "Uuid"
+        },
+        {
+          "ordinal": 2,
+          "name": "datetime",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 3,
+          "name": "duration",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 4,
+          "name": "validation_type: ValidationType",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 5,
+          "name": "created_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 6,
+          "name": "processed_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 7,
+          "name": "validation_status: ValidationStatus",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 8,
+          "name": "notes",
+          "type_info": "Text"
+        }
+      ],
+      "parameters": {
+        "Left": []
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        false,
+        true
+      ]
+    }
+  },
   "62877fe9a19159ae96d2a4a169ff4f7ccca4fd306e80dca97559c6638f73e432": {
     "query": "\n        SELECT exchange_id as id, exchange_name as \"name: ExchangeName\"\n        FROM exchanges\n        WHERE exchange_status = $1\n        ",
     "describe": {
@@ -1066,6 +1132,90 @@
         ]
       },
       "nullable": []
+    }
+  },
+  "e1c4d7694d8fede85ef09ecc6eecac4834e86829345d60381d92dc0848c4ca32": {
+    "query": "\n            SELECT event_id, droplet,\n            event_type as \"event_type: EventType\",\n            exchange_name as \"exchange_name: ExchangeName\",\n            market_id, start_ts, end_ts, event_ts, created_ts, processed_ts,\n            event_status as \"event_status: EventStatus\", \n            notes\n        FROM events\n        ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "event_id",
+          "type_info": "Uuid"
+        },
+        {
+          "ordinal": 1,
+          "name": "droplet",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 2,
+          "name": "event_type: EventType",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 3,
+          "name": "exchange_name: ExchangeName",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "market_id",
+          "type_info": "Uuid"
+        },
+        {
+          "ordinal": 5,
+          "name": "start_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 6,
+          "name": "end_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 7,
+          "name": "event_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 8,
+          "name": "created_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 9,
+          "name": "processed_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 10,
+          "name": "event_status: EventStatus",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 11,
+          "name": "notes",
+          "type_info": "Text"
+        }
+      ],
+      "parameters": {
+        "Left": []
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        false,
+        false,
+        true,
+        false,
+        true
+      ]
     }
   },
   "f3967211ce620f27550d7b6fa46d8842c8e33e8701da6c1fbbda54e46e450f3e": {
