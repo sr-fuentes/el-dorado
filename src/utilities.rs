@@ -3,7 +3,7 @@ use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use std::env;
 use std::io::{self, Write};
-use twilio::Client;
+use twilio::{Client, OutboundMessage};
 
 pub struct Twilio {
     pub client: Client,
@@ -17,7 +17,7 @@ impl Default for Twilio {
     }
 }
 
-impl Twilio {        
+impl Twilio {
     pub fn new() -> Self {
         let account_sid = match env::var("TWILIO_ACCOUNT_SID") {
             Ok(val) => val,
@@ -41,6 +41,21 @@ impl Twilio {
             to_number,
             from_number,
         }
+    }
+
+    pub async fn send_sms(&self, message: &str) {
+        match self
+            .client
+            .send_message(OutboundMessage::new(
+                &self.from_number,
+                &self.to_number,
+                message,
+            ))
+            .await
+        {
+            Ok(m) => println!("{:?}", m),
+            Err(e) => eprintln!("{:?}", e),
+        };
     }
 }
 
