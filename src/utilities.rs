@@ -1,7 +1,63 @@
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
+use std::env;
 use std::io::{self, Write};
+use twilio::{Client, OutboundMessage};
+
+pub struct Twilio {
+    pub client: Client,
+    pub to_number: String,
+    pub from_number: String,
+}
+
+impl Default for Twilio {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Twilio {
+    pub fn new() -> Self {
+        let account_sid = match env::var("TWILIO_ACCOUNT_SID") {
+            Ok(val) => val,
+            Err(_) => panic!("No TWILIO_ACCOUNT_SID found in env."),
+        };
+        let auth_token = match env::var("TWILIO_AUTH_TOKEN") {
+            Ok(val) => val,
+            Err(_) => panic!("No TWILIO_ACCOUNT_SID found in env."),
+        };
+        let to_number = match env::var("MY_PHONE_NUMBER") {
+            Ok(val) => val,
+            Err(_) => panic!("No MY_PHONE_NUMBER found in env."),
+        };
+        let from_number = match env::var("MY_TWILIO_NUMBER") {
+            Ok(val) => val,
+            Err(_) => panic!("No MY_TWILIO_NUMBER found in env."),
+        };
+        let client = Client::new(&account_sid, &auth_token);
+        Self {
+            client,
+            to_number,
+            from_number,
+        }
+    }
+
+    pub async fn send_sms(&self, message: &str) {
+        match self
+            .client
+            .send_message(OutboundMessage::new(
+                &self.from_number,
+                &self.to_number,
+                message,
+            ))
+            .await
+        {
+            Ok(m) => println!("{:?}", m),
+            Err(e) => eprintln!("{:?}", e),
+        };
+    }
+}
 
 pub fn get_input<U: std::str::FromStr>(prompt: &str) -> U {
     loop {
@@ -75,6 +131,7 @@ pub trait Market {
 #[cfg(test)]
 mod tests {
     use crate::exchanges::ftx::Trade;
+    use crate::utilities::Twilio;
     use chrono::{Duration, DurationRound, TimeZone, Utc};
     use rust_decimal::prelude::*;
     use rust_decimal_macros::dec;
@@ -173,5 +230,12 @@ mod tests {
 
         //         v.push(candle);
         //     });
+    }
+
+    #[tokio::test]
+    pub async fn test_sms_send() {
+        let client = Twilio::new();
+        let message = "Test rust / twilio sms send.";
+        client.send_sms(message).await;
     }
 }

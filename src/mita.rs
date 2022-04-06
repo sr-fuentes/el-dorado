@@ -11,12 +11,13 @@ use crate::trades::{
     insert_delete_ftx_trades, insert_delete_gdax_trades, select_ftx_trades_by_time,
     select_gdax_trades_by_time, select_insert_drop_trades,
 };
+use crate::utilities::Twilio;
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal::Decimal;
 use sqlx::PgPool;
 use std::collections::HashMap;
 
-#[derive(Debug)]
+//#[derive(Debug)]
 pub struct Mita {
     pub settings: Settings,
     pub markets: Vec<MarketDetail>,
@@ -27,6 +28,7 @@ pub struct Mita {
     pub last_restart: DateTime<Utc>,
     pub restart_count: i8,
     pub hbtf: TimeFrame,
+    pub twilio: Twilio,
 }
 
 #[derive(Debug)]
@@ -72,6 +74,8 @@ impl Mita {
         )
         .await
         .expect("Could not select market details from exchange.");
+        // Create twilio client
+        let client = Twilio::new();
         Self {
             settings,
             markets,
@@ -82,6 +86,7 @@ impl Mita {
             last_restart: Utc::now(),
             restart_count: 0,
             hbtf: TimeFrame::time_frames()[0], // Sets hb to lowest tf
+            twilio: client,
         }
     }
 
@@ -531,12 +536,6 @@ impl Mita {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[tokio::test]
-    async fn create_new_mita() {
-        let mita = Mita::new().await;
-        println!("Mita: {:?}", mita);
-    }
 
     #[tokio::test]
     async fn create_heartbeat_returns_resampled_candles() {
