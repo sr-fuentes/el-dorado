@@ -131,6 +131,7 @@ pub trait Market {
 #[cfg(test)]
 mod tests {
     use crate::exchanges::ftx::Trade;
+    use crate::utilities::Twilio;
     use chrono::{Duration, DurationRound, TimeZone, Utc};
     use rust_decimal::prelude::*;
     use rust_decimal_macros::dec;
@@ -229,5 +230,12 @@ mod tests {
 
         //         v.push(candle);
         //     });
+    }
+
+    #[tokio::test]
+    pub async fn test_sms_send() {
+        let client = Twilio::new();
+        let message = "Test rust / twilio sms send.";
+        client.send_sms(message).await;
     }
 }
