@@ -4,6 +4,7 @@ use crate::trades::{insert_ftx_trade, insert_gdax_trade};
 use futures::StreamExt;
 use std::collections::HashMap;
 use std::io::ErrorKind;
+use tokio_tungstenite::tungstenite::error::ProtocolError;
 
 impl Mita {
     pub async fn stream(&self) -> bool {
@@ -79,6 +80,18 @@ impl Mita {
                             break false;
                         }
                     },
+                    tokio_tungstenite::tungstenite::Error::Protocol(err) => match err {
+                        ProtocolError::SendAfterClosing => {
+                            println!("Error Kind: Protocol SendAfterClosing.");
+                            println!("to_string(): {:?}", err.to_string());
+                            break true;
+                        },
+                        _ => {
+                            println!("Other WSError::Tungstenite protocol error {:?}", err);
+                            println!("to_string(): {:?}", err.to_string());
+                            panic!();
+                        }
+                    }
                     _ => {
                         println!("Other WSError::Tungstenite error {:?}", e);
                         println!("to_string(): {:?}", e.to_string());
