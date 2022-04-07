@@ -29,9 +29,18 @@ impl Mita {
             .await
             .expect("Failed to connect to ws.");
         // Subscribe to trades channels for each market
-        ws.subscribe(channels)
-            .await
-            .expect("Could not subscribe to each market.");
+        match ws.subscribe(channels).await {
+            Ok(_) => {},
+            Err(WsError::MissingSubscriptionConfirmation) => {
+                println!("Missing subscription confirmation, sleep 5s and restart.");
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                return true
+            },
+            Err(e) => {
+                println!("Subscription error: {:?}", e);
+                return false
+            },
+        };
         // Loop forever writing each trade to the database
         loop {
             let data = ws.next().await.expect("No data received.");
