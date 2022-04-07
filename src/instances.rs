@@ -8,9 +8,9 @@ pub struct Instance {
     pub droplet: String,
     pub exchange_name: ExchangeName,
     pub instance_status: InstanceStatus,
-    pub restart: bool,
-    pub last_retart_ts: DateTime<Utc>,
-    pub restart_count: i32,
+    pub restart: Option<bool>,
+    pub last_retart_ts: Option<DateTime<Utc>>,
+    pub restart_count: Option<i32>,
     pub num_markets: i32,
     pub last_update_ts: DateTime<Utc>,
 }
@@ -80,9 +80,45 @@ impl TryFrom<String> for InstanceStatus {
     }
 }
 
-pub async fn insert_or_update_instance_mita(pool: &PgPool, mita: &Mita) {}
+pub async fn insert_or_update_instance_mita(pool: &PgPool, mita: &Mita) -> Result<(), sqlx::Error> {
+    let sql = r#"
+        INSERT INTO instances (
+            instance_type, droplet, exchange_name, instance_status, restart, last_restart_ts,
+            restart_count, num_markets, last_update_ts)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        "#;
+    sqlx::query(sql)
+        .bind(InstanceType::Mita.as_str())
+        .bind(&mita.settings.application.droplet)
+        .bind(mita.exchange.name.as_str())
+        .bind(InstanceStatus::Sync.as_str())
+        .bind(mita.restart)
+        .bind(mita.last_restart)
+        .bind(mita.restart_count)
+        .bind(mita.markets.len() as i32)
+        .bind(Utc::now())
+        .execute(pool)
+        .await?;
+    Ok(())
+}
 
-pub async fn insert_or_update_instance_ig(pool: &PgPool, ig: &Inquisidor) {}
+pub async fn insert_or_update_instance_ig(pool: &PgPool, ig: &Inquisidor, n: i32) -> Result<(), sqlx::Error> {
+    let sql = r#"
+        INSERT INTO instances (
+            instance_type, droplet, instance_status, restart, num_markets, last_update_ts)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        "#;
+    sqlx::query(sql)
+        .bind(InstanceType::Ig.as_str())
+        .bind(&ig.settings.application.droplet)
+        .bind(InstanceStatus::Sync.as_str())
+        .bind(false)
+        .bind(n)
+        .bind(Utc::now())
+        .execute(pool)
+        .await?;
+    Ok(())
+}
 
 pub async fn update_instance_status(
     pool: &PgPool,
