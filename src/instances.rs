@@ -86,6 +86,12 @@ pub async fn insert_or_update_instance_mita(pool: &PgPool, mita: &Mita) -> Resul
             instance_type, droplet, exchange_name, instance_status, restart, last_restart_ts,
             restart_count, num_markets, last_update_ts)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ON CONFLICT (droplet, exchange_name)
+        DO
+            UPDATE SET (instance_status, restart, last_restart, restart_count, num_markets,
+                last_update_ts) = (EXCLUDED.instance_status, EXCLUDED.restart,
+                EXCLUDED.last_restart, EXCLUDED.restart_count, EXCLUDED.num_markets,
+                EXCLUDED.last_update_ts)
         "#;
     sqlx::query(sql)
         .bind(InstanceType::Mita.as_str())
@@ -107,6 +113,10 @@ pub async fn insert_or_update_instance_ig(pool: &PgPool, ig: &Inquisidor, n: i32
         INSERT INTO instances (
             instance_type, droplet, instance_status, restart, num_markets, last_update_ts)
         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (droplet)
+        DO UPDATE
+        SET (instance_status, num_markets, last_update_ts) = (EXCLUDED.instance_status,
+            EXCLUDED.num_markets, EXCLUDED.last_update_tsMa)
         "#;
     sqlx::query(sql)
         .bind(InstanceType::Ig.as_str())
