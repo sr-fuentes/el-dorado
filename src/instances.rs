@@ -6,7 +6,7 @@ use std::convert::{TryFrom, TryInto};
 pub struct Instance {
     pub instance_type: InstanceType,
     pub droplet: String,
-    pub exchange_name: ExchangeName,
+    pub exchange_name: Option<ExchangeName>,
     pub instance_status: InstanceStatus,
     pub restart: Option<bool>,
     pub last_retart_ts: Option<DateTime<Utc>>,
