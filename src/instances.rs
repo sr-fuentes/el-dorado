@@ -46,6 +46,7 @@ impl TryFrom<String> for InstanceType {
 #[derive(Debug, Clone, Copy, sqlx::Type)]
 #[sqlx(rename_all = "lowercase")]
 pub enum InstanceStatus {
+    New,
     Sync,
     Active,
     Restart,
@@ -56,6 +57,7 @@ pub enum InstanceStatus {
 impl InstanceStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
+            InstanceStatus::New => "new",
             InstanceStatus::Sync => "sync",
             InstanceStatus::Active => "active",
             InstanceStatus::Restart => "restart",
@@ -70,6 +72,7 @@ impl TryFrom<String> for InstanceStatus {
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
         match s.to_lowercase().as_str() {
+            "new" => Ok(Self::New),
             "sync" => Ok(Self::Sync),
             "active" => Ok(Self::Active),
             "restart" => Ok(Self::Restart),
@@ -77,6 +80,35 @@ impl TryFrom<String> for InstanceStatus {
             "terminated" => Ok(Self::Terminated),
             other => Err(format!("{} is not a supported instance status.", other)),
         }
+    }
+}
+
+impl Mita {
+    pub async fn insert_instance(&self) {
+        insert_or_update_instance_mita(self)
+            .await
+            .expect("Failed to insert mita instance.");
+    }
+
+    pub async fn update_instance_status(&self, status: &InstanceStatus) {
+        update_instance_status(
+            &self.ed_pool,
+            &self.settings.application.droplet,
+            Some(&self.exchange.name),
+            status,
+        )
+        .await
+        .expect("Failed to update status.");
+    }
+
+    pub async fn update_instance_last(&self) {
+        update_instance_last_updated(
+            &self.ed_pool,
+            &self.settings.application.droplet,
+            Some(&self.exchange.name),
+        )
+        .await
+        .expect("Failed to update last updated.");
     }
 }
 
@@ -97,7 +129,7 @@ pub async fn insert_or_update_instance_mita(mita: &Mita) -> Result<(), sqlx::Err
         .bind(InstanceType::Mita.as_str())
         .bind(&mita.settings.application.droplet)
         .bind(mita.exchange.name.as_str())
-        .bind(InstanceStatus::Sync.as_str())
+        .bind(InstanceStatus::New.as_str())
         .bind(mita.restart)
         .bind(mita.last_restart)
         .bind(mita.restart_count as i32)
