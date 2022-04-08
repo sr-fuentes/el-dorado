@@ -30,16 +30,16 @@ impl Mita {
             .expect("Failed to connect to ws.");
         // Subscribe to trades channels for each market
         match ws.subscribe(channels).await {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(WsError::MissingSubscriptionConfirmation) => {
                 println!("Missing subscription confirmation, sleep 5s and restart.");
                 tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                return true
-            },
+                return true;
+            }
             Err(e) => {
                 println!("Subscription error: {:?}", e);
-                return false
-            },
+                return false;
+            }
         };
         // Loop forever writing each trade to the database
         loop {
@@ -94,13 +94,13 @@ impl Mita {
                             println!("Error Kind: Protocol SendAfterClosing.");
                             println!("to_string(): {:?}", err.to_string());
                             break true;
-                        },
+                        }
                         _ => {
                             println!("Other WSError::Tungstenite protocol error {:?}", err);
                             println!("to_string(): {:?}", err.to_string());
                             panic!();
                         }
-                    }
+                    },
                     _ => {
                         println!("Other WSError::Tungstenite error {:?}", e);
                         println!("to_string(): {:?}", e.to_string());
