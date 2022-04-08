@@ -1,6 +1,6 @@
 use chrono::Utc;
 use clap::App;
-use el_dorado::{inquisidor::Inquisidor, mita::Mita};
+use el_dorado::{inquisidor::Inquisidor, instances::InstanceStatus, mita::Mita};
 
 #[tokio::main]
 async fn main() {
@@ -44,6 +44,7 @@ async fn main() {
         Some("run") => {
             // Create new mita instance and run stream and backfill until no restart
             let mut mita = Mita::new().await;
+            mita.insert_instance().await;
             // Restart loop if the mita restart value is true, else exit program
             while mita.restart {
                 // Set restart value to false, error handling must explicity set back to true
@@ -54,8 +55,8 @@ async fn main() {
                     res1 = mita.run() => res1,
                     res2 = mita.stream() => res2,
                 };
-                println!("Res: {:?}", restart);
                 if restart {
+                    mita.update_instance_status(&InstanceStatus::Restart).await;
                     let dur = mita.process_restart().await;
                     mita.last_restart = Utc::now();
                     if dur > chrono::Duration::days(1) {
@@ -75,6 +76,13 @@ async fn main() {
             mita.reset_trade_tables(&["rest"]).await;
             mita.create_trade_tables(&["processed", "validated"]).await;
             mita.historical("eod").await;
+            let message = format!(
+                "{} {} historical backfill complete.",
+                mita.settings.application.droplet,
+                mita.exchange.name.as_str()
+            );
+            mita.twilio.send_sms(&message).await;
+
         }
         Some("manage") => {
             // Create new admin instance and refresh exchange
