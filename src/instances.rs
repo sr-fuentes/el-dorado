@@ -80,7 +80,7 @@ impl TryFrom<String> for InstanceStatus {
     }
 }
 
-pub async fn insert_or_update_instance_mita(pool: &PgPool, mita: &Mita) -> Result<(), sqlx::Error> {
+pub async fn insert_or_update_instance_mita(mita: &Mita) -> Result<(), sqlx::Error> {
     let sql = r#"
         INSERT INTO instances (
             instance_type, droplet, exchange_name, instance_status, restart, last_restart_ts,
@@ -103,12 +103,16 @@ pub async fn insert_or_update_instance_mita(pool: &PgPool, mita: &Mita) -> Resul
         .bind(mita.restart_count)
         .bind(mita.markets.len() as i32)
         .bind(Utc::now())
-        .execute(pool)
+        .execute(&mita.ed_pool)
         .await?;
     Ok(())
 }
 
-pub async fn insert_or_update_instance_ig(pool: &PgPool, ig: &Inquisidor, n: i32) -> Result<(), sqlx::Error> {
+pub async fn insert_or_update_instance_ig(
+    pool: &PgPool,
+    ig: &Inquisidor,
+    n: i32,
+) -> Result<(), sqlx::Error> {
     let sql = r#"
         INSERT INTO instances (
             instance_type, droplet, instance_status, restart, num_markets, last_update_ts)
@@ -143,26 +147,26 @@ pub async fn update_instance_status(
             SET (instance_status, last_updated_ts) = ($1, $2)
             WHERE droplet = $3 AND exchange_name = $4
             "#;
-        sqlx::query(sql)
-            .bind(status.as_str())
-            .bind(Utc::now())
-            .bind(droplet)
-            .bind(e.as_str())
-            .execute(pool)
-            .await?;
-        },
+            sqlx::query(sql)
+                .bind(status.as_str())
+                .bind(Utc::now())
+                .bind(droplet)
+                .bind(e.as_str())
+                .execute(pool)
+                .await?;
+        }
         None => {
             let sql = r#"
             UPDATE instances
             SET (instance_status, last_updated_ts) = ($1, $2)
             WHERE droplet = $3
             "#;
-        sqlx::query(sql)
-            .bind(status.as_str())
-            .bind(Utc::now())
-            .bind(droplet)
-            .execute(pool)
-            .await?;
+            sqlx::query(sql)
+                .bind(status.as_str())
+                .bind(Utc::now())
+                .bind(droplet)
+                .execute(pool)
+                .await?;
         }
     }
     Ok(())
@@ -180,24 +184,24 @@ pub async fn update_instance_last_updated(
             SET last_updated_ts = $1
             WHERE droplet = $2 AND exchange_name = $3
             "#;
-        sqlx::query(sql)
-            .bind(Utc::now())
-            .bind(droplet)
-            .bind(e.as_str())
-            .execute(pool)
-            .await?;
-        },
+            sqlx::query(sql)
+                .bind(Utc::now())
+                .bind(droplet)
+                .bind(e.as_str())
+                .execute(pool)
+                .await?;
+        }
         None => {
             let sql = r#"
             UPDATE instances
             SET last_updated_ts = $1
             WHERE droplet = $2
             "#;
-        sqlx::query(sql)
-            .bind(Utc::now())
-            .bind(droplet)
-            .execute(pool)
-            .await?;
+            sqlx::query(sql)
+                .bind(Utc::now())
+                .bind(droplet)
+                .execute(pool)
+                .await?;
         }
     }
     Ok(())
@@ -218,4 +222,90 @@ pub async fn select_instances(pool: &PgPool) -> Result<Vec<Instance>, sqlx::Erro
     .fetch_all(pool)
     .await?;
     Ok(rows)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::instances::*;
+    use crate::mita::Mita;
+    use crate::utilities::get_input;
+
+    #[tokio::test]
+    pub async fn insert_mita_instance() {
+        let mita = Mita::new().await;
+        // Clear table
+        let sql = r#"DELETE FROM instances WHERE 1=1"#;
+        sqlx::query(sql)
+            .execute(&mita.ed_pool)
+            .await
+            .expect("Failed to clear isntances table.");
+        // Insert mita
+        insert_or_update_instance_mita(&mita)
+            .await
+            .expect("Failed to insert/update mita.");
+    }
+
+    #[tokio::test]
+    pub async fn insert_conflict_update_mita_instance() {
+        let mita = Mita::new().await;
+        // Clear table
+        let sql = r#"DELETE FROM instances WHERE 1=1"#;
+        sqlx::query(sql)
+            .execute(&mita.ed_pool)
+            .await
+            .expect("Failed to clear isntances table.");
+        // Insert mita
+        insert_or_update_instance_mita(&mita)
+            .await
+            .expect("Failed to insert/update mita.");
+        let input: String = get_input("Press enter to continue: ");
+        insert_or_update_instance_mita(&mita)
+            .await
+            .expect("Failed to insert/update mita.");
+    }
+
+    #[tokio::test]
+    pub async fn update_mita_instance_status() {
+        let mita = Mita::new().await;
+        // Clear table
+        let sql = r#"DELETE FROM instances WHERE 1=1"#;
+        sqlx::query(sql)
+            .execute(&mita.ed_pool)
+            .await
+            .expect("Failed to clear isntances table.");
+        // Insert mita
+        insert_or_update_instance_mita(&mita)
+            .await
+            .expect("Failed to insert/update mita.");
+        update_instance_status(
+            &mita.ed_pool,
+            &mita.settings.application.droplet,
+            Some(&mita.exchange.name),
+            &InstanceStatus::Terminated,
+        )
+        .await
+        .expect("Failed to update instance status.");
+    }
+
+    #[tokio::test]
+    pub async fn update_mita_instance_last_update() {
+        let mita = Mita::new().await;
+        // Clear table
+        let sql = r#"DELETE FROM instances WHERE 1=1"#;
+        sqlx::query(sql)
+            .execute(&mita.ed_pool)
+            .await
+            .expect("Failed to clear isntances table.");
+        // Insert mita
+        insert_or_update_instance_mita(&mita)
+            .await
+            .expect("Failed to insert/update mita.");
+        update_instance_last_updated(
+            &mita.ed_pool,
+            &mita.settings.application.droplet,
+            Some(&mita.exchange.name),
+        )
+        .await
+        .expect("Failed to update last upadted.");
+    }
 }
