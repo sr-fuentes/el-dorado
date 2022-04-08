@@ -144,7 +144,7 @@ pub async fn update_instance_status(
         Some(e) => {
             let sql = r#"
             UPDATE instances
-            SET (instance_status, last_updated_ts) = ($1, $2)
+            SET (instance_status, last_update_ts) = ($1, $2)
             WHERE droplet = $3 AND exchange_name = $4
             "#;
             sqlx::query(sql)
@@ -158,7 +158,7 @@ pub async fn update_instance_status(
         None => {
             let sql = r#"
             UPDATE instances
-            SET (instance_status, last_updated_ts) = ($1, $2)
+            SET (instance_status, last_update_ts) = ($1, $2)
             WHERE droplet = $3
             "#;
             sqlx::query(sql)
@@ -181,7 +181,7 @@ pub async fn update_instance_last_updated(
         Some(e) => {
             let sql = r#"
             UPDATE instances
-            SET last_updated_ts = $1
+            SET last_update_ts = $1
             WHERE droplet = $2 AND exchange_name = $3
             "#;
             sqlx::query(sql)
@@ -194,7 +194,7 @@ pub async fn update_instance_last_updated(
         None => {
             let sql = r#"
             UPDATE instances
-            SET last_updated_ts = $1
+            SET last_update_ts = $1
             WHERE droplet = $2
             "#;
             sqlx::query(sql)
