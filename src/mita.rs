@@ -165,6 +165,8 @@ impl Mita {
             let events_processed = self.process_events(events_ts).await;
             if events_processed {
                 events_ts = Utc::now();
+                // Update last -- events are processed every 1 minute.
+                self.update_instance_last().await;
             };
             // Reload heartbeats if needed (ie when a candle validation is updated)
             // Sleep for 200 ms to give control back to tokio scheduler
