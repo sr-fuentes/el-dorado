@@ -1,5 +1,71 @@
 {
   "db": "PostgreSQL",
+  "15123b00d03de8d620685a51c9f452a14198994ecdc947ff4070565b720bf31e": {
+    "query": "\n        SELECT instance_type as \"instance_type: InstanceType\",\n            droplet,\n            exchange_name as \"exchange_name: Option<ExchangeName>\",\n            instance_status as \"instance_status: InstanceStatus\",\n            restart, last_restart_ts, restart_count, num_markets, last_update_ts\n        FROM instances\n        ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "instance_type: InstanceType",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 1,
+          "name": "droplet",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 2,
+          "name": "exchange_name: Option<ExchangeName>",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 3,
+          "name": "instance_status: InstanceStatus",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "restart",
+          "type_info": "Bool"
+        },
+        {
+          "ordinal": 5,
+          "name": "last_restart_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 6,
+          "name": "restart_count",
+          "type_info": "Int4"
+        },
+        {
+          "ordinal": 7,
+          "name": "num_markets",
+          "type_info": "Int4"
+        },
+        {
+          "ordinal": 8,
+          "name": "last_update_ts",
+          "type_info": "Timestamptz"
+        }
+      ],
+      "parameters": {
+        "Left": []
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        false,
+        false
+      ]
+    }
+  },
   "19633af280ca51aa23c9a1e7e37756de61588b470ca63a59dc10c1770eda70a6": {
     "query": "\n        SELECT exchange_id as id, exchange_name as \"name: ExchangeName\"\n        FROM exchanges\n        ",
     "describe": {

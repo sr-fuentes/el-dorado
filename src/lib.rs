@@ -6,6 +6,7 @@ pub mod events;
 pub mod exchanges;
 pub mod historical;
 pub mod inquisidor;
+pub mod instances;
 pub mod markets;
 pub mod metrics;
 pub mod mita;

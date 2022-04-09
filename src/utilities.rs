@@ -3,10 +3,10 @@ use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use std::env;
 use std::io::{self, Write};
-use twilio::{Client, OutboundMessage};
+use twilio::{TwilioClient, OutboundMessage};
 
 pub struct Twilio {
-    pub client: Client,
+    pub client: TwilioClient,
     pub to_number: String,
     pub from_number: String,
 }
@@ -35,7 +35,7 @@ impl Twilio {
             Ok(val) => val,
             Err(_) => panic!("No MY_TWILIO_NUMBER found in env."),
         };
-        let client = Client::new(&account_sid, &auth_token);
+        let client = TwilioClient::new(&account_sid, &auth_token);
         Self {
             client,
             to_number,

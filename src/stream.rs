@@ -4,6 +4,7 @@ use crate::trades::{insert_ftx_trade, insert_gdax_trade};
 use futures::StreamExt;
 use std::collections::HashMap;
 use std::io::ErrorKind;
+use tokio_tungstenite::tungstenite::error::ProtocolError;
 
 impl Mita {
     pub async fn stream(&self) -> bool {
@@ -28,9 +29,18 @@ impl Mita {
             .await
             .expect("Failed to connect to ws.");
         // Subscribe to trades channels for each market
-        ws.subscribe(channels)
-            .await
-            .expect("Could not subscribe to each market.");
+        match ws.subscribe(channels).await {
+            Ok(_) => {}
+            Err(WsError::MissingSubscriptionConfirmation) => {
+                println!("Missing subscription confirmation, sleep 5s and restart.");
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                return true;
+            }
+            Err(e) => {
+                println!("Subscription error: {:?}", e);
+                return false;
+            }
+        };
         // Loop forever writing each trade to the database
         loop {
             let data = ws.next().await.expect("No data received.");
@@ -77,6 +87,18 @@ impl Mita {
                             println!("Other Error Kind: {:?}.", ioerr.kind());
                             println!("to_string(): {:?}", ioerr.to_string());
                             break false;
+                        }
+                    },
+                    tokio_tungstenite::tungstenite::Error::Protocol(err) => match err {
+                        ProtocolError::SendAfterClosing => {
+                            println!("Error Kind: Protocol SendAfterClosing.");
+                            println!("to_string(): {:?}", err.to_string());
+                            break true;
+                        }
+                        _ => {
+                            println!("Other WSError::Tungstenite protocol error {:?}", err);
+                            println!("to_string(): {:?}", err.to_string());
+                            panic!();
                         }
                     },
                     _ => {

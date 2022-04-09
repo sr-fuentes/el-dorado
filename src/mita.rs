@@ -114,6 +114,8 @@ impl Mita {
     }
 
     pub async fn run(&self) -> bool {
+        self.update_instance_status(&crate::instances::InstanceStatus::Sync)
+            .await;
         // Backfill trades from last candle to first trade of live stream
         self.historical("stream").await;
         // Sync from last candle to current stream last trade
@@ -124,6 +126,8 @@ impl Mita {
         // Loop forever making a new candle at each new interval
         // println!("Heartbeats: {:?}", heartbeats);
         println!("Starting MITA loop.");
+        self.update_instance_status(&crate::instances::InstanceStatus::Active)
+            .await;
         loop {
             // Set loop timestamp
             let timestamp = Utc::now().duration_trunc(self.hbtf.as_dur()).unwrap();
@@ -161,6 +165,8 @@ impl Mita {
             let events_processed = self.process_events(events_ts).await;
             if events_processed {
                 events_ts = Utc::now();
+                // Update last -- events are processed every 1 minute.
+                self.update_instance_last().await;
             };
             // Reload heartbeats if needed (ie when a candle validation is updated)
             // Sleep for 200 ms to give control back to tokio scheduler
