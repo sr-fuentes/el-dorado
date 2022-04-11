@@ -44,11 +44,11 @@ async fn main() {
         Some("run") => {
             // Create new mita instance and run stream and backfill until no restart
             let mut mita = Mita::new().await;
-            mita.insert_instance().await;
             // Restart loop if the mita restart value is true, else exit program
             while mita.restart {
                 // Set restart value to false, error handling must explicity set back to true
                 mita.restart = false;
+                mita.insert_instance().await;
                 mita.reset_trade_tables(&["ws", "rest"]).await;
                 mita.create_trade_tables(&["processed", "validated"]).await;
                 let restart = tokio::select! {
