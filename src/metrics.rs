@@ -472,7 +472,7 @@ pub async fn delete_metrics_ap_by_exchange_market(
 pub async fn select_metrics_ap_by_exchange_market(
     pool: &PgPool,
     exchange_name: &ExchangeName,
-    markets: &Vec<String>,
+    markets: Vec<&str>,
 ) -> Result<Vec<MetricAP>, sqlx::Error> {
     let sql = r#"
         SELECT market_name,
@@ -693,13 +693,9 @@ mod tests {
             .await
             .expect("Failed to connect to Postgres.");
         // Create list of market names
-        let markets = vec![
-            "BTC-PERP".to_string(),
-            "ETH-PERP".to_string(),
-            "SOL-PERP".to_string(),
-        ];
+        let markets = vec!["BTC-PERP", "ETH-PERP", "SOL-PERP"];
         // Select metrics for markets
-        let metrics = select_metrics_ap_by_exchange_market(&pool, &ExchangeName::Ftx, &markets)
+        let metrics = select_metrics_ap_by_exchange_market(&pool, &ExchangeName::Ftx, markets)
             .await
             .expect("Failed to select metrics.");
         println!("{:?}", metrics);
