@@ -3,7 +3,7 @@ use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use std::env;
 use std::io::{self, Write};
-use twilio::{TwilioClient, OutboundMessage};
+use twilio::{OutboundMessage, TwilioClient};
 
 pub struct Twilio {
     pub client: TwilioClient,

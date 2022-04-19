@@ -83,7 +83,6 @@ async fn main() {
                 mita.exchange.name.as_str()
             );
             mita.twilio.send_sms(&message).await;
-
         }
         Some("manage") => {
             // Create new admin instance and refresh exchange
