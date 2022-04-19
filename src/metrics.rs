@@ -512,7 +512,7 @@ pub async fn select_metrics_ap_by_exchange_market(
             ofs as ofz, vs as vz, rs as rz, trs as trz, uws as uwz, mbs as bz, lws as lwz
         FROM metrics_ap
         WHERE exchange_name = $1
-        AND market_name IN ($2)
+        AND market_name = ANY($2)
         "#;
     let rows = sqlx::query_as::<_, MetricAP>(sql)
         .bind(exchange_name.as_str())
@@ -681,5 +681,27 @@ mod tests {
         let dons = Metric::dons(&vc, &vc, &vc);
         println!("Closes: {:?}", vc);
         println!("Dons: {:?}", dons);
+    }
+
+    #[tokio::test]
+    pub async fn select_metrics_ap_by_exchange_market_maps_to_struct() {
+        // Load configuration
+        let configuration = get_configuration().expect("Failed to read configuration.");
+        println!("Configuration: {:?}", configuration);
+        // Create db connection
+        let pool = PgPool::connect_with(configuration.ed_db.with_db())
+            .await
+            .expect("Failed to connect to Postgres.");
+        // Create list of market names
+        let markets = vec![
+            "BTC-PERP".to_string(),
+            "ETH-PERP".to_string(),
+            "SOL-PERP".to_string(),
+        ];
+        // Select metrics for markets
+        let metrics = select_metrics_ap_by_exchange_market(&pool, &ExchangeName::Ftx, &markets)
+            .await
+            .expect("Failed to select metrics.");
+        println!("{:?}", metrics);
     }
 }
