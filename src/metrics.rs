@@ -39,7 +39,7 @@ impl TimeFrame {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, sqlx::FromRow)]
 pub struct MetricAP {
     pub market_name: String,
     pub exchange_name: ExchangeName,
@@ -467,6 +467,59 @@ pub async fn delete_metrics_ap_by_exchange_market(
         .execute(pool)
         .await?;
     Ok(())
+}
+
+pub async fn select_metrics_ap_by_exchange_market(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+    markets: &Vec<String>,
+) -> Result<Vec<MetricAP>, sqlx::Error> {
+    let sql = r#"
+        SELECT market_name,
+            exchange_name as "exchange_name: ExchangeName",
+            datetime,
+            time_frame as "time_frame: TimeFrame",
+            lbp, high, low, close, r,
+            h004c,
+            l004c,
+            h004r as h004h,
+            l004r as l004l,
+            h008c,
+            l008c,
+            h008r as h008h,
+            l008r as l008l,
+            h012c,
+            l012c,
+            h012r as h012h,
+            l012r as l012l,
+            h024c,
+            l024c,
+            h024r as h024h,
+            l024r as l024l,
+            h048c,
+            l048c,
+            h048r as h048h,
+            l048r as l048l,
+            h096c,
+            l096c,
+            h096r as h096h,
+            l096r as l096l,
+            h192c,
+            l192c,
+            h192r as h192h,
+            l192r as l192l,
+            ema1, ema2, ema3, mv1, mv2, mv3, n as atr, vw, ma,
+            ofs as ofz, vs as vz, rs as rz, trs as trz, uws as uwz, mbs as bz, lws as lwz
+        FROM metrics_ap
+        WHERE exchange_name = $1
+        AND market_name IN ($2)
+        "#;
+    let rows = sqlx::query_as::<_, MetricAP>(sql)
+        .bind(exchange_name.as_str())
+        .bind(markets)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows)
 }
 
 #[cfg(test)]
