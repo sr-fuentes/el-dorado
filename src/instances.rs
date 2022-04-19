@@ -1,8 +1,11 @@
+use crate::markets::{select_market_detail_by_exchange_mita, MarketDetail};
+use crate::metrics::select_metrics_ap_by_exchange_market;
 use crate::{exchanges::ExchangeName, inquisidor::Inquisidor, mita::Mita};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, DurationRound, Utc};
 use sqlx::PgPool;
 use std::convert::TryFrom;
 
+#[derive(Debug, Clone, PartialEq, sqlx::FromRow)]
 pub struct Instance {
     pub instance_type: InstanceType,
     pub droplet: String,
@@ -15,7 +18,42 @@ pub struct Instance {
     pub last_update_ts: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Copy, sqlx::Type)]
+impl Instance {
+    pub fn time_since_last_update(&self) -> Duration {
+        Utc::now() - self.last_update_ts
+    }
+
+    pub async fn inactive_markets(&self, pool: &PgPool, duration: Duration) -> Vec<MarketDetail> {
+        let im = Vec::new();
+        if self.instance_type == InstanceType::Ig {
+            // Ig covers all market - return empty vec as this fn should be used for mita instances
+            return im;
+        };
+        // Get markets for instance
+        let markets = select_market_detail_by_exchange_mita(
+            pool,
+            &self.exchange_name.unwrap(),
+            &self.droplet,
+        )
+        .await
+        .expect("Failed to select market details by exchange/mita.");
+        // Put market names into list
+        let market_names = markets.iter().map(|m| m.market_name.clone()).collect();
+        // Get metrics
+        let metrics =
+            select_metrics_ap_by_exchange_market(pool, &self.exchange_name.unwrap(), &market_names)
+                .await
+                .expect("Failed to select metrics ap");
+        // Set last expected candle datetime
+        let expected_ts = Utc::now().duration_trunc(duration).unwrap();
+        for market in markets.iter() {
+            // Check last metric versus expected timestamp
+        }
+        im
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, sqlx::Type)]
 #[sqlx(rename_all = "lowercase")]
 pub enum InstanceType {
     Mita,
@@ -43,7 +81,7 @@ impl TryFrom<String> for InstanceType {
     }
 }
 
-#[derive(Debug, Clone, Copy, sqlx::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, sqlx::Type)]
 #[sqlx(rename_all = "lowercase")]
 pub enum InstanceStatus {
     New,
