@@ -1,5 +1,6 @@
 use chrono::Duration;
 
+use crate::candles::TimeFrame;
 use crate::inquisidor::Inquisidor;
 use crate::instances::{select_instances, InstanceStatus};
 
@@ -22,7 +23,11 @@ impl Inquisidor {
                     if instance.time_since_last_update() > Duration::minutes(3) {
                         // Add to alerts
                     };
-                    if !instance.inactive_markets(&self.ig_pool).await.is_empty() {
+                    if !instance
+                        .inactive_markets(&self.ig_pool, TimeFrame::T15.as_dur())
+                        .await
+                        .is_empty()
+                    {
                         // Add to alerts
                     };
                 }

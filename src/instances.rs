@@ -1,3 +1,4 @@
+use crate::candles::TimeFrame;
 use crate::markets::{select_market_detail_by_exchange_mita, MarketDetail};
 use crate::metrics::select_metrics_ap_by_exchange_market;
 use crate::{exchanges::ExchangeName, inquisidor::Inquisidor, mita::Mita};
@@ -23,8 +24,12 @@ impl Instance {
         Utc::now() - self.last_update_ts
     }
 
-    pub async fn inactive_markets(&self, pool: &PgPool, duration: Duration) -> Vec<MarketDetail> {
-        let im = Vec::new();
+    pub async fn inactive_markets(
+        &self,
+        pool: &PgPool,
+        duration: Duration,
+    ) -> Vec<(MarketDetail, String)> {
+        let mut im = Vec::new();
         if self.instance_type == InstanceType::Ig {
             // Ig covers all market - return empty vec as this fn should be used for mita instances
             return im;
@@ -44,10 +49,35 @@ impl Instance {
             select_metrics_ap_by_exchange_market(pool, &self.exchange_name.unwrap(), &market_names)
                 .await
                 .expect("Failed to select metrics ap");
-        // Set last expected candle datetime
-        let expected_ts = Utc::now().duration_trunc(duration).unwrap();
+        // Set last expected candle datetime. Current time truncated to time frame. Then subtract
+        // one duration to get to the start of the last expected metric.
+        // Example:
+        //      Time Now: 12:07
+        //      Duration: 15 minutes
+        //      12:07 truncated by 15 minutes = 12:00 - 15 minutes = 11:45
+        //      Expected last metric datetime = 11:45 (11:45-12:00 interval)
+        let expected_ts = Utc::now().duration_trunc(duration).unwrap() - duration;
         for market in markets.iter() {
             // Check last metric versus expected timestamp
+            let last_metric = metrics.iter().find(|m| {
+                m.exchange_name == self.exchange_name.unwrap()
+                    && m.market_name == market.market_name
+                    && m.time_frame == TimeFrame::T15
+                    && m.lbp == 8640
+            });
+            match last_metric {
+                Some(lm) => {
+                    // Check if the latest metric matches expected time. Add to vec with reason if
+                    // if does not = Stale Metric
+                    if lm.datetime != expected_ts {
+                        im.push((market.clone(), "Stale Metric".to_string()));
+                    }
+                }
+                None => {
+                    // Add to vec with reason = No Metric Found
+                    im.push((market.clone(), "No Metric Found".to_string()));
+                }
+            }
         }
         im
     }
