@@ -74,11 +74,18 @@ impl Instance {
                     // if does not = Stale Metric
                     if lm.datetime != expected_ts {
                         im.push((market.clone(), "Stale Metric".to_string()));
+                        println!(
+                            "{:?} has stale metric. Last {:?} versus expected {:?}",
+                            market.market_name, lm.datetime, expected_ts
+                        );
+                    } else {
+                        println!("{:?} metrics are current.", market.market_name);
                     }
                 }
                 None => {
                     // Add to vec with reason = No Metric Found
                     im.push((market.clone(), "No Metric Found".to_string()));
+                    println!("{:?} had no metric found.", market.market_name);
                 }
             }
         }

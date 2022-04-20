@@ -22,13 +22,23 @@ impl Inquisidor {
                 InstanceStatus::Active => {
                     if instance.time_since_last_update() > Duration::minutes(3) {
                         // Add to alerts
+                        println!(
+                            "Greater than 3 minutes since last update for {:?} {:?} {:?}",
+                            instance.droplet, instance.exchange_name, instance.instance_type
+                        );
                     };
-                    if !instance
+                    let instance_markets_fails = instance
                         .inactive_markets(&self.ig_pool, TimeFrame::T15.as_dur())
-                        .await
-                        .is_empty()
-                    {
+                        .await;
+                    if !instance_markets_fails.is_empty() {
                         // Add to alerts
+                        println!(
+                            "Bad markets for instance {:?} {:?} {:?}: {:?}",
+                            instance.droplet,
+                            instance.exchange_name,
+                            instance.instance_type,
+                            instance_markets_fails
+                        )
                     };
                 }
                 InstanceStatus::Sync => {}
