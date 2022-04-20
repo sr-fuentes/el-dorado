@@ -493,6 +493,339 @@
       ]
     }
   },
+  "727b0ba6a5865975f9748d421a0cbd3ecb87b59fd39906bfc2bc12dcf3097015": {
+    "query": "\n        SELECT exchange_name as \"exchange_name: ExchangeName\",\n            market_name,\n            datetime,\n            time_frame as \"time_frame: TimeFrame\",\n            lbp, high, low, close, r,\n            h004c,\n            l004c,\n            h004r as h004h,\n            l004r as l004l,\n            h008c,\n            l008c,\n            h008r as h008h,\n            l008r as l008l,\n            h012c,\n            l012c,\n            h012r as h012h,\n            l012r as l012l,\n            h024c,\n            l024c,\n            h024r as h024h,\n            l024r as l024l,\n            h048c,\n            l048c,\n            h048r as h048h,\n            l048r as l048l,\n            h096c,\n            l096c,\n            h096r as h096h,\n            l096r as l096l,\n            h192c,\n            l192c,\n            h192r as h192h,\n            l192r as l192l,\n            ema1, ema2, ema3, mv1, mv2, mv3, n as atr, vw, ma,\n            ofs as ofz, vs as vz, rs as rz, trs as trz, uws as uwz, mbs as bz, lws as lwz\n        FROM metrics_ap\n        WHERE exchange_name = $1\n        AND market_name = ANY($2)\n        ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "exchange_name: ExchangeName",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 1,
+          "name": "market_name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 2,
+          "name": "datetime",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 3,
+          "name": "time_frame: TimeFrame",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "lbp",
+          "type_info": "Int8"
+        },
+        {
+          "ordinal": 5,
+          "name": "high",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 6,
+          "name": "low",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 7,
+          "name": "close",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 8,
+          "name": "r",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 9,
+          "name": "h004c",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 10,
+          "name": "l004c",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 11,
+          "name": "h004h",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 12,
+          "name": "l004l",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 13,
+          "name": "h008c",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 14,
+          "name": "l008c",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 15,
+          "name": "h008h",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 16,
+          "name": "l008l",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 17,
+          "name": "h012c",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 18,
+          "name": "l012c",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 19,
+          "name": "h012h",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 20,
+          "name": "l012l",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 21,
+          "name": "h024c",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 22,
+          "name": "l024c",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 23,
+          "name": "h024h",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 24,
+          "name": "l024l",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 25,
+          "name": "h048c",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 26,
+          "name": "l048c",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 27,
+          "name": "h048h",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 28,
+          "name": "l048l",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 29,
+          "name": "h096c",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 30,
+          "name": "l096c",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 31,
+          "name": "h096h",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 32,
+          "name": "l096l",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 33,
+          "name": "h192c",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 34,
+          "name": "l192c",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 35,
+          "name": "h192h",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 36,
+          "name": "l192l",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 37,
+          "name": "ema1",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 38,
+          "name": "ema2",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 39,
+          "name": "ema3",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 40,
+          "name": "mv1",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 41,
+          "name": "mv2",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 42,
+          "name": "mv3",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 43,
+          "name": "atr",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 44,
+          "name": "vw",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 45,
+          "name": "ma",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 46,
+          "name": "ofz",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 47,
+          "name": "vz",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 48,
+          "name": "rz",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 49,
+          "name": "trz",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 50,
+          "name": "uwz",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 51,
+          "name": "bz",
+          "type_info": "Numeric"
+        },
+        {
+          "ordinal": 52,
+          "name": "lwz",
+          "type_info": "Numeric"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "TextArray"
+        ]
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    }
+  },
   "781f274a2222ca3595b121c7ffd9d9ef8ceefffa603423a603a3becf1dac8c2a": {
     "query": "\n        SELECT event_id, droplet,\n            event_type as \"event_type: EventType\",\n            exchange_name as \"exchange_name: ExchangeName\",\n            market_id, start_ts, end_ts, event_ts, created_ts, processed_ts,\n            event_status as \"event_status: EventStatus\", \n            notes\n        FROM events\n        WHERE droplet = $1\n        AND event_ts < $2\n        AND event_status != $3\n        ",
     "describe": {

@@ -46,11 +46,12 @@ impl Instance {
         let market_names: Vec<String> = markets.iter().map(|m| m.market_name.clone()).collect();
         // let market_names_str: Vec<&str> = markets.iter().map(|m| m.market_name.as_ref()).collect();
         println!("Market names str: {:?}", market_names);
-        // Get metrics
-        let metrics =
+        // Get metrics and sort descending as filter in later step takes first match
+        let mut metrics =
             select_metrics_ap_by_exchange_market(pool, &self.exchange_name.unwrap(), &market_names)
                 .await
                 .expect("Failed to select metrics ap");
+        metrics.sort_by(|m1, m2| m2.datetime.cmp(&m1.datetime));
         // Set last expected candle datetime. Current time truncated to time frame. Then subtract
         // one duration to get to the start of the last expected metric.
         // Example:
