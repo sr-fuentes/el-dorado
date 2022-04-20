@@ -43,15 +43,14 @@ impl Instance {
         .await
         .expect("Failed to select market details by exchange/mita.");
         // Put market names into list
-        let market_names_str: Vec<&str> = markets.iter().map(|m| m.market_name.as_ref()).collect();
+        let market_names: Vec<String> = markets.iter().map(|m| m.market_name.clone()).collect();
+        // let market_names_str: Vec<&str> = markets.iter().map(|m| m.market_name.as_ref()).collect();
+        println!("Market names str: {:?}", market_names);
         // Get metrics
-        let metrics = select_metrics_ap_by_exchange_market(
-            pool,
-            &self.exchange_name.unwrap(),
-            market_names_str,
-        )
-        .await
-        .expect("Failed to select metrics ap");
+        let metrics =
+            select_metrics_ap_by_exchange_market(pool, &self.exchange_name.unwrap(), &market_names)
+                .await
+                .expect("Failed to select metrics ap");
         // Set last expected candle datetime. Current time truncated to time frame. Then subtract
         // one duration to get to the start of the last expected metric.
         // Example:
