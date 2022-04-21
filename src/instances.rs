@@ -25,6 +25,10 @@ impl Instance {
         Utc::now() - self.last_update_ts
     }
 
+    pub fn time_since_last_message(&self) -> Option<Duration> {
+        self.last_message_ts.map(|ts| Utc::now() - ts)
+    }
+
     pub async fn inactive_markets(
         &self,
         pool: &PgPool,
@@ -91,6 +95,37 @@ impl Instance {
             }
         }
         im
+    }
+
+    pub async fn update_last_message_ts(&self, pool: &PgPool) -> Result<(), sqlx::Error> {
+        match &self.exchange_name {
+            Some(e) => {
+                let sql = r#"
+                UPDATE instances
+                SET last_message_ts = $1
+                WHERE droplet = $2 AND exchange_name = $3
+                "#;
+                sqlx::query(sql)
+                    .bind(Utc::now())
+                    .bind(&self.droplet)
+                    .bind(e.as_str())
+                    .execute(pool)
+                    .await?;
+            },
+            None => {
+                let sql = r#"
+                UPDATE instances
+                SET last_message_ts = $1
+                WHERE droplet = $2
+                "#;
+                sqlx::query(sql)
+                    .bind(Utc::now())
+                    .bind(&self.droplet)
+                    .execute(pool)
+                    .await?;
+            }
+        }
+        Ok(())
     }
 }
 
