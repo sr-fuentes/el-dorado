@@ -15,6 +15,7 @@ impl Inquisidor {
             .await
             .expect("Failed to select instances.");
         for instance in instances.iter() {
+            let mut alert_message = String::new();
             match instance.instance_status {
                 InstanceStatus::New | InstanceStatus::Paused | InstanceStatus::Terminated => {
                     continue
@@ -26,6 +27,20 @@ impl Inquisidor {
                             "Greater than 3 minutes since last update for {:?} {:?} {:?} in Active status.",
                             instance.droplet, instance.exchange_name, instance.instance_type
                         );
+                        // If there has been at least 1 hour since last message sent or no last
+                        // message, add to instance message to be send
+                        match instance.time_since_last_message() {
+                            Some(d) => {
+                                if d > Duration::hours(1) {
+                                    let new_message = "Inactive Mita. ";
+                                    alert_message.push_str(new_message);
+                                }
+                            }
+                            None => {
+                                let new_message = "Inactive Mita. ";
+                                alert_message.push_str(new_message);
+                            }
+                        }
                     };
                     let instance_markets_fails = instance
                         .inactive_markets(&self.ig_pool, TimeFrame::T15.as_dur())
@@ -38,7 +53,25 @@ impl Inquisidor {
                             instance.exchange_name,
                             instance.instance_type,
                             instance_markets_fails
-                        )
+                        );
+                        // Build message alert if greater than  1 hour since last message
+                        match instance.time_since_last_message() {
+                            Some(d) => {
+                                if d > Duration::hours(1) {
+                                    for inf in instance_markets_fails.iter() {
+                                        let new_message = format!("{:?} {:?}. ",inf.0.market_name, inf.1);
+                                        alert_message.push_str(&new_message);
+                                    }
+                                }
+                            }
+                            None => {
+                                for inf in instance_markets_fails.iter() {
+                                    let new_message = format!("{:?} {:?}. ",inf.0.market_name, inf.1);
+                                    alert_message.push_str(&new_message);
+                                }
+                            }
+                        }
+
                     };
                 }
                 InstanceStatus::Sync => {
@@ -48,6 +81,20 @@ impl Inquisidor {
                             "Greater than 15 minutes since last update for {:?} {:?} {:?} in Sync status.",
                             instance.droplet, instance.exchange_name, instance.instance_type
                         );
+                        // If there has been at least 1 hour since last message sent or no last
+                        // message, add to instance message to be send
+                        match instance.time_since_last_message() {
+                            Some(d) => {
+                                if d > Duration::hours(1) {
+                                    let new_message = "Delayed Mita Sync. ";
+                                    alert_message.push_str(new_message);
+                                }
+                            }
+                            None => {
+                                let new_message = "Delayed Mita Sync. ";
+                                alert_message.push_str(new_message);
+                            }
+                        }
                     };
                 }
                 InstanceStatus::Restart => {
@@ -57,8 +104,29 @@ impl Inquisidor {
                             "Greater than 1 minutes since last update for {:?} {:?} {:?} in Restart status.",
                             instance.droplet, instance.exchange_name, instance.instance_type
                         );
+                        // If there has been at least 1 hour since last message sent or no last
+                        // message, add to instance message to be send
+                        match instance.time_since_last_message() {
+                            Some(d) => {
+                                if d > Duration::hours(1) {
+                                    let new_message = "Delayed Mita Restart. ";
+                                    alert_message.push_str(new_message);
+                                }
+                            }
+                            None => {
+                                let new_message = "Delayed Mita Restart. ";
+                                alert_message.push_str(new_message);
+                            }
+                        }
                     };
                 }
+            }
+            // If there is an alert message -> send message and update instance last sent message
+            if alert_message.len() > 0 {
+                let alert = Alert::new(instance, alert_message);
+                alert.insert(&self.ig_pool).await;
+                alert.send(&self.twilio).await;
+                instance.update_last_message_ts(&self.ig_pool).await;
             }
         }
     }
