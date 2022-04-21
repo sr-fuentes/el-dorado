@@ -23,7 +23,7 @@ impl Inquisidor {
                     if instance.time_since_last_update() > Duration::minutes(3) {
                         // Add to alerts
                         println!(
-                            "Greater than 3 minutes since last update for {:?} {:?} {:?}",
+                            "Greater than 3 minutes since last update for {:?} {:?} {:?} in Active status.",
                             instance.droplet, instance.exchange_name, instance.instance_type
                         );
                     };
@@ -41,8 +41,24 @@ impl Inquisidor {
                         )
                     };
                 }
-                InstanceStatus::Sync => {}
-                InstanceStatus::Restart => {}
+                InstanceStatus::Sync => {
+                    if instance.time_since_last_update() > Duration::minutes(15) {
+                        // Add to alerts
+                        println!(
+                            "Greater than 15 minutes since last update for {:?} {:?} {:?} in Sync status.",
+                            instance.droplet, instance.exchange_name, instance.instance_type
+                        );
+                    };
+                }
+                InstanceStatus::Restart => {
+                    if instance.time_since_last_update() > Duration::minutes(1) {
+                        // Add to alerts
+                        println!(
+                            "Greater than 1 minutes since last update for {:?} {:?} {:?} in Restart status.",
+                            instance.droplet, instance.exchange_name, instance.instance_type
+                        );
+                    };
+                }
             }
         }
     }

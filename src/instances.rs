@@ -17,6 +17,7 @@ pub struct Instance {
     pub restart_count: Option<i32>,
     pub num_markets: i32,
     pub last_update_ts: DateTime<Utc>,
+    pub last_message_ts: Option<DateTime<Utc>>,
 }
 
 impl Instance {
@@ -194,14 +195,14 @@ pub async fn insert_or_update_instance_mita(mita: &Mita) -> Result<(), sqlx::Err
     let sql = r#"
         INSERT INTO instances (
             instance_type, droplet, exchange_name, instance_status, restart, last_restart_ts,
-            restart_count, num_markets, last_update_ts)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            restart_count, num_markets, last_update_ts, last_message_ts)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL)
         ON CONFLICT (droplet, exchange_name)
         DO
             UPDATE SET (instance_status, restart, last_restart_ts, restart_count, num_markets,
-                last_update_ts) = (EXCLUDED.instance_status, EXCLUDED.restart,
+                last_update_ts, last_message_ts) = (EXCLUDED.instance_status, EXCLUDED.restart,
                 EXCLUDED.last_restart_ts, EXCLUDED.restart_count, EXCLUDED.num_markets,
-                EXCLUDED.last_update_ts)
+                EXCLUDED.last_update_ts, EXCLUDED.last_message_ts)
         "#;
     sqlx::query(sql)
         .bind(InstanceType::Mita.as_str())
@@ -325,7 +326,8 @@ pub async fn select_instances(pool: &PgPool) -> Result<Vec<Instance>, sqlx::Erro
             droplet,
             exchange_name as "exchange_name: Option<ExchangeName>",
             instance_status as "instance_status: InstanceStatus",
-            restart, last_restart_ts, restart_count, num_markets, last_update_ts
+            restart, last_restart_ts, restart_count, num_markets, last_update_ts,
+            last_message_ts
         FROM instances
         "#
     )
