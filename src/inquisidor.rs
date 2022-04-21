@@ -3,6 +3,7 @@ use crate::{
     configuration::{get_configuration, Settings},
     exchanges::{client::RestClient, ExchangeName},
     validation::ValidationStatus,
+    utilities::Twilio,
 };
 use sqlx::PgPool;
 use std::collections::HashMap;
@@ -15,6 +16,7 @@ pub struct Inquisidor {
     pub gdax_pool: PgPool,
     pub clients: HashMap<ExchangeName, RestClient>,
     pub hbtf: TimeFrame,
+    pub twilio: Twilio,
 }
 
 impl Inquisidor {
@@ -35,6 +37,7 @@ impl Inquisidor {
         clients.insert(ExchangeName::Ftx, RestClient::new(&ExchangeName::Ftx));
         clients.insert(ExchangeName::FtxUs, RestClient::new(&ExchangeName::FtxUs));
         clients.insert(ExchangeName::Gdax, RestClient::new(&ExchangeName::Gdax));
+        let client = Twilio::new();
         Self {
             settings,
             ig_pool,
@@ -42,6 +45,7 @@ impl Inquisidor {
             gdax_pool,
             clients,
             hbtf: TimeFrame::time_frames()[0],
+            twilio: client,
         }
     }
 

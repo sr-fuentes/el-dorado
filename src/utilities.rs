@@ -5,6 +5,7 @@ use std::env;
 use std::io::{self, Write};
 use twilio::{OutboundMessage, TwilioClient};
 
+#[derive(Debug)]
 pub struct Twilio {
     pub client: TwilioClient,
     pub to_number: String,
