@@ -1822,7 +1822,7 @@ dependencies = [
 [[package]]
 name = "twilio"
 version = "1.0.0"
-source = "git+https://github.com/sr-fuentes/twilio-rs#92bcb4461facd37e3cc3c74fd3afac3b8155e72f"
+source = "git+https://github.com/sr-fuentes/twilio-rs#ed8a26fb9d2dd7eddd384d898b45c91fae1475ed"
 dependencies = [
  "reqwest",
  "serde 1.0.130",

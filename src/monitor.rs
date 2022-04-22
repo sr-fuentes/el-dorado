@@ -1,5 +1,6 @@
 use chrono::Duration;
 
+use crate::alerts::Alert;
 use crate::candles::TimeFrame;
 use crate::inquisidor::Inquisidor;
 use crate::instances::{select_instances, InstanceStatus};
@@ -59,19 +60,20 @@ impl Inquisidor {
                             Some(d) => {
                                 if d > Duration::hours(1) {
                                     for inf in instance_markets_fails.iter() {
-                                        let new_message = format!("{:?} {:?}. ",inf.0.market_name, inf.1);
+                                        let new_message =
+                                            format!("{:?} {:?}. ", inf.0.market_name, inf.1);
                                         alert_message.push_str(&new_message);
                                     }
                                 }
                             }
                             None => {
                                 for inf in instance_markets_fails.iter() {
-                                    let new_message = format!("{:?} {:?}. ",inf.0.market_name, inf.1);
+                                    let new_message =
+                                        format!("{:?} {:?}. ", inf.0.market_name, inf.1);
                                     alert_message.push_str(&new_message);
                                 }
                             }
                         }
-
                     };
                 }
                 InstanceStatus::Sync => {
@@ -122,11 +124,17 @@ impl Inquisidor {
                 }
             }
             // If there is an alert message -> send message and update instance last sent message
-            if alert_message.len() > 0 {
-                let alert = Alert::new(instance, alert_message);
-                alert.insert(&self.ig_pool).await;
+            if !alert_message.is_empty() {
+                let alert = Alert::new(instance, &alert_message);
+                alert
+                    .insert(&self.ig_pool)
+                    .await
+                    .expect("Failed to insert message.");
                 alert.send(&self.twilio).await;
-                instance.update_last_message_ts(&self.ig_pool).await;
+                instance
+                    .update_last_message_ts(&self.ig_pool)
+                    .await
+                    .expect("Failed to update last message ts.");
             }
         }
     }
