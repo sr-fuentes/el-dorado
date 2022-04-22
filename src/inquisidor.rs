@@ -2,8 +2,8 @@ use crate::{
     candles::TimeFrame,
     configuration::{get_configuration, Settings},
     exchanges::{client::RestClient, ExchangeName},
-    validation::ValidationStatus,
     utilities::Twilio,
+    validation::ValidationStatus,
 };
 use sqlx::PgPool;
 use std::collections::HashMap;

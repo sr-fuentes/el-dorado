@@ -1,3 +1,4 @@
+pub mod alerts;
 pub mod archive;
 pub mod candles;
 pub mod cleanup;

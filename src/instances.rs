@@ -111,7 +111,7 @@ impl Instance {
                     .bind(e.as_str())
                     .execute(pool)
                     .await?;
-            },
+            }
             None => {
                 let sql = r#"
                 UPDATE instances
