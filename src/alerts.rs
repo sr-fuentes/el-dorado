@@ -49,3 +49,41 @@ impl Alert {
         Ok(())
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use crate::inquisidor::Inquisidor;
+    use crate::instances::select_instances;
+    use crate::alerts::Alert;
+
+    
+    #[tokio::test]
+    pub async fn insert_alert_works() {
+        // Create ig to get db pool
+        let ig = Inquisidor::new().await;
+        // Get instances from db
+        let instances = select_instances(&ig.ig_pool).await.expect("Failed to select instances.");
+        for instance in instances.iter() {
+            let message = "test alerts insert";
+            let alert = Alert::new(instance, &message);
+            alert.insert(&ig.ig_pool)
+                .await
+                .expect("Failed to insert message.");
+        }
+    }
+
+    #[tokio::test]
+    pub async fn send_alert_sends_sms() {
+        // Create ig to get db pool
+        let ig = Inquisidor::new().await;
+        // Get instances from db
+        let instances = select_instances(&ig.ig_pool).await.expect("Failed to select instances.");
+        for instance in instances.iter() {
+            let message = "test alerts send";
+            let alert = Alert::new(instance, &message);
+            alert.send(&ig.twilio)
+                .await;
+        }
+    }
+}
