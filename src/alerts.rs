@@ -28,7 +28,11 @@ impl Alert {
     }
 
     pub async fn send(&self, twilio: &Twilio) {
-        twilio.send_sms(&self.message).await;
+        let message = match self.exchange_name {
+            Some(e) => format!("{} {}: {}", self.droplet, e.as_str(), self.message),
+            None => format!("{}: {}", self.droplet, self.message),
+        };
+        twilio.send_sms(&message).await;
     }
 
     pub async fn insert(&self, pool: &PgPool) -> Result<(), sqlx::Error> {
