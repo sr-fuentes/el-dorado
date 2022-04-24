@@ -50,7 +50,7 @@ impl Instance {
         // Put market names into list
         let market_names: Vec<String> = markets.iter().map(|m| m.market_name.clone()).collect();
         // let market_names_str: Vec<&str> = markets.iter().map(|m| m.market_name.as_ref()).collect();
-        println!("Market names str: {:?}", market_names);
+        // println!("Market names str: {:?}", market_names);
         // Get metrics and sort descending as filter in later step takes first match
         let mut metrics =
             select_metrics_ap_by_exchange_market(pool, &self.exchange_name.unwrap(), &market_names)
@@ -84,7 +84,7 @@ impl Instance {
                             market.market_name, lm.datetime, expected_ts
                         );
                     } else {
-                        println!("{:?} metrics are current.", market.market_name);
+                        // println!("{:?} metrics are current.", market.market_name);
                     }
                 }
                 None => {

@@ -1,4 +1,4 @@
-use chrono::Duration;
+use chrono::{Utc, Duration};
 
 use crate::alerts::Alert;
 use crate::candles::TimeFrame;
@@ -12,6 +12,7 @@ impl Inquisidor {
         // Check that Sync mita instances have been updated within 10 minutes
         // Check that Active mita instances have all markets up to date
         // Any violations are added to alert table
+        println!("{} Starting Instance Monitor.", Utc::now());
         let instances = select_instances(&self.ig_pool)
             .await
             .expect("Failed to select instances.");
@@ -137,5 +138,6 @@ impl Inquisidor {
                     .expect("Failed to update last message ts.");
             }
         }
+        println!("{} Instance Monitor Complete.", Utc::now());
     }
 }
