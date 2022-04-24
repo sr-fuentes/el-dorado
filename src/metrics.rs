@@ -39,7 +39,7 @@ impl TimeFrame {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, sqlx::FromRow)]
 pub struct MetricAP {
     pub market_name: String,
     pub exchange_name: ExchangeName,
@@ -469,6 +469,61 @@ pub async fn delete_metrics_ap_by_exchange_market(
     Ok(())
 }
 
+pub async fn select_metrics_ap_by_exchange_market(
+    pool: &PgPool,
+    exchange_name: &ExchangeName,
+    markets: &[String],
+) -> Result<Vec<MetricAP>, sqlx::Error> {
+    let rows = sqlx::query_as!(
+        MetricAP,
+        r#"
+        SELECT exchange_name as "exchange_name: ExchangeName",
+            market_name,
+            datetime,
+            time_frame as "time_frame: TimeFrame",
+            lbp, high, low, close, r,
+            h004c,
+            l004c,
+            h004r as h004h,
+            l004r as l004l,
+            h008c,
+            l008c,
+            h008r as h008h,
+            l008r as l008l,
+            h012c,
+            l012c,
+            h012r as h012h,
+            l012r as l012l,
+            h024c,
+            l024c,
+            h024r as h024h,
+            l024r as l024l,
+            h048c,
+            l048c,
+            h048r as h048h,
+            l048r as l048l,
+            h096c,
+            l096c,
+            h096r as h096h,
+            l096r as l096l,
+            h192c,
+            l192c,
+            h192r as h192h,
+            l192r as l192l,
+            ema1, ema2, ema3, mv1, mv2, mv3, n as atr, vw, ma,
+            ofs as ofz, vs as vz, rs as rz, trs as trz, uws as uwz, mbs as bz, lws as lwz
+        FROM metrics_ap
+        WHERE exchange_name = $1
+        AND market_name = ANY($2)
+        "#,
+        exchange_name.as_str(),
+        markets
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -628,5 +683,27 @@ mod tests {
         let dons = Metric::dons(&vc, &vc, &vc);
         println!("Closes: {:?}", vc);
         println!("Dons: {:?}", dons);
+    }
+
+    #[tokio::test]
+    pub async fn select_metrics_ap_by_exchange_market_maps_to_struct() {
+        // Load configuration
+        let configuration = get_configuration().expect("Failed to read configuration.");
+        println!("Configuration: {:?}", configuration);
+        // Create db connection
+        let pool = PgPool::connect_with(configuration.ed_db.with_db())
+            .await
+            .expect("Failed to connect to Postgres.");
+        // Create list of market names
+        let markets = vec![
+            "BTC-PERP".to_string(),
+            "ETH-PERP".to_string(),
+            "SOL-PERP".to_string(),
+        ];
+        // Select metrics for markets
+        let metrics = select_metrics_ap_by_exchange_market(&pool, &ExchangeName::Ftx, &markets)
+            .await
+            .expect("Failed to select metrics.");
+        println!("{:?}", metrics);
     }
 }

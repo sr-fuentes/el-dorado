@@ -1,6 +1,6 @@
 [package]
 name = "el-dorado"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -29,5 +29,5 @@ sqlx = { version = "0.5.7", features = ["runtime-tokio-rustls", "postgres", "mac
 thiserror = "1.0.29"
 tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = {version = "0.16.0", features = ["rustls-tls-native-roots"]}
-twilio = { git = "https://github.com/sr-fuentes/twilio-rs" }
 uuid = { version = "0.8.2", features = ["v4"] }
+twilio = { git = "https://github.com/sr-fuentes/twilio-rs" }

@@ -1,3 +1,4 @@
+pub mod alerts;
 pub mod archive;
 pub mod candles;
 pub mod cleanup;
@@ -10,6 +11,7 @@ pub mod instances;
 pub mod markets;
 pub mod metrics;
 pub mod mita;
+pub mod monitor;
 pub mod stream;
 pub mod trades;
 pub mod utilities;

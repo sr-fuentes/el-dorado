@@ -57,7 +57,8 @@ pub struct DailyCandle {
     pub is_complete: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type)]
+#[sqlx(rename_all = "lowercase")]
 pub enum TimeFrame {
     T15,
     H01,

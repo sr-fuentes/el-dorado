@@ -17,6 +17,7 @@ async fn main() {
         .subcommand(App::new("manual").about("manually validate bad candles"))
         .subcommand(App::new("archive").about("archive trade for valid candles"))
         .subcommand(App::new("stream").about("stream trades to db"))
+        .subcommand(App::new("monitor").about("monitor active processes"))
         .get_matches();
 
     // Match subcommand and route
@@ -82,7 +83,6 @@ async fn main() {
                 mita.exchange.name.as_str()
             );
             mita.twilio.send_sms(&message).await;
-
         }
         Some("manage") => {
             // Create new admin instance and refresh exchange
@@ -106,6 +106,11 @@ async fn main() {
             mita.reset_trade_tables(&["ws"]).await;
             mita.create_trade_tables(&["processed", "validated"]).await;
             mita.stream().await;
+        }
+        Some("monitor") => {
+            // Create ig instance and review all existing active processes
+            let ig = Inquisidor::new().await;
+            ig.monitor().await;
         }
         None => println!("Please run with subcommands: `add` `refresh` `edit` or `run`."),
         _ => unreachable!(), // CLAP will error out before running this arm
