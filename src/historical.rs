@@ -86,14 +86,14 @@ impl Mita {
             )
             .await
             .expect("Could not update market status.");
-            // Backfill from start to end
+            // Fill trades and candles from start to end
             match self.exchange.name {
                 ExchangeName::Ftx | ExchangeName::FtxUs => {
-                    self.backfill_ftx(&client, &self.exchange, market, start_ts, end_ts)
+                    self.fill_ftx(&client, &self.exchange, market, start_ts, end_ts)
                         .await
                 }
                 ExchangeName::Gdax => {
-                    self.backfill_gdax(
+                    self.fill_gdax(
                         &client,
                         market,
                         start_ts,
@@ -120,7 +120,7 @@ impl Mita {
         }
     }
 
-    pub async fn backfill_gdax(
+    pub async fn fill_gdax(
         &self,
         client: &RestClient,
         market: &MarketDetail,
@@ -313,7 +313,7 @@ impl Mita {
         (first_trade_ts, Some(mid))
     }
 
-    pub async fn backfill_ftx(
+    pub async fn fill_ftx(
         &self,
         client: &RestClient,
         exchange: &Exchange,

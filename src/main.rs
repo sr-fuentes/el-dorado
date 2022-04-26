@@ -12,7 +12,8 @@ async fn main() {
         .subcommand(App::new("rank").about("rank exchange markets"))
         .subcommand(App::new("set").about("update ranks from proposed to current"))
         .subcommand(App::new("run").about("run el-dorado for a market"))
-        .subcommand(App::new("historical").about("backfill to current start of day"))
+        .subcommand(App::new("sync").about("fill to current start of day"))
+        .subcommand(App::new("backfill").about("backfill from first candle to start"))
         .subcommand(App::new("manage").about("run current cleanup script"))
         .subcommand(App::new("manual").about("manually validate bad candles"))
         .subcommand(App::new("archive").about("archive trade for valid candles"))
@@ -71,8 +72,9 @@ async fn main() {
                 }
             }
         }
-        Some("historical") => {
-            // Create new mita instance and backfill until start of current day
+        Some("sync") => {
+            // Create new mita instance and sync to start of current day from last trade or 90
+            // days prior to now.
             let mita = Mita::new().await;
             mita.reset_trade_tables(&["rest"]).await;
             mita.create_trade_tables(&["processed", "validated"]).await;
@@ -83,6 +85,12 @@ async fn main() {
                 mita.exchange.name.as_str()
             );
             mita.twilio.send_sms(&message).await;
+        }
+        Some("backfill") => {
+            // Download and archive trades from beginning of normal running sync (min 90 days) to
+            // the first trades of exchange.
+            let ig = Inquisidor::new().await;
+            ig.backfill().await;
         }
         Some("manage") => {
             // Create new admin instance and refresh exchange
