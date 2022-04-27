@@ -767,7 +767,7 @@ impl Inquisidor {
         let message = match validation.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
                 println!(
-                    "Manual Validation for 01D {:?} {} {}",
+                    "\nManual Validation for 01D {:?} {} {}",
                     validation.exchange_name, market.market_name, validation.datetime
                 );
                 let exchange_candle = get_ftx_candles_daterange::<crate::exchanges::ftx::Candle>(
@@ -797,7 +797,7 @@ impl Inquisidor {
             }
             ExchangeName::Gdax => {
                 println!(
-                    "Manual Validation for 01D {:?} {} {}",
+                    "\nManual Validation for 01D {:?} {} {}",
                     validation.exchange_name, market.market_name, validation.datetime
                 );
                 let exchange_candle = get_gdax_candles_daterange::<crate::exchanges::gdax::Candle>(
@@ -813,9 +813,19 @@ impl Inquisidor {
                 let delta = candle.volume - exchange_candle.volume;
                 let percent = delta / exchange_candle.volume * dec!(100.0);
                 println!("New Candle: {:?}", candle);
-                println!("ED Value versus FTX Volume:");
+                println!("ED Value versus GDAX Volume:");
                 println!("ElDorado: {:?}", candle.volume);
                 println!("Exchange: {:?}", exchange_candle.volume);
+                let calc_trade_count = candle.last_trade_id.parse::<i32>().unwrap()
+                    - candle.first_trade_id.parse::<i32>().unwrap()
+                    + 1;
+                println!(
+                    "C Last ID {} - C First ID {} + 1 = {} | C Trade Count {} ",
+                    candle.first_trade_id,
+                    candle.last_trade_id,
+                    calc_trade_count,
+                    candle.trade_count
+                );
                 match select_previous_candle(
                     &self.ig_pool,
                     &validation.exchange_name,
