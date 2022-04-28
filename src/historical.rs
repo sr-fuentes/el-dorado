@@ -2,6 +2,7 @@ use std::convert::TryInto;
 
 use crate::candles::*;
 use crate::exchanges::{client::RestClient, error::RestError, Exchange, ExchangeName};
+use crate::inquisidor::Inquisidor;
 use crate::markets::*;
 use crate::mita::Mita;
 use crate::trades::*;
@@ -519,6 +520,29 @@ impl Mita {
         }
         start_time
     }
+}
+
+impl Inquisidor {
+    pub async fn backfill(&self) {
+        // Get market to backfill
+        // Validate market is eligible to backfill
+        // Insert backfill event
+    }
+
+    pub async fn process_backfill_event() {}
+
+    pub async fn process_ftx_backfill_event() {
+        // Create trade table for market / exch / day
+        // Fill trade table with trades
+        // Validate trades
+        // Archive trades
+        // Drop trade table
+        // Update database - markets / market_trades
+        // Close event
+        // Create event for previous day if trades exist
+    }
+
+    pub async fn process_gdax_backfill_event() {}
 }
 
 #[cfg(test)]
