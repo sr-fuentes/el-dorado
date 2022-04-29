@@ -79,14 +79,9 @@ impl Mita {
                 _ => panic!("Unsupported end time."),
             };
             // Update market data status to 'Syncing'
-            update_market_data_status(
-                &self.ed_pool,
-                &market.market_id,
-                &MarketStatus::Backfill,
-                self.settings.application.ip_addr.as_str(),
-            )
-            .await
-            .expect("Could not update market status.");
+            update_market_data_status(&self.ed_pool, &market.market_id, &MarketStatus::Backfill)
+                .await
+                .expect("Could not update market status.");
             // Fill trades and candles from start to end
             match self.exchange.name {
                 ExchangeName::Ftx | ExchangeName::FtxUs => {

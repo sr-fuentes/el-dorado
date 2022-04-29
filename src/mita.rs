@@ -179,14 +179,9 @@ impl Mita {
         let mut heartbeats = HashMap::new();
         for market in self.markets.iter() {
             // Update status to sync
-            update_market_data_status(
-                &self.ed_pool,
-                &market.market_id,
-                &MarketStatus::Sync,
-                self.settings.application.ip_addr.as_str(),
-            )
-            .await
-            .expect("Could not update market status.");
+            update_market_data_status(&self.ed_pool, &market.market_id, &MarketStatus::Sync)
+                .await
+                .expect("Could not update market status.");
             // Get start time for candle sync
             let start = match select_last_candle(
                 &self.ed_pool,
@@ -255,14 +250,9 @@ impl Mita {
                     .expect("Failed to insert metric.");
             }
             // Update status to sync
-            update_market_data_status(
-                &self.ed_pool,
-                &market.market_id,
-                &MarketStatus::Active,
-                self.settings.application.ip_addr.as_str(),
-            )
-            .await
-            .expect("Could not update market status.");
+            update_market_data_status(&self.ed_pool, &market.market_id, &MarketStatus::Active)
+                .await
+                .expect("Could not update market status.");
         }
         heartbeats
     }

@@ -1,7 +1,7 @@
 use crate::candles::*;
 use crate::exchanges::ExchangeName;
 use crate::inquisidor::Inquisidor;
-use crate::markets::{select_markets_active, MarketDetail};
+use crate::markets::{select_markets_by_market_data_status, MarketDetail, MarketStatus};
 use crate::trades::*;
 use crate::validation::insert_candle_count_validation;
 use chrono::Duration;
@@ -10,7 +10,7 @@ use csv::Writer;
 impl Inquisidor {
     pub async fn archive_validated_trades(&self) {
         // Get Active markets
-        let markets = select_markets_active(&self.ig_pool)
+        let markets = select_markets_by_market_data_status(&self.ig_pool, &MarketStatus::Active)
             .await
             .expect("Failed to fetch active markets.");
         // Check for trades to archive in each active market

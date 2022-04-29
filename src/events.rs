@@ -178,7 +178,6 @@ impl Inquisidor {
                         &self.clients[&event.exchange_name],
                         &event.exchange_name,
                         market,
-                        &self.settings,
                         &unvalidated_candles,
                     )
                     .await;
@@ -190,7 +189,6 @@ impl Inquisidor {
                         &self.clients[&event.exchange_name],
                         &event.exchange_name,
                         market,
-                        &self.settings,
                         &unvalidated_candles,
                     )
                     .await;

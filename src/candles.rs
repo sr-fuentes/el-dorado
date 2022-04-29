@@ -1,6 +1,5 @@
-use crate::configuration::*;
 use crate::exchanges::{client::RestClient, error::RestError, ExchangeName};
-use crate::markets::{update_market_last_validated, MarketDetail};
+use crate::markets::MarketDetail;
 use crate::mita::Mita;
 use crate::trades::*;
 use crate::utilities::Trade;
@@ -318,7 +317,6 @@ impl Mita {
             client,
             &self.exchange.name,
             market,
-            &self.settings,
             &unvalidated_candles,
         )
         .await;
@@ -514,7 +512,6 @@ pub async fn validate_hb_candles<T: crate::utilities::Candle + DeserializeOwned>
     client: &RestClient,
     exchange_name: &ExchangeName,
     market: &MarketDetail,
-    config: &Settings,
     unvalidated_candles: &[Candle],
 ) {
     if unvalidated_candles.is_empty() {
@@ -568,7 +565,6 @@ pub async fn validate_hb_candles<T: crate::utilities::Candle + DeserializeOwned>
             trade_pool,
             exchange_name,
             market,
-            config,
             unvalidated_candle,
             is_valid,
         )
@@ -581,20 +577,10 @@ pub async fn process_validation_result(
     trade_pool: &PgPool,
     exchange_name: &ExchangeName,
     market: &MarketDetail,
-    config: &Settings,
     unvalidated_candle: &Candle,
     is_valid: bool,
 ) {
     if is_valid {
-        // Update market details and candle with validated data
-        update_market_last_validated(
-            pool,
-            &market.market_id,
-            unvalidated_candle,
-            config.application.ip_addr.as_str(),
-        )
-        .await
-        .expect("Could not update market details.");
         update_candle_validation(
             pool,
             exchange_name,
