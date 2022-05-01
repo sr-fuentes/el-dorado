@@ -83,6 +83,19 @@ pub enum MarketStatus {
     Terminated,
 }
 
+#[derive(Debug, sqlx::Type)]
+#[sqlx(rename_all = "lowercase")]
+pub enum MarketDataStatus {
+    // Data process is complete. No other action is needed.
+    Completed,
+    // Next step is to get the data needed
+    Get,
+    // Next step is to validate whatever data exists
+    Validate,
+    // Next step is to archived on IG in ompressed form and sync to at least 1 external drive
+    Archive,
+}
+
 impl MarketStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -93,6 +106,17 @@ impl MarketStatus {
             MarketStatus::Restart => "restart",
             MarketStatus::Historical => "historical",
             MarketStatus::Terminated => "terminated",
+        }
+    }
+}
+
+impl MarketDataStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            MarketDataStatus::Completed => "completed",
+            MarketDataStatus::Get => "get",
+            MarketDataStatus::Validate => "validate",
+            MarketDataStatus::Archive => "archive",
         }
     }
 }
@@ -114,7 +138,40 @@ impl TryFrom<String> for MarketStatus {
     }
 }
 
+impl TryFrom<String> for MarketDataStatus {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        match s.to_lowercase().as_str() {
+            "completed" => Ok(Self::Completed),
+            "get" => Ok(Self::Get),
+            "validate" => Ok(Self::Validate),
+            "archive" => Ok(Self::Archive),
+            other => Err(format!("{} isnot a supported market data status.", other)),
+        }
+    }
+}
+
 impl Inquisidor {
+    pub fn list_markets(&self, exchange: Option<&ExchangeName>) -> Vec<String> {
+        // Takes the markets in ig and returns a vec of strings of the market names
+        // Output = ['BTC-PERP','ETH-PERP'...]
+        match exchange {
+            Some(e) => {
+                // Filter only for markets for exchange
+                self.markets
+                    .iter()
+                    .filter(|m| m.exchange_name == *e)
+                    .map(|m| m.market_name.clone())
+                    .collect()
+            }
+            None => {
+                // No exchange filter, list all markets
+                self.markets.iter().map(|m| m.market_name.clone()).collect()
+            }
+        }
+    }
+
     pub async fn refresh_exchange(&self) {
         // Get user input for exchange to refresh
         let exchange: String = get_input("Enter Exchange to Refresh:");
