@@ -1,7 +1,8 @@
 use crate::{
     candles::TimeFrame,
     configuration::{get_configuration, Settings},
-    exchanges::{client::RestClient, ExchangeName},
+    exchanges::{client::RestClient, select_exchanges, Exchange, ExchangeName},
+    markets::{select_market_details, MarketDetail},
     utilities::Twilio,
     validation::ValidationStatus,
 };
@@ -17,6 +18,8 @@ pub struct Inquisidor {
     pub clients: HashMap<ExchangeName, RestClient>,
     pub hbtf: TimeFrame,
     pub twilio: Twilio,
+    pub exchanges: Vec<Exchange>,
+    pub markets: Vec<MarketDetail>,
 }
 
 impl Inquisidor {
@@ -38,6 +41,14 @@ impl Inquisidor {
         clients.insert(ExchangeName::FtxUs, RestClient::new(&ExchangeName::FtxUs));
         clients.insert(ExchangeName::Gdax, RestClient::new(&ExchangeName::Gdax));
         let client = Twilio::new();
+        // Load exchanges
+        let exchanges = select_exchanges(&ig_pool)
+            .await
+            .expect("Failed to select exchanges.");
+        // Load markets
+        let markets = select_market_details(&ig_pool)
+            .await
+            .expect("Failed to select exchanges.");
         Self {
             settings,
             ig_pool,
@@ -46,6 +57,8 @@ impl Inquisidor {
             clients,
             hbtf: TimeFrame::time_frames()[0],
             twilio: client,
+            exchanges,
+            markets,
         }
     }
 
