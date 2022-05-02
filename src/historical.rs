@@ -1,12 +1,13 @@
 use std::convert::TryInto;
 
 use crate::candles::*;
+use crate::events::Event;
 use crate::exchanges::{client::RestClient, error::RestError, Exchange, ExchangeName};
 use crate::inquisidor::Inquisidor;
 use crate::markets::*;
 use crate::mita::Mita;
 use crate::trades::*;
-use crate::utilities::Trade;
+use crate::utilities::{get_input, Trade};
 use chrono::{DateTime, Duration, DurationRound, TimeZone, Utc};
 
 impl Mita {
@@ -519,9 +520,113 @@ impl Mita {
 
 impl Inquisidor {
     pub async fn backfill(&self) {
+        // Fill trades from the beginning of the market open on exchange to the first candle/trade
+        // day in el-dorado. Process will create a new trade table for each market/date working
+        // from the first candle backwards until the first trade for the market. From there the
+        // validation period will begin from the start through the current date.
+        // Example:
+        //      Market: BTC-PERP
+        //      El-Dorado began with a 90 day sync starting 15-NOV-2021 to present. Existing trades
+        //      are a mix of validated/unvalidated and archived trades.
+        //      Process:
+        //          1) Create Market Trade Details entry for BTC-PERP market
+        //          2) Populate market_id, first_trade_ts, first_trade_id, prev_trade_day, prev_stat
+        //          3) uuid | 2021-11-15 00:00:01 | 123456 | 2021-11-14 | get
+        //          4) Event or process will create trades_ftx_btcperp_20211114 table
+        //          5) Get trades for 14-Nov-2022 and put in that table
+        //          6) Once complete, update first trade ts/id, prev day, create 01d candle
+        //          7) Validate 01d can - if validated - archive trades, drop table
+        //          7) Repeat for 13-Nov-2022 until you reach beginning of market
+        //          8) At beginning set start_ts, set prev status to Completed
+        //          9) Set next day to prev day, set next status to validate
+        //          10) Validated next day, if validated - archive and move date forward
+        //          11) If not validated, create manual validation event, send sms, exit
         // Get market to backfill
+        let exchange: String = get_input("Enter Exchange to Backfill: ");
+        let exchange: ExchangeName = exchange.try_into().unwrap();
+        if !self.exchanges.iter().any(|e| e.name == exchange) {
+            // Exchange inputed is not part of existing exchanges
+            println!("{:?} has not been added to El-Dorado.", exchange);
+            println!("Available exchanges are: {:?}", self.list_exchanges());
+            return;
+        };
+        let market_name: String = get_input("Enter Market Name to Backfill: ");
+        let market = match self.markets.iter().find(|m| m.market_name == market_name) {
+            Some(m) => m,
+            None => {
+                println!("{:?} not found in markets for {:?}", market_name, exchange);
+                println!(
+                    "Available markets are: {:?}",
+                    self.list_markets(Some(&exchange))
+                );
+                return;
+            }
+        };
         // Validate market is eligible to backfill
-        // Insert backfill event
+        // 1) Market detail contains a last candle - ie it has been live
+        // 2) Market Trade Archive record exists and status is not Complete
+        // 3) Backfill event does not exist (FTX only / GDAX runs w/o events)
+        if market.market_status != MarketStatus::Active || market.last_candle.is_none() {
+            println!(
+                "Market not eligible for backfill. \nStatus: {:?}\nLast Candle: {:?}",
+                market.market_status, market.last_candle
+            );
+            return;
+        };
+        let market_trade_details = select_market_trade_details(&self.ig_pool)
+            .await
+            .expect("Failed to select trade archives.");
+        let mtd = match market_trade_details
+            .iter()
+            .find(|ta| ta.market_id == market.market_id)
+        {
+            Some(ta) => ta,
+            None => {
+                // No trade archive exists, create one
+                self.create_insert_market_trade_detail(market)
+                    .await
+                    .expect("Failed to create / insert market trade detail.");
+                select_market_trade_detail(&self.ig_pool, market.market_id)
+                    .await
+                    .expect("Failed to select market trade detail.")
+            }
+        };
+        let backfill_events = select_open_events_by_type().await.expect("Failed to select backfill event.");
+        let backfill_event = match backfill_events.find(|e| e.market_id = market.market_id) {
+            Some(be) => {
+                // There exists an event, start there
+                be
+            }
+            None => {
+                // There is no event, create one then start here
+                Event::new_backfill_event(mtd)
+            }
+        };
+        // Logic for determining action based on mtd (market trade detail)
+        // At this point we are only interested in getting trades prior to active el-d candles
+        // As those trades have already be retrieved and processed, possibly validated and archived.
+        // First determine if market trade detail is backfilled completely - Prev_Status = Complete
+        // If so, there is no need to continue - review for any backfill events for this market and
+        // Delete them. If there is a need to continue - create an event with the market and date
+        // For an FTX market (there is no spare mita - so downloading will be IG event) or start the
+        // Backfill process if it is a GDAX market.
+        match mtd.prev_status {
+            MarketDataStatus::Completed => {
+                // Add logic to look at next_status
+                println!("Backfill completed, next status functions not yet implemented.");
+            }
+            MarketDataStatus::Get => {
+                // Get trades for previous date
+                // 1) Create trade table
+                // 2) Get trades
+                // 3) Update statuses
+            }
+            MarketDataStatus::Validate => {
+                // Validate trades in temp table versus expected trades from 01d exchange candle
+            }
+            MarketDataStatus::Archive => {}
+        }
+        // Insert backfill event or process gdax backfill
     }
 
     pub async fn process_backfill_event() {}
