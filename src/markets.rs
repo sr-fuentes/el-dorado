@@ -52,6 +52,20 @@ pub struct MarketRank {
     pub min_quantity: Decimal,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+pub struct MarketTradeDetail {
+    pub market_id: Uuid,
+    pub market_start_ts: Option<DateTime<Utc>>,
+    pub first_trade_ts: DateTime<Utc>,
+    pub first_trade_id: String,
+    pub last_trade_ts: DateTime<Utc>,
+    pub last_trade_id: String,
+    pub previous_trade_day: DateTime<Utc>,
+    pub previous_status: MarketDataStatus,
+    pub next_trade_date: Option<DateTime<Utc>>,
+    pub next_status: Option<MarketDataStatus>,
+}
+
 impl MarketId {
     pub fn as_strip(&self) -> String {
         self.market_name.replace(&['/', '-'][..], "")
@@ -700,6 +714,17 @@ pub async fn select_markets_by_market_data_status(
     )
     .fetch_all(pool)
     .await?;
+    Ok(rows)
+}
+
+pub async fn select_market_trade_details(pool: &PgPool) -> Result<Vec<MarketTradeDetail>, sqlx::Error> {
+    let rows = sqlx::query_as!(
+        MarketTradeDetail,
+        r#"
+        ""#,
+    )
+    .fetch_all(pool)
+    .await?
     Ok(rows)
 }
 
