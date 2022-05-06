@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 
 use crate::candles::*;
-use crate::events::Event;
+use crate::events::{Event, EventStatus, EventType};
 use crate::exchanges::{client::RestClient, error::RestError, Exchange, ExchangeName};
 use crate::inquisidor::Inquisidor;
 use crate::markets::*;
@@ -573,63 +573,57 @@ impl Inquisidor {
             );
             return;
         };
-        let market_trade_details = select_market_trade_details(&self.ig_pool)
+        let market_trade_details = MarketTradeDetail::select_all(&self.ig_pool)
             .await
-            .expect("Failed to select trade archives.");
+            .expect("Failed to select market trade details.");
         let mtd = match market_trade_details
             .iter()
-            .find(|ta| ta.market_id == market.market_id)
+            .find(|mtd| mtd.market_id == market.market_id)
         {
-            Some(ta) => ta,
+            Some(mtd) => mtd.clone(),
             None => {
                 // No trade archive exists, create one
-                self.create_insert_market_trade_detail(market)
+                let mtd = MarketTradeDetail::new(&self.ig_pool, &market).await;
+                mtd.insert(&self.ig_pool)
                     .await
-                    .expect("Failed to create / insert market trade detail.");
-                select_market_trade_detail(&self.ig_pool, market.market_id)
-                    .await
-                    .expect("Failed to select market trade detail.")
+                    .expect("Failed to insert market trade detail.");
+                mtd
             }
         };
-        let backfill_events = select_open_events_by_type().await.expect("Failed to select backfill event.");
-        let backfill_event = match backfill_events.find(|e| e.market_id = market.market_id) {
-            Some(be) => {
-                // There exists an event, start there
-                be
+        let backfill_events = Event::select_by_status_type(
+            &self.ig_pool,
+            &EventStatus::Open,
+            &EventType::BackfillTrades,
+        )
+        .await
+        .expect("Failed to select backfill event.");
+        let backfill_event = match backfill_events
+            .iter()
+            .find(|e| e.market_id == market.market_id)
+        {
+            Some(e) =>
+            // There exists an event, start there
+            {
+                e.clone()
             }
             None => {
                 // There is no event, create one then start here
-                Event::new_backfill_event(mtd)
+                let e = Event::new_backfill_trades(&mtd);
+                match e.exchange_name {
+                    // Save event for FTX
+                    ExchangeName::Ftx | ExchangeName::FtxUs => {
+                        e.insert(&self.ig_pool)
+                            .await
+                            .expect("Failed to insert event.");
+                        e
+                    }
+                    ExchangeName::Gdax => e,
+                }
             }
         };
-        // Logic for determining action based on mtd (market trade detail)
-        // At this point we are only interested in getting trades prior to active el-d candles
-        // As those trades have already be retrieved and processed, possibly validated and archived.
-        // First determine if market trade detail is backfilled completely - Prev_Status = Complete
-        // If so, there is no need to continue - review for any backfill events for this market and
-        // Delete them. If there is a need to continue - create an event with the market and date
-        // For an FTX market (there is no spare mita - so downloading will be IG event) or start the
-        // Backfill process if it is a GDAX market.
-        match mtd.prev_status {
-            MarketDataStatus::Completed => {
-                // Add logic to look at next_status
-                println!("Backfill completed, next status functions not yet implemented.");
-            }
-            MarketDataStatus::Get => {
-                // Get trades for previous date
-                // 1) Create trade table
-                // 2) Get trades
-                // 3) Update statuses
-            }
-            MarketDataStatus::Validate => {
-                // Validate trades in temp table versus expected trades from 01d exchange candle
-            }
-            MarketDataStatus::Archive => {}
-        }
-        // Insert backfill event or process gdax backfill
     }
 
-    pub async fn process_backfill_event() {}
+    pub async fn process_event_backfill_trades(&self, event: &Event) {}
 
     pub async fn process_ftx_backfill_event() {
         // Create trade table for market / exch / day
