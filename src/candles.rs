@@ -1301,6 +1301,22 @@ pub async fn select_last_01d_candle(
     Ok(row)
 }
 
+pub async fn select_first_01d_candle(
+    pool: &PgPool,
+    market_id: &Uuid,
+) -> Result<DailyCandle, sqlx::Error> {
+    let sql = r#"
+        SELECT * FROM candles_01d
+        WHERE market_id = $1
+        ORDER BY datetime
+        "#;
+    let row = sqlx::query_as::<_, DailyCandle>(sql)
+        .bind(market_id)
+        .fetch_one(pool)
+        .await?;
+    Ok(row)
+}
+
 pub async fn select_last_candle(
     pool: &PgPool,
     exchange_name: &ExchangeName,

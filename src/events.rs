@@ -5,7 +5,8 @@ use crate::candles::{
 use crate::exchanges::{select_exchanges_by_status, ExchangeName, ExchangeStatus};
 use crate::inquisidor::Inquisidor;
 use crate::markets::{
-    select_market_details, select_market_details_by_status_exchange, MarketDetail, MarketStatus,
+    select_market_details, select_market_details_by_status_exchange, MarketDataStatus,
+    MarketDetail, MarketStatus, MarketTradeDetail,
 };
 use crate::mita::Mita;
 use crate::trades::select_insert_delete_trades;
@@ -14,7 +15,7 @@ use sqlx::PgPool;
 use std::convert::TryFrom;
 use uuid::Uuid;
 
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct Event {
     pub event_id: Uuid,
     pub droplet: String,
@@ -38,6 +39,7 @@ pub enum EventType {
     CreateDailyCandles,
     ValidateDailyCandles,
     ArchiveDailyCandles,
+    BackfillTrades,
     // PurgeMetrics,
 }
 
@@ -49,6 +51,7 @@ impl EventType {
             EventType::CreateDailyCandles => "createdailycandles",
             EventType::ValidateDailyCandles => "validatedailycandles",
             EventType::ArchiveDailyCandles => "archivedailycandles",
+            EventType::BackfillTrades => "backfilltrades",
         }
     }
 }
@@ -63,6 +66,7 @@ impl TryFrom<String> for EventType {
             "createdailycandles" => Ok(Self::CreateDailyCandles),
             "validatedailycandles" => Ok(Self::ValidateDailyCandles),
             "archivedailycandles" => Ok(Self::ArchiveDailyCandles),
+            "backfilltrades" => Ok(Self::BackfillTrades),
             other => Err(format!("{} is not a supported validation type.", other)),
         }
     }
@@ -96,6 +100,101 @@ impl TryFrom<String> for EventStatus {
             "done" => Ok(Self::Done),
             other => Err(format!("{} is not a supported validation status.", other)),
         }
+    }
+}
+
+impl Event {
+    pub fn new_backfill_trades(mtd: &MarketTradeDetail) -> Self {
+        // Create a new backfill event
+        // Logic for determining action based on mtd (market trade detail)
+        // At this point we are only interested in getting trades prior to active el-d candles
+        // As those trades have already be retrieved and processed, possibly validated and archived.
+        // First determine if market trade detail is backfilled completely - Prev_Status = Complete
+        // If so, there is no need to continue - review for any backfill events for this market and
+        // Delete them. If there is a need to continue - create an event with the market and date
+        // For an FTX market (there is no spare mita - so downloading will be IG event) or start the
+        // Backfill process if it is a GDAX market.
+        match mtd.previous_status {
+            MarketDataStatus::Completed => {
+                // Add logic to look at next_status
+                println!("Backfill completed, next status functions not yet implemented.");
+            }
+            MarketDataStatus::Get => {
+                // Get trades for previous date
+                // 1) Create trade table
+                // 2) Get trades
+                // 3) Update statuses
+            }
+            MarketDataStatus::Validate => {
+                // Validate trades in temp table versus expected trades from 01d exchange candle
+            }
+            MarketDataStatus::Archive => {}
+        }
+        Self {
+            event_id: Uuid::new_v4(),
+            droplet: "ig".to_string(),
+            event_type: EventType::BackfillTrades,
+            exchange_name: ExchangeName::Ftx, // TODO! Change hardcoding
+            market_id: mtd.market_id,
+            start_ts: Some(Utc::now()),
+            end_ts: Some(Utc::now()),
+            event_ts: Utc::now(),
+            created_ts: Utc::now(),
+            processed_ts: None,
+            event_status: EventStatus::New,
+            notes: Some("Test Notes".to_string()),
+        }
+    }
+
+    pub async fn insert(&self, pool: &PgPool) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"
+            INSERT INTO events (event_id, droplet, event_type, exchange_name, market_id,
+                start_ts, end_ts, event_ts, created_ts, processed_ts, event_status, notes)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            "#,
+            self.event_id,
+            self.droplet,
+            self.event_type.as_str(),
+            self.exchange_name.as_str(),
+            self.market_id,
+            self.start_ts,
+            self.end_ts,
+            self.event_ts,
+            self.created_ts,
+            self.processed_ts,
+            self.event_status.as_str(),
+            self.notes,
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn select_by_status_type(
+        pool: &PgPool,
+        event_status: &EventStatus,
+        event_type: &EventType,
+    ) -> Result<Vec<Event>, sqlx::Error> {
+        let rows = sqlx::query_as!(
+            Event,
+            r#"
+            SELECT event_id, droplet,
+                event_type as "event_type: EventType",
+                exchange_name as "exchange_name: ExchangeName",
+                market_id, start_ts, end_ts, event_ts, created_ts, processed_ts,
+                event_status as "event_status: EventStatus", 
+                notes
+            FROM events
+            WHERE event_status = $1
+            AND event_type = $2
+            "#,
+            event_status.as_str(),
+            event_type.as_str(),
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(rows)
     }
 }
 
@@ -153,6 +252,7 @@ impl Inquisidor {
                 EventType::ArchiveDailyCandles => {
                     self.process_event_archive_daily_candles(event).await
                 }
+                EventType::BackfillTrades => self.process_event_backfill_trades(event).await,
             }
         }
     }
@@ -327,6 +427,7 @@ impl Mita {
                 EventType::CreateDailyCandles => continue, // All daily creation events will be IG
                 EventType::ValidateDailyCandles => continue, // IG only
                 EventType::ArchiveDailyCandles => continue, // IG only
+                EventType::BackfillTrades => continue, // IG only
             }
         }
         true

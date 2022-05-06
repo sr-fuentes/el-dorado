@@ -1,8 +1,8 @@
-use crate::candles::TimeFrame;
+use crate::candles::{select_first_01d_candle, TimeFrame};
 use crate::exchanges::{client::RestClient, error::RestError, select_exchanges, ExchangeName};
 use crate::inquisidor::Inquisidor;
 use crate::utilities::get_input;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use core::cmp::Reverse;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -52,7 +52,7 @@ pub struct MarketRank {
     pub min_quantity: Decimal,
 }
 
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct MarketTradeDetail {
     pub market_id: Uuid,
     pub market_start_ts: Option<DateTime<Utc>>,
@@ -62,7 +62,7 @@ pub struct MarketTradeDetail {
     pub last_trade_id: String,
     pub previous_trade_day: DateTime<Utc>,
     pub previous_status: MarketDataStatus,
-    pub next_trade_date: Option<DateTime<Utc>>,
+    pub next_trade_day: Option<DateTime<Utc>>,
     pub next_status: Option<MarketDataStatus>,
 }
 
@@ -97,7 +97,7 @@ pub enum MarketStatus {
     Terminated,
 }
 
-#[derive(Debug, sqlx::Type)]
+#[derive(Debug, Clone, sqlx::Type)]
 #[sqlx(rename_all = "lowercase")]
 pub enum MarketDataStatus {
     // Data process is complete. No other action is needed.
@@ -163,6 +163,88 @@ impl TryFrom<String> for MarketDataStatus {
             "archive" => Ok(Self::Archive),
             other => Err(format!("{} isnot a supported market data status.", other)),
         }
+    }
+}
+
+impl MarketTradeDetail {
+    pub async fn new(pool: &PgPool, market: &MarketDetail) -> Self {
+        // Create new market trade detail from market detail.
+        // First get the first 01d candle for the market
+        let first_candle = select_first_01d_candle(pool, &market.market_id)
+            .await
+            .expect("Failed to select first candle.");
+        Self {
+            market_id: market.market_id,
+            market_start_ts: None,
+            first_trade_ts: first_candle.first_trade_ts,
+            first_trade_id: first_candle.first_trade_id.clone(),
+            last_trade_ts: first_candle.first_trade_ts, // Duplicate first id/ts as true last id/ts
+            last_trade_id: first_candle.first_trade_id.clone(), // populated with step forward.
+            previous_trade_day: first_candle.datetime - Duration::days(1),
+            previous_status: MarketDataStatus::Get,
+            next_trade_day: None,
+            next_status: None,
+        }
+    }
+
+    pub async fn insert(&self, pool: &PgPool) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"
+            INSERT INTO market_trade_details (
+                market_id, market_start_ts, first_trade_ts, first_trade_id, last_trade_ts,
+                last_trade_id, previous_trade_day, previous_status, next_trade_day, next_status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            "#,
+            self.market_id,
+            self.market_start_ts,
+            self.first_trade_ts,
+            self.first_trade_id,
+            self.last_trade_ts,
+            self.last_trade_id,
+            self.previous_trade_day,
+            self.previous_status.as_str(),
+            self.next_trade_day,
+            self.next_status.as_ref().map(|ns| ns.as_str()),
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn select_all(pool: &PgPool) -> Result<Vec<MarketTradeDetail>, sqlx::Error> {
+        let rows = sqlx::query_as!(
+            MarketTradeDetail,
+            r#"
+            SELECT market_id, market_start_ts, first_trade_ts, first_trade_id, last_trade_ts,
+                last_trade_id, previous_trade_day,
+                previous_status as "previous_status: MarketDataStatus",
+                next_trade_day,
+                next_status as "next_status: MarketDataStatus"
+            FROM market_trade_details
+            "#,
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(rows)
+    }
+
+    pub async fn select(pool: &PgPool, market_id: &Uuid) -> Result<MarketTradeDetail, sqlx::Error> {
+        let row = sqlx::query_as!(
+            MarketTradeDetail,
+            r#"
+            SELECT market_id, market_start_ts, first_trade_ts, first_trade_id, last_trade_ts,
+                last_trade_id, previous_trade_day,
+                previous_status as "previous_status: MarketDataStatus",
+                next_trade_day,
+                next_status as "next_status: MarketDataStatus"
+            FROM market_trade_details
+            WHERE market_id = $1
+            "#,
+            market_id
+        )
+        .fetch_one(pool)
+        .await?;
+        Ok(row)
     }
 }
 
@@ -714,17 +796,6 @@ pub async fn select_markets_by_market_data_status(
     )
     .fetch_all(pool)
     .await?;
-    Ok(rows)
-}
-
-pub async fn select_market_trade_details(pool: &PgPool) -> Result<Vec<MarketTradeDetail>, sqlx::Error> {
-    let rows = sqlx::query_as!(
-        MarketTradeDetail,
-        r#"
-        ""#,
-    )
-    .fetch_all(pool)
-    .await?
     Ok(rows)
 }
 
