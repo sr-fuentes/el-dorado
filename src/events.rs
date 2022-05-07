@@ -41,6 +41,8 @@ pub enum EventType {
     ArchiveDailyCandles,
     BackfillTrades,
     // PurgeMetrics,
+    // WeeklyClean,
+    // DeepClean,
 }
 
 impl EventType {
@@ -104,7 +106,7 @@ impl TryFrom<String> for EventStatus {
 }
 
 impl Event {
-    pub fn new_backfill_trades(mtd: &MarketTradeDetail) -> Self {
+    pub fn new_backfill_trades(mtd: &MarketTradeDetail) -> Option<Self> {
         // Create a new backfill event
         // Logic for determining action based on mtd (market trade detail)
         // At this point we are only interested in getting trades prior to active el-d candles
@@ -118,6 +120,7 @@ impl Event {
             MarketDataStatus::Completed => {
                 // Add logic to look at next_status
                 println!("Backfill completed, next status functions not yet implemented.");
+                return None;
             }
             MarketDataStatus::Get => {
                 // Get trades for previous date
@@ -130,7 +133,7 @@ impl Event {
             }
             MarketDataStatus::Archive => {}
         }
-        Self {
+        Some(Self {
             event_id: Uuid::new_v4(),
             droplet: "ig".to_string(),
             event_type: EventType::BackfillTrades,
@@ -143,7 +146,7 @@ impl Event {
             processed_ts: None,
             event_status: EventStatus::New,
             notes: Some("Test Notes".to_string()),
-        }
+        })
     }
 
     pub async fn insert(&self, pool: &PgPool) -> Result<(), sqlx::Error> {

@@ -1,14 +1,18 @@
-use std::convert::TryInto;
-
-use crate::candles::*;
+use crate::candles::{
+    insert_candle, select_last_candle, select_previous_candle, Candle, TimeFrame,
+};
 use crate::events::{Event, EventStatus, EventType};
 use crate::exchanges::{client::RestClient, error::RestError, Exchange, ExchangeName};
 use crate::inquisidor::Inquisidor;
-use crate::markets::*;
+use crate::markets::{update_market_data_status, MarketDetail, MarketStatus, MarketTradeDetail};
 use crate::mita::Mita;
-use crate::trades::*;
+use crate::trades::{
+    insert_delete_ftx_trades, insert_delete_gdax_trades, insert_ftx_trades, insert_gdax_trades,
+    select_ftx_trades_by_time, select_gdax_trades_by_time, select_trade_first_stream,
+};
 use crate::utilities::{get_input, Trade};
 use chrono::{DateTime, Duration, DurationRound, TimeZone, Utc};
+use std::convert::TryInto;
 
 impl Mita {
     pub async fn historical(&self, end_source: &str) {
@@ -520,8 +524,8 @@ impl Mita {
 
 impl Inquisidor {
     pub async fn backfill(&self) {
-        // Fill trades from the beginning of the market open on exchange to the first candle/trade
-        // day in el-dorado. Process will create a new trade table for each market/date working
+        // Fill trades to the beginning of the market open on exchange from the first candle/trade
+        // day in el-dorado. Process will create a new trade detail table for each market working
         // from the first candle backwards until the first trade for the market. From there the
         // validation period will begin from the start through the current date.
         // Example:
@@ -563,9 +567,9 @@ impl Inquisidor {
             }
         };
         // Validate market is eligible to backfill
-        // 1) Market detail contains a last candle - ie it has been live
+        // 1) Market detail contains a last candle - ie it has been live in El-Dorado
         // 2) Market Trade Archive record exists and status is not Complete
-        // 3) Backfill event does not exist (FTX only / GDAX runs w/o events)
+        // 3) Backfill event does not exist
         if market.market_status != MarketStatus::Active || market.last_candle.is_none() {
             println!(
                 "Market not eligible for backfill. \nStatus: {:?}\nLast Candle: {:?}",
@@ -590,37 +594,40 @@ impl Inquisidor {
                 mtd
             }
         };
-        let backfill_events = Event::select_by_status_type(
+        let events = Event::select_by_status_type(
             &self.ig_pool,
             &EventStatus::Open,
             &EventType::BackfillTrades,
         )
         .await
         .expect("Failed to select backfill event.");
-        let backfill_event = match backfill_events
-            .iter()
-            .find(|e| e.market_id == market.market_id)
-        {
+        let event = match events.iter().find(|e| e.market_id == market.market_id) {
             Some(e) =>
             // There exists an event, start there
             {
-                e.clone()
+                Some(e.clone())
             }
             None => {
                 // There is no event, create one then start here
-                let e = Event::new_backfill_trades(&mtd);
-                match e.exchange_name {
-                    // Save event for FTX
-                    ExchangeName::Ftx | ExchangeName::FtxUs => {
-                        e.insert(&self.ig_pool)
-                            .await
-                            .expect("Failed to insert event.");
-                        e
-                    }
-                    ExchangeName::Gdax => e,
-                }
+                Event::new_backfill_trades(&mtd)
             }
         };
+        match event {
+            Some(e) => match e.exchange_name {
+                ExchangeName::Ftx | ExchangeName::FtxUs => e
+                    .insert(&self.ig_pool)
+                    .await
+                    .expect("Failed to insert event."),
+                ExchangeName::Gdax => self.process_event_backfill_trades(&e).await,
+            },
+            None => {
+                println!("Market not eligible for backfill event.");
+                println!(
+                    "Prev Status: {:?}\nNext Status: {:?}",
+                    mtd.previous_status, mtd.next_status
+                );
+            }
+        }
     }
 
     pub async fn process_event_backfill_trades(&self, event: &Event) {}
