@@ -122,31 +122,25 @@ impl Event {
                 println!("Backfill completed, next status functions not yet implemented.");
                 return None;
             }
-            MarketDataStatus::Get => {
-                // Get trades for previous date
-                // 1) Create trade table
-                // 2) Get trades
-                // 3) Update statuses
+            MarketDataStatus::Get | MarketDataStatus::Archive | MarketDataStatus::Validate => {
+                //  Add event with prev_date
+                // TODO: add logic to look forward if prev status is complete
+                return Some(Self {
+                    event_id: Uuid::new_v4(),
+                    droplet: "ig".to_string(),
+                    event_type: EventType::BackfillTrades,
+                    exchange_name: ExchangeName::Ftx, // TODO! Change hardcoding
+                    market_id: mtd.market_id,
+                    start_ts: Some(Utc::now()),
+                    end_ts: Some(Utc::now()),
+                    event_ts: Utc::now(),
+                    created_ts: Utc::now(),
+                    processed_ts: None,
+                    event_status: EventStatus::New,
+                    notes: Some("Test Notes".to_string()),
+                });
             }
-            MarketDataStatus::Validate => {
-                // Validate trades in temp table versus expected trades from 01d exchange candle
-            }
-            MarketDataStatus::Archive => {}
         }
-        Some(Self {
-            event_id: Uuid::new_v4(),
-            droplet: "ig".to_string(),
-            event_type: EventType::BackfillTrades,
-            exchange_name: ExchangeName::Ftx, // TODO! Change hardcoding
-            market_id: mtd.market_id,
-            start_ts: Some(Utc::now()),
-            end_ts: Some(Utc::now()),
-            event_ts: Utc::now(),
-            created_ts: Utc::now(),
-            processed_ts: None,
-            event_status: EventStatus::New,
-            notes: Some("Test Notes".to_string()),
-        })
     }
 
     pub async fn insert(&self, pool: &PgPool) -> Result<(), sqlx::Error> {
