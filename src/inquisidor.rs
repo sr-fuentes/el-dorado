@@ -8,6 +8,7 @@ use crate::{
 };
 use sqlx::PgPool;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct Inquisidor {
@@ -75,6 +76,11 @@ impl Inquisidor {
             // Sleep for 200 ms to give control back to tokio scheduler
             tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
         }
+    }
+
+    pub fn market(&self, market_id: &Uuid) -> &MarketDetail {
+        // Returns the market detail for a given market Id
+        self.markets.iter().find(|m| m.market_id == *market_id).unwrap()
     }
 }
 
