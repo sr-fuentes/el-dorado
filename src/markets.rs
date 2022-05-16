@@ -211,6 +211,46 @@ impl MarketTradeDetail {
         Ok(())
     }
 
+    pub async fn update_prev_status(
+        &self,
+        pool: &PgPool,
+        status: &MarketDataStatus,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"
+            UPDATE market_trade_details
+            SET previous_status = $1
+            WHERE market_id = $2
+            "#,
+            status.as_str(),
+            self.market_id,
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn update_prev_day_status(
+        &self,
+        pool: &PgPool,
+        datetime: &DateTime<Utc>,
+        status: &MarketDataStatus,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"
+            UPDATE market_trade_details
+            SET (previous_trade_day, previous_status) = ($1, $2)
+            WHERE market_id = $3
+            "#,
+            datetime,
+            status.as_str(),
+            self.market_id,
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn select_all(pool: &PgPool) -> Result<Vec<MarketTradeDetail>, sqlx::Error> {
         let rows = sqlx::query_as!(
             MarketTradeDetail,
