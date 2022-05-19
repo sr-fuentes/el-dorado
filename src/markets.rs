@@ -97,7 +97,7 @@ pub enum MarketStatus {
     Terminated,
 }
 
-#[derive(Debug, Clone, sqlx::Type)]
+#[derive(Debug, Clone, Copy, sqlx::Type)]
 #[sqlx(rename_all = "lowercase")]
 pub enum MarketDataStatus {
     // Data process is complete. No other action is needed.
@@ -215,7 +215,7 @@ impl MarketTradeDetail {
         &self,
         pool: &PgPool,
         status: &MarketDataStatus,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<Self, sqlx::Error> {
         sqlx::query!(
             r#"
             UPDATE market_trade_details
@@ -227,15 +227,26 @@ impl MarketTradeDetail {
         )
         .execute(pool)
         .await?;
-        Ok(())
+        Ok(Self {
+            market_id: self.market_id,
+            market_start_ts: self.market_start_ts,
+            first_trade_ts: self.first_trade_ts,
+            first_trade_id: self.first_trade_id.clone(),
+            last_trade_ts: self.last_trade_ts,
+            last_trade_id: self.last_trade_id.clone(),
+            previous_trade_day: self.previous_trade_day,
+            previous_status: *status,
+            next_trade_day: self.next_trade_day,
+            next_status: self.next_status,
+        })
     }
 
-    pub async fn update_prev_day_status(
+    pub async fn update_prev_day_prev_status(
         &self,
         pool: &PgPool,
         datetime: &DateTime<Utc>,
         status: &MarketDataStatus,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<Self, sqlx::Error> {
         sqlx::query!(
             r#"
             UPDATE market_trade_details
