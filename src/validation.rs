@@ -929,7 +929,7 @@ impl Inquisidor {
                     } else if e.is_status() {
                         match e.status() {
                             Some(s) => match s.as_u16() {
-                                502 | 503 | 520 | 530 => {
+                                500 | 502 | 503 | 504 | 520 | 522 | 530 => {
                                     println!(
                                         "{} status code. Waiting 30 seconds before retry {:?}",
                                         s, e
@@ -1086,7 +1086,7 @@ impl Inquisidor {
                     } else if e.is_status() {
                         match e.status() {
                             Some(s) => match s.as_u16() {
-                                502 | 503 | 520 | 530 => {
+                                500 | 502 | 503 | 504 | 520 | 522 | 530 => {
                                     println!(
                                         "{} status code. Waiting 30 seconds before retry {:?}",
                                         s, e
