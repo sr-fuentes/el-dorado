@@ -259,7 +259,18 @@ impl MarketTradeDetail {
         )
         .execute(pool)
         .await?;
-        Ok(())
+        Ok(Self {
+            market_id: self.market_id,
+            market_start_ts: self.market_start_ts,
+            first_trade_ts: self.first_trade_ts,
+            first_trade_id: self.first_trade_id.clone(),
+            last_trade_ts: self.last_trade_ts,
+            last_trade_id: self.last_trade_id.clone(),
+            previous_trade_day: *datetime,
+            previous_status: *status,
+            next_trade_day: self.next_trade_day,
+            next_status: self.next_status,
+        })
     }
 
     pub async fn select_all(pool: &PgPool) -> Result<Vec<MarketTradeDetail>, sqlx::Error> {

@@ -120,7 +120,7 @@ impl Event {
             MarketDataStatus::Completed => {
                 // Add logic to look at next_status
                 println!("Backfill completed, next status functions not yet implemented.");
-                return None;
+                None
             }
             MarketDataStatus::Get | MarketDataStatus::Archive | MarketDataStatus::Validate => {
                 //  Add event with prev_date
