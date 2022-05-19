@@ -106,7 +106,7 @@ impl TryFrom<String> for EventStatus {
 }
 
 impl Event {
-    pub fn new_backfill_trades(mtd: &MarketTradeDetail) -> Option<Self> {
+    pub fn new_backfill_trades(mtd: &MarketTradeDetail, exchange: &ExchangeName) -> Option<Self> {
         // Create a new backfill event
         // Logic for determining action based on mtd (market trade detail)
         // At this point we are only interested in getting trades prior to active el-d candles
@@ -129,15 +129,15 @@ impl Event {
                     event_id: Uuid::new_v4(),
                     droplet: "ig".to_string(),
                     event_type: EventType::BackfillTrades,
-                    exchange_name: ExchangeName::Ftx, // TODO! Change hardcoding
+                    exchange_name: *exchange,
                     market_id: mtd.market_id,
-                    start_ts: Some(Utc::now()),
-                    end_ts: Some(Utc::now()),
+                    start_ts: Some(mtd.previous_trade_day),
+                    end_ts: None,
                     event_ts: Utc::now(),
                     created_ts: Utc::now(),
                     processed_ts: None,
                     event_status: EventStatus::New,
-                    notes: Some("Test Notes".to_string()),
+                    notes: Some(mtd.previous_status.as_str().to_string()),
                 });
             }
         }
@@ -165,6 +165,43 @@ impl Event {
         )
         .execute(pool)
         .await?;
+        Ok(())
+    }
+
+    pub async fn update_status(
+        &self,
+        pool: &PgPool,
+        status: &EventStatus,
+    ) -> Result<(), sqlx::Error> {
+        match status {
+            EventStatus::New | EventStatus::Open => {
+                sqlx::query!(
+                    r#"
+                    UPDATE events
+                    SET event_status = $1
+                    WHERE event_id = $2
+                    "#,
+                    status.as_str(),
+                    self.event_id,
+                )
+                .execute(pool)
+                .await?;
+            }
+            EventStatus::Done => {
+                sqlx::query!(
+                    r#"
+                    UPDATE events
+                    SET (event_status, processed_ts) = ($1, $2)
+                    WHERE event_id = $3
+                    "#,
+                    status.as_str(),
+                    Utc::now(),
+                    self.event_id,
+                )
+                .execute(pool)
+                .await?;
+            }
+        }
         Ok(())
     }
 
