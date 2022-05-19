@@ -80,7 +80,10 @@ impl Inquisidor {
 
     pub fn market(&self, market_id: &Uuid) -> &MarketDetail {
         // Returns the market detail for a given market Id
-        self.markets.iter().find(|m| m.market_id == *market_id).unwrap()
+        self.markets
+            .iter()
+            .find(|m| m.market_id == *market_id)
+            .unwrap()
     }
 }
 
