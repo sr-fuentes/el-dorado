@@ -97,7 +97,7 @@ pub enum MarketStatus {
     Terminated,
 }
 
-#[derive(Debug, Clone, Copy, sqlx::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
 #[sqlx(rename_all = "lowercase")]
 pub enum MarketDataStatus {
     // Data process is complete. No other action is needed.
