@@ -929,6 +929,7 @@ mod tests {
     use crate::markets::{select_market_details, MarketDataStatus, MarketTradeDetail};
     use crate::mita::Mita;
     use chrono::{TimeZone, Utc};
+    use rust_decimal_macros::dec;
     use sqlx::PgPool;
     use uuid::Uuid;
 
@@ -1040,6 +1041,46 @@ mod tests {
             .execute(&ig.ig_pool)
             .await
             .expect("Failed to update market trade details.");
+        let sql = r#"
+            DELETE FROM candles_01d
+            WHERE market_id = $1
+            "#;
+        sqlx::query(sql)
+            .bind(Uuid::parse_str("c5bbfb83-963c-4ef8-b4dc-3d572ac47943").unwrap())
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to delete 01 candles.");
+        let sql = r#"
+            INSERT INTO candles_01d (
+                datetime, open, high, low, close, volume, volume_net, volume_liquidation, value,
+                trade_count, liquidation_count, last_trade_ts, last_trade_id, is_validated,
+                market_id, first_trade_ts, first_trade_id, is_archived, is_complete)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                $18, $19)
+            "#;
+        sqlx::query(sql)
+            .bind(Utc.ymd(2021, 12, 01).and_hms(0, 0, 0))
+            .bind(dec!(50))
+            .bind(dec!(50))
+            .bind(dec!(50))
+            .bind(dec!(50))
+            .bind(dec!(100))
+            .bind(dec!(0))
+            .bind(dec!(10))
+            .bind(dec!(5000))
+            .bind(20)
+            .bind(10)
+            .bind(Utc.ymd(2021, 12, 01).and_hms(0, 0, 0))
+            .bind("1234")
+            .bind(true)
+            .bind(Uuid::parse_str("c5bbfb83-963c-4ef8-b4dc-3d572ac47943").unwrap())
+            .bind(Utc.ymd(2021, 12, 01).and_hms(0, 0, 0))
+            .bind("1234")
+            .bind(true)
+            .bind(false)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to insert candle for test.");
         // New ig will pick up new data items
         let ig = Inquisidor::new().await;
         // Test
