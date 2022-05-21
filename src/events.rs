@@ -230,6 +230,36 @@ impl Event {
         .await?;
         Ok(rows)
     }
+
+    pub async fn select_by_statuses_type(
+        pool: &PgPool,
+        event_statuses: &[EventStatus],
+        event_type: &EventType,
+    ) -> Result<Vec<Event>, sqlx::Error> {
+        let statuses: Vec<String> = event_statuses
+            .iter()
+            .map(|s| s.as_str().to_string())
+            .collect();
+        let rows = sqlx::query_as!(
+            Event,
+            r#"
+            SELECT event_id, droplet,
+                event_type as "event_type: EventType",
+                exchange_name as "exchange_name: ExchangeName",
+                market_id, start_ts, end_ts, event_ts, created_ts, processed_ts,
+                event_status as "event_status: EventStatus", 
+                notes
+            FROM events
+            WHERE event_status = ANY($1)
+            AND event_type = $2
+            "#,
+            &statuses,
+            event_type.as_str(),
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(rows)
+    }
 }
 
 impl Inquisidor {
