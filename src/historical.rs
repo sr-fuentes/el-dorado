@@ -924,6 +924,7 @@ impl Inquisidor {
 #[cfg(test)]
 mod tests {
     use crate::configuration::get_configuration;
+    use crate::events::{Event, EventStatus, EventType};
     use crate::exchanges::{client::RestClient, ExchangeName};
     use crate::inquisidor::Inquisidor;
     use crate::markets::{select_market_details, MarketDataStatus, MarketTradeDetail};
@@ -1085,7 +1086,7 @@ mod tests {
         let ig = Inquisidor::new().await;
         // Test
         ig.backfill().await;
-        // Validated
+        // Validate
         let mtd = MarketTradeDetail::select(
             &ig.ig_pool,
             &Uuid::parse_str("c5bbfb83-963c-4ef8-b4dc-3d572ac47943").unwrap(),
@@ -1096,10 +1097,122 @@ mod tests {
     }
 
     #[tokio::test]
-    pub async fn backfill_ftx_with_no_event_creates_new() {}
-
-    #[tokio::test]
-    pub async fn backfill_ftx_with_completed_does_nothing() {}
+    pub async fn backfill_ftx_with_completed_does_nothing() {
+        // Setup
+        let ig = Inquisidor::new().await;
+        let sql = r#"
+            UPDATE markets
+            SET (market_data_status, last_candle) = ('active', $1)
+            WHERE market_name = 'FTT-PERP'
+            "#;
+        sqlx::query(sql)
+            .bind(Utc.ymd(2021, 12, 01).and_hms(0, 0, 0))
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        let sql = r#"
+            DELETE FROM market_trade_details
+            WHERE 1=1
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update market trade details.");
+        let sql = r#"
+            DELETE FROM candles_01d
+            WHERE market_id = $1
+            "#;
+        sqlx::query(sql)
+            .bind(Uuid::parse_str("c5bbfb83-963c-4ef8-b4dc-3d572ac47943").unwrap())
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to delete 01 candles.");
+        let sql = r#"
+            DELETE FROM events
+            WHERE event_type = 'backfilltrades'
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to delete events.");
+        let sql = r#"
+            INSERT INTO candles_01d (
+                datetime, open, high, low, close, volume, volume_net, volume_liquidation, value,
+                trade_count, liquidation_count, last_trade_ts, last_trade_id, is_validated,
+                market_id, first_trade_ts, first_trade_id, is_archived, is_complete)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                $18, $19)
+            "#;
+        sqlx::query(sql)
+            .bind(Utc.ymd(2021, 12, 01).and_hms(0, 0, 0))
+            .bind(dec!(50))
+            .bind(dec!(50))
+            .bind(dec!(50))
+            .bind(dec!(50))
+            .bind(dec!(100))
+            .bind(dec!(0))
+            .bind(dec!(10))
+            .bind(dec!(5000))
+            .bind(20)
+            .bind(10)
+            .bind(Utc.ymd(2021, 12, 01).and_hms(0, 0, 0))
+            .bind("1234")
+            .bind(true)
+            .bind(Uuid::parse_str("c5bbfb83-963c-4ef8-b4dc-3d572ac47943").unwrap())
+            .bind(Utc.ymd(2021, 12, 01).and_hms(0, 0, 0))
+            .bind("1234")
+            .bind(true)
+            .bind(false)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to insert candle for test.");
+        // New ig will pick up new data items
+        let ig = Inquisidor::new().await;
+        // Run backfill to create mtd and event
+        ig.backfill().await;
+        // Get event
+        let mi = Uuid::parse_str("c5bbfb83-963c-4ef8-b4dc-3d572ac47943").unwrap();
+        let events = Event::select_by_statuses_type(
+            &ig.ig_pool,
+            &vec![EventStatus::New, EventStatus::Open],
+            &EventType::BackfillTrades,
+        )
+        .await
+        .expect("Failed to select backfill event.");
+        let event = events.iter().find(|e| e.market_id == mi).unwrap();
+        println!("{:?}", event);
+        // Change status to completed
+        let sql = r#"
+            UPDATE events
+            SET notes = 'completed'
+            WHERE event_id = $1
+            "#;
+        sqlx::query(sql)
+            .bind(event.event_id)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update event notes.");
+        let sql = r#"
+            UPDATE market_trade_details
+            SET previous_status = 'completed'
+            WHERE market_id = $1
+            "#;
+        sqlx::query(sql)
+            .bind(mi)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update event notes.");
+        let events = Event::select_by_statuses_type(
+            &ig.ig_pool,
+            &vec![EventStatus::New, EventStatus::Open],
+            &EventType::BackfillTrades,
+        )
+        .await
+        .expect("Failed to select backfill event.");
+        let event = events.iter().find(|e| e.market_id == mi).unwrap();
+        // Test backfill ftx with event
+        ig.process_event_backfill_trades(&event).await;
+    }
 
     #[tokio::test]
     pub async fn backfill_ftx_get_gets_trades_updates_mtd_creates_new_event() {}
