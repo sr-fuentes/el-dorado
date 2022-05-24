@@ -4,7 +4,8 @@ use crate::configuration::{get_configuration, Settings};
 use crate::events::insert_event_process_trades;
 use crate::exchanges::{select_exchanges, Exchange, ExchangeName};
 use crate::markets::{
-    select_market_detail_by_exchange_mita, update_market_data_status, MarketDetail, MarketStatus,
+    select_market_detail_by_exchange_mita, update_market_data_status, update_markets_last_candle,
+    MarketDetail, MarketStatus,
 };
 use crate::metrics::{delete_metrics_ap_by_exchange_market, insert_metric_ap, MetricAP};
 use crate::trades::{
@@ -458,6 +459,10 @@ impl Mita {
                 .await
                 .expect("Failed to insert metric ap.");
         }
+        // Update last candle in market table
+        update_markets_last_candle(&self.ed_pool, &market, &ts)
+            .await
+            .expect("Faile to update market last candle.");
         // Insert new processing event
         insert_event_process_trades(
             &self.ed_pool,

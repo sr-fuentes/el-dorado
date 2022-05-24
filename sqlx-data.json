@@ -74,6 +74,19 @@
       ]
     }
   },
+  "06dd958f76cb47c47261464ee55b5e139b47feeff2143417e3ea5a41f7c5c94f": {
+    "query": "\n        UPDATE markets\n        SET last_candle  = $1\n        WHERE market_id = $2\n        ",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Timestamptz",
+          "Uuid"
+        ]
+      },
+      "nullable": []
+    }
+  },
   "0a74bcb2eff0f693cd08ee93a2ea90615b4eda57bd2adb4f713e815348342155": {
     "query": "\n        SELECT market_id,\n            exchange_name as \"exchange_name: ExchangeName\",\n            market_name, market_type, base_currency, quote_currency, underlying,\n            market_status as \"market_status: MarketStatus\",\n            market_data_status as \"market_data_status: MarketStatus\",\n            mita,\n            candle_timeframe as \"candle_timeframe: TimeFrame\",\n            last_candle\n            FROM markets\n        ",
     "describe": {

@@ -939,6 +939,25 @@ pub async fn update_market_data_status(
     Ok(())
 }
 
+pub async fn update_markets_last_candle(
+    pool: &PgPool,
+    market: &MarketDetail,
+    datetime: &DateTime<Utc>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        r#"
+        UPDATE markets
+        SET last_candle  = $1
+        WHERE market_id = $2
+        "#,
+        datetime,
+        market.market_id,
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 pub async fn update_market_mita(
     pool: &PgPool,
     market_id: &Uuid,
