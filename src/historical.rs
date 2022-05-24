@@ -642,19 +642,21 @@ impl Inquisidor {
         // Get current market trade detail
         // Match the exchange, if Ftx => Process the Event
         // if Gdax => Create loop to process event and the next until the next is None
-        let mut _mtd = MarketTradeDetail::select(&self.ig_pool, &event.market_id)
+        let mut mtd = MarketTradeDetail::select(&self.ig_pool, &event.market_id)
             .await
             .expect("Faile to select market trade detail.");
         match event.exchange_name {
-            ExchangeName::Ftx | ExchangeName::FtxUs => {
-                self.process_ftx_backfill(event, &_mtd).await
-            }
+            ExchangeName::Ftx | ExchangeName::FtxUs => self.process_ftx_backfill(event, &mtd).await,
             ExchangeName::Gdax => {
-                // let mut current_event = Some(event.clone());
-                // while current_event.is_some() {
-                //     mtd = self.process_gdax_backfill();
-                //     let current_event = Event::new_backfill_trades(&mtd);
-                // }
+                let mut current_event = Some(event.clone());
+                while current_event.is_some() {
+                    self.process_gdax_backfill(&current_event.unwrap(), &mtd)
+                        .await;
+                    mtd = MarketTradeDetail::select(&self.ig_pool, &event.market_id)
+                        .await
+                        .expect("Faile to select market trade detail.");
+                    current_event = Event::new_backfill_trades(&mtd, &ExchangeName::Gdax);
+                }
             }
         }
     }
@@ -956,7 +958,7 @@ impl Inquisidor {
         };
     }
 
-    pub async fn process_gdax_backfill_event() {}
+    pub async fn process_gdax_backfill(&self, event: &Event, mtd: &MarketTradeDetail) {}
 }
 
 #[cfg(test)]
