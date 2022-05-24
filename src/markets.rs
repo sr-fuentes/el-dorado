@@ -273,6 +273,38 @@ impl MarketTradeDetail {
         })
     }
 
+    pub async fn update_first_trade(
+        &self,
+        pool: &PgPool,
+        datetime: &DateTime<Utc>,
+        trade_id: &str,
+    ) -> Result<Self, sqlx::Error> {
+        sqlx::query!(
+            r#"
+            UPDATE market_trade_details
+            SET (first_trade_ts, first_trade_id) = ($1, $2)
+            WHERE market_id = $3
+            "#,
+            datetime,
+            trade_id,
+            self.market_id,
+        )
+        .execute(pool)
+        .await?;
+        Ok(Self {
+            market_id: self.market_id,
+            market_start_ts: self.market_start_ts,
+            first_trade_ts: *datetime,
+            first_trade_id: trade_id.to_string(),
+            last_trade_ts: self.last_trade_ts,
+            last_trade_id: self.last_trade_id.clone(),
+            previous_trade_day: self.previous_trade_day,
+            previous_status: self.previous_status,
+            next_trade_day: self.next_trade_day,
+            next_status: self.next_status,
+        })
+    }
+
     pub async fn select_all(pool: &PgPool) -> Result<Vec<MarketTradeDetail>, sqlx::Error> {
         let rows = sqlx::query_as!(
             MarketTradeDetail,
