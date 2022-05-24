@@ -1,4 +1,4 @@
-use chrono::{Utc, Duration};
+use chrono::{Duration, Utc};
 
 use crate::alerts::Alert;
 use crate::candles::TimeFrame;

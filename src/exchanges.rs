@@ -81,6 +81,12 @@ impl TryFrom<String> for ExchangeStatus {
 }
 
 impl Inquisidor {
+    pub fn list_exchanges(&self) -> Vec<ExchangeName> {
+        // Takes the exchanges in ig and returns a vec of exchange name enums
+        // Output = [ExchangeName::Ftx, ExchangeName::Gdax]
+        self.exchanges.iter().map(|e| e.name).collect()
+    }
+
     pub async fn add_new_exchange(&self) {
         // Get user input for exchange to add
         let exchange: String = get_input("Enter Exchange to Add:");

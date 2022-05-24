@@ -8,5 +8,4 @@ application:
   exchange: "gdax"
   market: "BTC/USD"
   droplet: "localdev"
-  ip_addr: "127.0.0.1"
   archive_path: "../ed"

@@ -1,8 +1,8 @@
-use crate::candles::Candle;
+use crate::candles::{select_first_01d_candle, TimeFrame};
 use crate::exchanges::{client::RestClient, error::RestError, select_exchanges, ExchangeName};
 use crate::inquisidor::Inquisidor;
 use crate::utilities::get_input;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use core::cmp::Reverse;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -29,19 +29,9 @@ pub struct MarketDetail {
     pub underlying: Option<String>,
     pub market_status: MarketStatus,
     pub market_data_status: MarketStatus,
-    pub first_validated_trade_id: Option<String>,
-    pub first_validated_trade_ts: Option<DateTime<Utc>>,
-    pub last_validated_trade_id: Option<String>,
-    pub last_validated_trade_ts: Option<DateTime<Utc>>,
-    pub candle_base_interval: String,
-    pub candle_base_in_seconds: i32,
-    pub first_validated_candle: Option<DateTime<Utc>>,
-    pub last_validated_candle: Option<DateTime<Utc>>,
-    pub last_update_ts: DateTime<Utc>,
-    pub last_update_ip_address: sqlx::types::ipnetwork::IpNetwork,
-    pub first_candle: Option<DateTime<Utc>>,
-    pub last_candle: Option<DateTime<Utc>>,
     pub mita: Option<String>,
+    pub candle_timeframe: Option<TimeFrame>,
+    pub last_candle: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, PartialEq, Eq, sqlx::FromRow)]
@@ -60,6 +50,20 @@ pub struct MarketRank {
     pub dp_quantity: i32,
     pub dp_price: i32,
     pub min_quantity: Decimal,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct MarketTradeDetail {
+    pub market_id: Uuid,
+    pub market_start_ts: Option<DateTime<Utc>>,
+    pub first_trade_ts: DateTime<Utc>,
+    pub first_trade_id: String,
+    pub last_trade_ts: DateTime<Utc>,
+    pub last_trade_id: String,
+    pub previous_trade_day: DateTime<Utc>,
+    pub previous_status: MarketDataStatus,
+    pub next_trade_day: Option<DateTime<Utc>>,
+    pub next_status: Option<MarketDataStatus>,
 }
 
 impl MarketId {
@@ -93,6 +97,19 @@ pub enum MarketStatus {
     Terminated,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(rename_all = "lowercase")]
+pub enum MarketDataStatus {
+    // Data process is complete. No other action is needed.
+    Completed,
+    // Next step is to get the data needed
+    Get,
+    // Next step is to validate whatever data exists
+    Validate,
+    // Next step is to archived on IG in ompressed form and sync to at least 1 external drive
+    Archive,
+}
+
 impl MarketStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -103,6 +120,17 @@ impl MarketStatus {
             MarketStatus::Restart => "restart",
             MarketStatus::Historical => "historical",
             MarketStatus::Terminated => "terminated",
+        }
+    }
+}
+
+impl MarketDataStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            MarketDataStatus::Completed => "completed",
+            MarketDataStatus::Get => "get",
+            MarketDataStatus::Validate => "validate",
+            MarketDataStatus::Archive => "archive",
         }
     }
 }
@@ -124,7 +152,216 @@ impl TryFrom<String> for MarketStatus {
     }
 }
 
+impl TryFrom<String> for MarketDataStatus {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        match s.to_lowercase().as_str() {
+            "completed" => Ok(Self::Completed),
+            "get" => Ok(Self::Get),
+            "validate" => Ok(Self::Validate),
+            "archive" => Ok(Self::Archive),
+            other => Err(format!("{} isnot a supported market data status.", other)),
+        }
+    }
+}
+
+impl MarketTradeDetail {
+    pub async fn new(pool: &PgPool, market: &MarketDetail) -> Self {
+        // Create new market trade detail from market detail.
+        // First get the first 01d candle for the market
+        let first_candle = select_first_01d_candle(pool, &market.market_id)
+            .await
+            .expect("Failed to select first candle.");
+        Self {
+            market_id: market.market_id,
+            market_start_ts: None,
+            first_trade_ts: first_candle.first_trade_ts,
+            first_trade_id: first_candle.first_trade_id.clone(),
+            last_trade_ts: first_candle.first_trade_ts, // Duplicate first id/ts as true last id/ts
+            last_trade_id: first_candle.first_trade_id.clone(), // populated with step forward.
+            previous_trade_day: first_candle.datetime - Duration::days(1),
+            previous_status: MarketDataStatus::Get,
+            next_trade_day: None,
+            next_status: None,
+        }
+    }
+
+    pub async fn insert(&self, pool: &PgPool) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"
+            INSERT INTO market_trade_details (
+                market_id, market_start_ts, first_trade_ts, first_trade_id, last_trade_ts,
+                last_trade_id, previous_trade_day, previous_status, next_trade_day, next_status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            "#,
+            self.market_id,
+            self.market_start_ts,
+            self.first_trade_ts,
+            self.first_trade_id,
+            self.last_trade_ts,
+            self.last_trade_id,
+            self.previous_trade_day,
+            self.previous_status.as_str(),
+            self.next_trade_day,
+            self.next_status.as_ref().map(|ns| ns.as_str()),
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn update_prev_status(
+        &self,
+        pool: &PgPool,
+        status: &MarketDataStatus,
+    ) -> Result<Self, sqlx::Error> {
+        sqlx::query!(
+            r#"
+            UPDATE market_trade_details
+            SET previous_status = $1
+            WHERE market_id = $2
+            "#,
+            status.as_str(),
+            self.market_id,
+        )
+        .execute(pool)
+        .await?;
+        Ok(Self {
+            market_id: self.market_id,
+            market_start_ts: self.market_start_ts,
+            first_trade_ts: self.first_trade_ts,
+            first_trade_id: self.first_trade_id.clone(),
+            last_trade_ts: self.last_trade_ts,
+            last_trade_id: self.last_trade_id.clone(),
+            previous_trade_day: self.previous_trade_day,
+            previous_status: *status,
+            next_trade_day: self.next_trade_day,
+            next_status: self.next_status,
+        })
+    }
+
+    pub async fn update_prev_day_prev_status(
+        &self,
+        pool: &PgPool,
+        datetime: &DateTime<Utc>,
+        status: &MarketDataStatus,
+    ) -> Result<Self, sqlx::Error> {
+        sqlx::query!(
+            r#"
+            UPDATE market_trade_details
+            SET (previous_trade_day, previous_status) = ($1, $2)
+            WHERE market_id = $3
+            "#,
+            datetime,
+            status.as_str(),
+            self.market_id,
+        )
+        .execute(pool)
+        .await?;
+        Ok(Self {
+            market_id: self.market_id,
+            market_start_ts: self.market_start_ts,
+            first_trade_ts: self.first_trade_ts,
+            first_trade_id: self.first_trade_id.clone(),
+            last_trade_ts: self.last_trade_ts,
+            last_trade_id: self.last_trade_id.clone(),
+            previous_trade_day: *datetime,
+            previous_status: *status,
+            next_trade_day: self.next_trade_day,
+            next_status: self.next_status,
+        })
+    }
+
+    pub async fn update_first_trade(
+        &self,
+        pool: &PgPool,
+        datetime: &DateTime<Utc>,
+        trade_id: &str,
+    ) -> Result<Self, sqlx::Error> {
+        sqlx::query!(
+            r#"
+            UPDATE market_trade_details
+            SET (first_trade_ts, first_trade_id) = ($1, $2)
+            WHERE market_id = $3
+            "#,
+            datetime,
+            trade_id,
+            self.market_id,
+        )
+        .execute(pool)
+        .await?;
+        Ok(Self {
+            market_id: self.market_id,
+            market_start_ts: self.market_start_ts,
+            first_trade_ts: *datetime,
+            first_trade_id: trade_id.to_string(),
+            last_trade_ts: self.last_trade_ts,
+            last_trade_id: self.last_trade_id.clone(),
+            previous_trade_day: self.previous_trade_day,
+            previous_status: self.previous_status,
+            next_trade_day: self.next_trade_day,
+            next_status: self.next_status,
+        })
+    }
+
+    pub async fn select_all(pool: &PgPool) -> Result<Vec<MarketTradeDetail>, sqlx::Error> {
+        let rows = sqlx::query_as!(
+            MarketTradeDetail,
+            r#"
+            SELECT market_id, market_start_ts, first_trade_ts, first_trade_id, last_trade_ts,
+                last_trade_id, previous_trade_day,
+                previous_status as "previous_status: MarketDataStatus",
+                next_trade_day,
+                next_status as "next_status: MarketDataStatus"
+            FROM market_trade_details
+            "#,
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(rows)
+    }
+
+    pub async fn select(pool: &PgPool, market_id: &Uuid) -> Result<MarketTradeDetail, sqlx::Error> {
+        let row = sqlx::query_as!(
+            MarketTradeDetail,
+            r#"
+            SELECT market_id, market_start_ts, first_trade_ts, first_trade_id, last_trade_ts,
+                last_trade_id, previous_trade_day,
+                previous_status as "previous_status: MarketDataStatus",
+                next_trade_day,
+                next_status as "next_status: MarketDataStatus"
+            FROM market_trade_details
+            WHERE market_id = $1
+            "#,
+            market_id
+        )
+        .fetch_one(pool)
+        .await?;
+        Ok(row)
+    }
+}
+
 impl Inquisidor {
+    pub fn list_markets(&self, exchange: Option<&ExchangeName>) -> Vec<String> {
+        // Takes the markets in ig and returns a vec of strings of the market names
+        // Output = ['BTC-PERP','ETH-PERP'...]
+        match exchange {
+            Some(e) => {
+                // Filter only for markets for exchange
+                self.markets
+                    .iter()
+                    .filter(|m| m.exchange_name == *e)
+                    .map(|m| m.market_name.clone())
+                    .collect()
+            }
+            None => {
+                // No exchange filter, list all markets
+                self.markets.iter().map(|m| m.market_name.clone()).collect()
+            }
+        }
+    }
+
     pub async fn refresh_exchange(&self) {
         // Get user input for exchange to refresh
         let exchange: String = get_input("Enter Exchange to Refresh:");
@@ -169,14 +406,9 @@ impl Inquisidor {
             if !market_ids.iter().any(|m| m.market_name == market.name()) {
                 // Exchange market not in database.
                 println!("Adding {:?} market for {:?}", market.name(), exchange);
-                insert_new_market(
-                    &self.ig_pool,
-                    exchange,
-                    market,
-                    self.settings.application.ip_addr.as_str(),
-                )
-                .await
-                .expect("Failed to insert market.");
+                insert_new_market(&self.ig_pool, exchange, market)
+                    .await
+                    .expect("Failed to insert market.");
             }
         }
     }
@@ -203,6 +435,7 @@ impl Inquisidor {
             }
 
             ExchangeName::Gdax => {
+                // I dont think this works..no volume on get products to rank
                 self.update_market_ranks_generic::<crate::exchanges::gdax::Product>(&exchange)
                     .await
             }
@@ -547,13 +780,10 @@ pub async fn select_market_detail_by_exchange_mita(
             market_name, market_type, base_currency, quote_currency, underlying,
             market_status as "market_status: MarketStatus",
             market_data_status as "market_data_status: MarketStatus",
-            first_validated_trade_id, first_validated_trade_ts,
-            last_validated_trade_id, last_validated_trade_ts,
-            candle_base_interval, candle_base_in_seconds,
-            first_validated_candle, last_validated_candle,
-            last_update_ts, last_update_ip_address,
-            first_candle, last_candle, mita
-        FROM markets
+            mita,
+            candle_timeframe as "candle_timeframe: TimeFrame",
+            last_candle
+            FROM markets
         WHERE exchange_name = $1
         AND mita = $2
         "#,
@@ -578,13 +808,10 @@ pub async fn select_market_details_by_status_exchange(
             market_name, market_type, base_currency, quote_currency, underlying,
             market_status as "market_status: MarketStatus",
             market_data_status as "market_data_status: MarketStatus",
-            first_validated_trade_id, first_validated_trade_ts,
-            last_validated_trade_id, last_validated_trade_ts,
-            candle_base_interval, candle_base_in_seconds,
-            first_validated_candle, last_validated_candle,
-            last_update_ts, last_update_ip_address,
-            first_candle, last_candle, mita
-        FROM markets
+            mita,
+            candle_timeframe as "candle_timeframe: TimeFrame",
+            last_candle
+            FROM markets
         WHERE market_data_status = $1
         AND exchange_name = $2
         "#,
@@ -605,54 +832,15 @@ pub async fn select_market_details(pool: &PgPool) -> Result<Vec<MarketDetail>, s
             market_name, market_type, base_currency, quote_currency, underlying,
             market_status as "market_status: MarketStatus",
             market_data_status as "market_data_status: MarketStatus",
-            first_validated_trade_id, first_validated_trade_ts,
-            last_validated_trade_id, last_validated_trade_ts,
-            candle_base_interval, candle_base_in_seconds,
-            first_validated_candle, last_validated_candle,
-            last_update_ts, last_update_ip_address,
-            first_candle, last_candle, mita
-        FROM markets
+            mita,
+            candle_timeframe as "candle_timeframe: TimeFrame",
+            last_candle
+            FROM markets
         "#,
     )
     .fetch_all(pool)
     .await?;
     Ok(rows)
-}
-
-pub async fn insert_new_market<T: crate::utilities::Market + DeserializeOwned>(
-    pool: &PgPool,
-    exchange: &ExchangeName,
-    market: &T,
-    ip_addr: &str,
-) -> Result<(), sqlx::Error> {
-    let network = ip_addr
-        .parse::<sqlx::types::ipnetwork::IpNetwork>()
-        .unwrap();
-    sqlx::query!(
-        r#"
-        INSERT INTO markets (
-            market_id, exchange_name, market_name, market_type, base_currency,
-            quote_currency, underlying, market_status, market_data_status,
-            candle_base_interval, candle_base_in_seconds, last_update_ts, last_update_ip_address)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)    
-        "#,
-        Uuid::new_v4(),
-        exchange.as_str(),
-        market.name(),
-        market.market_type(),
-        market.base_currency(),
-        market.quote_currency(),
-        market.underlying(),
-        MarketStatus::Active.as_str(),
-        MarketStatus::New.as_str(),
-        "15T",
-        900,
-        Utc::now(),
-        network
-    )
-    .execute(pool)
-    .await?;
-    Ok(())
 }
 
 pub async fn select_market_detail(
@@ -662,17 +850,14 @@ pub async fn select_market_detail(
     let row = sqlx::query_as!(
         MarketDetail,
         r#"
-            SELECT market_id,
-                exchange_name as "exchange_name: ExchangeName",
-                market_name, market_type, base_currency, quote_currency, underlying,
-                market_status as "market_status: MarketStatus",
-                market_data_status as "market_data_status: MarketStatus",
-                first_validated_trade_id, first_validated_trade_ts,
-                last_validated_trade_id, last_validated_trade_ts,
-                candle_base_interval, candle_base_in_seconds,
-                first_validated_candle, last_validated_candle,
-                last_update_ts, last_update_ip_address,
-                first_candle, last_candle, mita
+        SELECT market_id,
+            exchange_name as "exchange_name: ExchangeName",
+            market_name, market_type, base_currency, quote_currency, underlying,
+            market_status as "market_status: MarketStatus",
+            market_data_status as "market_data_status: MarketStatus",
+            mita,
+            candle_timeframe as "candle_timeframe: TimeFrame",
+            last_candle
             FROM markets
             WHERE market_id = $1
         "#,
@@ -683,53 +868,52 @@ pub async fn select_market_detail(
     Ok(row)
 }
 
-pub async fn select_markets_active(pool: &PgPool) -> Result<Vec<MarketDetail>, sqlx::Error> {
+pub async fn select_markets_by_market_data_status(
+    pool: &PgPool,
+    market_status: &MarketStatus,
+) -> Result<Vec<MarketDetail>, sqlx::Error> {
     let rows = sqlx::query_as!(
         MarketDetail,
         r#"
-            SELECT market_id,
-                exchange_name as "exchange_name: ExchangeName",
-                market_name, market_type, base_currency, quote_currency, underlying,
-                market_status as "market_status: MarketStatus",
-                market_data_status as "market_data_status: MarketStatus",
-                first_validated_trade_id, first_validated_trade_ts,
-                last_validated_trade_id, last_validated_trade_ts,
-                candle_base_interval, candle_base_in_seconds,
-                first_validated_candle, last_validated_candle,
-                last_update_ts, last_update_ip_address,
-                first_candle, last_candle, mita
+        SELECT market_id,
+            exchange_name as "exchange_name: ExchangeName",
+            market_name, market_type, base_currency, quote_currency, underlying,
+            market_status as "market_status: MarketStatus",
+            market_data_status as "market_data_status: MarketStatus",
+            mita,
+            candle_timeframe as "candle_timeframe: TimeFrame",
+            last_candle
             FROM markets
             WHERE market_data_status = $1
         "#,
-        MarketStatus::Active.as_str()
+        market_status.as_str()
     )
     .fetch_all(pool)
     .await?;
     Ok(rows)
 }
 
-pub async fn update_market_last_validated(
+pub async fn insert_new_market<T: crate::utilities::Market + DeserializeOwned>(
     pool: &PgPool,
-    market_id: &Uuid,
-    candle: &Candle,
-    ip_addr: &str,
+    exchange: &ExchangeName,
+    market: &T,
 ) -> Result<(), sqlx::Error> {
-    let network = ip_addr
-        .parse::<sqlx::types::ipnetwork::IpNetwork>()
-        .unwrap();
     sqlx::query!(
         r#"
-            UPDATE markets
-            SET (last_validated_trade_id, last_validated_trade_ts, last_validated_candle, 
-                last_update_ts, last_update_ip_address) = ($1, $2, $3, $4, $5)
-            WHERE market_id = $6
+        INSERT INTO markets (
+            market_id, exchange_name, market_name, market_type, base_currency,
+            quote_currency, underlying, market_status, market_data_status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)    
         "#,
-        candle.last_trade_id,
-        candle.last_trade_ts,
-        candle.datetime,
-        Utc::now(),
-        network,
-        market_id
+        Uuid::new_v4(),
+        exchange.as_str(),
+        market.name(),
+        market.market_type(),
+        market.base_currency(),
+        market.quote_currency(),
+        market.underlying(),
+        MarketStatus::New.as_str(),
+        MarketStatus::New.as_str(),
     )
     .execute(pool)
     .await?;
@@ -740,19 +924,14 @@ pub async fn update_market_data_status(
     pool: &PgPool,
     market_id: &Uuid,
     status: &MarketStatus,
-    ip_addr: &str,
 ) -> Result<(), sqlx::Error> {
-    let network = ip_addr
-        .parse::<sqlx::types::ipnetwork::IpNetwork>()
-        .unwrap();
     sqlx::query!(
         r#"
         UPDATE markets
-        SET (market_data_status, last_update_ip_address)  = ($1, $2)
-        WHERE market_id = $3
+        SET market_data_status  = $1
+        WHERE market_id = $2
         "#,
         status.as_str(),
-        network,
         market_id
     )
     .execute(pool)
