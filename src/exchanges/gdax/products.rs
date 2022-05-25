@@ -230,6 +230,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn get_trades_before_after_comp() {
+        let client = RestClient::new(&ExchangeName::Gdax);
+        let product_name = "AAVE-USD";
+        let before_trades = client
+            .get_gdax_trades(&product_name, Some(5), Some(13183395), None)
+            .await
+            .expect("Failed to get before trades.");
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        let after_trades = client
+            .get_gdax_trades(&product_name, Some(5), None, Some(13183395))
+            .await
+            .expect("Failed to get before trades.");
+        println!("Getting AAVE-PERP trades before and after trade id 13183395");
+        println!("Before trades:");
+        for bt in before_trades.iter() {
+            println!("{:?}", bt);
+        }
+        println!("After trades:");
+        for at in after_trades.iter() {
+            println!("{:?}", at);
+        }
+    }
+
+    #[tokio::test]
     async fn get_candles_returns_array_of_candles() {
         let client = RestClient::new(&ExchangeName::Gdax);
         let product_name = "BTC-USD";
