@@ -12,10 +12,11 @@ use crate::mita::Mita;
 use crate::trades::{
     create_ftx_trade_table, create_gdax_trade_table, drop_table, insert_delete_ftx_trades,
     insert_delete_gdax_trades, insert_ftx_trades, insert_gdax_trades, select_ftx_trades_by_table,
-    select_ftx_trades_by_time, select_gdax_trades_by_time, select_trade_first_stream,
+    select_ftx_trades_by_time, select_gdax_trades_by_table, select_gdax_trades_by_time,
+    select_trade_first_stream,
 };
 use crate::utilities::{get_input, Trade};
-use chrono::{DateTime, Duration, DurationRound, TimeZone, Utc};
+use chrono::{DateTime, Datelike, Duration, DurationRound, TimeZone, Utc};
 use csv::Writer;
 use rust_decimal_macros::dec;
 use std::convert::TryInto;
@@ -670,7 +671,30 @@ impl Inquisidor {
                     mtd = MarketTradeDetail::select(&self.ig_pool, &event.market_id)
                         .await
                         .expect("Faile to select market trade detail.");
-                    current_event = Event::new_backfill_trades(&mtd, &ExchangeName::Gdax);
+                    // If there is no current event, create one.
+                    let events = Event::select_by_statuses_type(
+                        &self.ig_pool,
+                        &[EventStatus::New, EventStatus::Open],
+                        &EventType::BackfillTrades,
+                    )
+                    .await
+                    .expect("Failed to select backfill event.");
+                    current_event = match events.iter().find(|e| e.market_id == event.market_id) {
+                        Some(e) =>
+                        // There exists an event, use that one. Result of incomplete process event
+                        // ie: REST error in retreiving validation trade.
+                        {
+                            Some(e.clone())
+                        }
+                        None => {
+                            // There is no event, create one then start here
+                            Event::new_backfill_trades(
+                                &mtd,
+                                &self.market(&mtd.market_id).exchange_name,
+                            )
+                        }
+                    };
+                    // current_event = Event::new_backfill_trades(&mtd, &ExchangeName::Gdax);
                 }
             }
         }
@@ -995,7 +1019,6 @@ impl Inquisidor {
                 .await
                 .expect("Failed to create trade table.");
                 // Fill trade table with trades from start to end
-                let end = event.start_ts.unwrap() + Duration::days(1);
                 // Get trade id from the start of the candle prior
                 let mut end_id = mtd.first_trade_id.parse::<i32>().unwrap();
                 let mut earliest_trade_ts = mtd.first_trade_ts;
@@ -1095,9 +1118,17 @@ impl Inquisidor {
                             earliest_trade.time(),
                             newest_trade.time()
                         );
-                        insert_gdax_trades(&self.gdax_pool, &event.exchange_name, market, &trade_table, new_trades).await.expect("Failed to insert trades.");
+                        insert_gdax_trades(
+                            &self.gdax_pool,
+                            &event.exchange_name,
+                            market,
+                            &trade_table,
+                            new_trades,
+                        )
+                        .await
+                        .expect("Failed to insert trades.");
                     };
-                };
+                }
                 // Update mtd status to validate
                 let mtd = mtd
                     .update_prev_status(&self.ig_pool, &MarketDataStatus::Validate)
@@ -1125,8 +1156,284 @@ impl Inquisidor {
                     .await
                     .expect("Failed to update event status.");
             }
-            MarketDataStatus::Validate => {}
-            MarketDataStatus::Archive => {}
+            MarketDataStatus::Validate => {
+                // Validate the trades - GDAX trade ids are sequential per product. Validate:
+                // 1) There are no gaps in trade ids. Highest ID - Lowest ID + 1 = Num Trades
+                // ie 1001 - 94 + 1 = 908 = 908 trades
+                // 2) The next trade id in sequence falls on the next day
+                // 3) The prev trade id in the sequence falls on the previous day
+                let market = self.market(&event.market_id);
+                // Create trade table for market / exch / day
+                let start = event.start_ts.unwrap();
+                let trade_table = format!(
+                    "trades_gdax_{}_bf_{}",
+                    market.as_strip(),
+                    start.format("%Y%m%d")
+                );
+                let trades_in_table = select_gdax_trades_by_table(&self.gdax_pool, &trade_table)
+                    .await
+                    .expect("Failed to select backfill trades.");
+                // Filter trades
+                let mut trades_to_validate: Vec<crate::exchanges::gdax::Trade> = trades_in_table
+                    .iter()
+                    .filter(|t| t.time() >= start && t.time() < start + Duration::days(1))
+                    .cloned()
+                    .collect();
+                // Sort trades by id
+                trades_to_validate.sort_by(|t1, t2| t1.trade_id.cmp(&t2.trade_id));
+                // Perform validations
+                let validation_1 = if trades_to_validate.is_empty() {
+                    false
+                } else {
+                    trades_to_validate.last().unwrap().trade_id
+                        - trades_to_validate.first().unwrap().trade_id
+                        + 1
+                        == trades_to_validate.len() as i64
+                };
+                let validation_2 = if trades_to_validate.is_empty() {
+                    false
+                } else {
+                    let next_trade = match self.clients[&event.exchange_name]
+                        .get_gdax_next_trade(
+                            market.market_name.as_str(),
+                            trades_to_validate.last().unwrap().trade_id as i32,
+                        )
+                        .await
+                    {
+                        Err(RestError::Reqwest(e)) => {
+                            if e.is_timeout() || e.is_connect() || e.is_request() {
+                                println!(
+                                        "Timeout/Connect/Request error. Waiting 30 seconds before retry. {:?}",
+                                        e
+                                    );
+                                tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                                return; // Return event is imcomplete. Try to process again
+                            } else if e.is_status() {
+                                match e.status() {
+                                    Some(s) => match s.as_u16() {
+                                        500 | 502 | 503 | 504 | 520 | 522 | 530 => {
+                                            println!(
+                                                    "{} status code. Waiting 30 seconds before retry {:?}",
+                                                    s, e
+                                                );
+                                            tokio::time::sleep(tokio::time::Duration::from_secs(
+                                                30,
+                                            ))
+                                            .await;
+                                            return;
+                                            // Leave event incomplete and try to process again
+                                        }
+                                        _ => {
+                                            panic!("Status code not handled: {:?} {:?}", s, e)
+                                        }
+                                    },
+                                    None => panic!("No status code for request error: {:?}", e),
+                                }
+                            } else {
+                                panic!("Error (not timeout / connect / request): {:?}", e)
+                            }
+                        }
+                        Err(e) => panic!("Other RestError: {:?}", e),
+                        Ok(result) => result,
+                    };
+                    if !next_trade.is_empty() {
+                        // Pop off the trade
+                        let next_trade = next_trade.first().unwrap();
+                        // Compare the day of the next trade to the last trade day of the trades
+                        // to validated
+                        let last_trade = trades_to_validate.last().unwrap();
+                        next_trade.time().day() > last_trade.time().day()
+                    } else {
+                        // If next trade is empty, return false. There should always be a next trade
+                        false
+                    }
+                };
+                let validation_3 = if trades_to_validate.is_empty() {
+                    false
+                } else {
+                    let previous_trade = match self.clients[&event.exchange_name]
+                        .get_gdax_previous_trade(
+                            market.market_name.as_str(),
+                            trades_to_validate.last().unwrap().trade_id as i32,
+                        )
+                        .await
+                    {
+                        Err(RestError::Reqwest(e)) => {
+                            if e.is_timeout() || e.is_connect() || e.is_request() {
+                                println!(
+                                        "Timeout/Connect/Request error. Waiting 30 seconds before retry. {:?}",
+                                        e
+                                    );
+                                tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                                return; // Return event is imcomplete. Try to process again
+                            } else if e.is_status() {
+                                match e.status() {
+                                    Some(s) => match s.as_u16() {
+                                        500 | 502 | 503 | 504 | 520 | 522 | 530 => {
+                                            println!(
+                                                    "{} status code. Waiting 30 seconds before retry {:?}",
+                                                    s, e
+                                                );
+                                            tokio::time::sleep(tokio::time::Duration::from_secs(
+                                                30,
+                                            ))
+                                            .await;
+                                            return;
+                                            // Leave event incomplete and try to process again
+                                        }
+                                        _ => {
+                                            panic!("Status code not handled: {:?} {:?}", s, e)
+                                        }
+                                    },
+                                    None => panic!("No status code for request error: {:?}", e),
+                                }
+                            } else {
+                                panic!("Error (not timeout / connect / request): {:?}", e)
+                            }
+                        }
+                        Err(e) => panic!("Other RestError: {:?}", e),
+                        Ok(result) => result,
+                    };
+                    if !previous_trade.is_empty() {
+                        // Pop off the trade
+                        let previous_trade = previous_trade.first().unwrap();
+                        // Compare the day of the next trade to the last trade day of the trades
+                        // to validated
+                        let first_trade = trades_to_validate.first().unwrap();
+                        previous_trade.time().day() < first_trade.time().day()
+                    } else {
+                        // If previous trade is empty, check if first trade id = 1.
+                        // If so there is no previous day and it is valid.
+                        let first_trade = trades_to_validate.first().unwrap();
+                        first_trade.trade_id == 1
+                    }
+                };
+                let mtd = if validation_1 && validation_2 && validation_3 {
+                    // All three validations met, market it as validated
+                    mtd.update_prev_status(&self.ig_pool, &MarketDataStatus::Archive)
+                        .await
+                        .expect("Failed to update mtd status.")
+                } else {
+                    mtd.update_prev_day_prev_status(
+                        &self.ig_pool,
+                        &(start - Duration::days(1)),
+                        &MarketDataStatus::Get,
+                    )
+                    .await
+                    .expect("Failed to update mtd.")
+                };
+                // Create new event
+                let new_event = Event::new_backfill_trades(&mtd, &event.exchange_name);
+                match new_event {
+                    Some(e) => {
+                        e.insert(&self.ig_pool)
+                            .await
+                            .expect("Failed to insert event.");
+                    }
+                    None => {
+                        println!("Market complete, not further events.");
+                        println!(
+                            "Prev Status: {:?}\nNext Status: {:?}",
+                            mtd.previous_status, mtd.next_status
+                        );
+                    }
+                };
+                // Update current event to closed
+                event
+                    .update_status(&self.ig_pool, &EventStatus::Done)
+                    .await
+                    .expect("Failed to update event status.");
+            }
+            MarketDataStatus::Archive => {
+                // Save and archive trades
+                let market = self.market(&event.market_id);
+                let start = event.start_ts.unwrap();
+                // Check directory for exchange csv is created
+                let path = format!(
+                    "{}/csv/{}",
+                    &self.settings.application.archive_path,
+                    &market.exchange_name.as_str()
+                );
+                std::fs::create_dir_all(&path).expect("Failed to create directories.");
+                let trade_table = format!(
+                    "trades_gdax_{}_bf_{}",
+                    market.as_strip(),
+                    start.format("%Y%m%d")
+                );
+                let trades_in_table = select_gdax_trades_by_table(&self.gdax_pool, &trade_table)
+                    .await
+                    .expect("Failed to select backfill trades.");
+                // Filter trades
+                let trades_to_archive: Vec<crate::exchanges::gdax::Trade> = trades_in_table
+                    .iter()
+                    .filter(|t| t.time() >= start && t.time() < start + Duration::days(1))
+                    .cloned()
+                    .collect();
+                // Define filename = TICKER_YYYYMMDD.csv
+                let f = format!("{}_{}.csv", market.as_strip(), start.format("%F"));
+                // Set filepath and file name
+                let fp = std::path::Path::new(&path).join(f);
+                // Write trades to file
+                let mut wtr = Writer::from_path(fp).expect("Failed to open file.");
+                for trade in trades_to_archive.iter() {
+                    wtr.serialize(trade).expect("Failed to serialize trade.");
+                }
+                wtr.flush().expect("Failed to flush wtr.");
+                // Drop trade table
+                drop_table(&self.gdax_pool, &trade_table)
+                    .await
+                    .expect("Failed to drop backfill trade table.");
+                // Update first trade id/ts. Move back prev day and set status to get
+                let mtd = mtd
+                    .update_prev_day_prev_status(
+                        &self.ig_pool,
+                        &(start - Duration::days(1)),
+                        &MarketDataStatus::Get,
+                    )
+                    .await
+                    .expect("Failed to update mtd.");
+                // If first trade is ealier than mtd first trade, then update mtd
+                let mtd = if !trades_to_archive.is_empty() {
+                    let first_trade = trades_to_archive.first().unwrap();
+                    let mtd = if mtd.first_trade_ts > trades_to_archive.first().unwrap().time {
+                        let mtd = mtd
+                            .update_first_trade(
+                                &self.ig_pool,
+                                &first_trade.time,
+                                &first_trade.trade_id.to_string(),
+                            )
+                            .await
+                            .expect("Faile to update first trade details.");
+                        mtd
+                    } else {
+                        mtd
+                    };
+                    mtd
+                } else {
+                    mtd
+                };
+                // Create new event
+                let new_event = Event::new_backfill_trades(&mtd, &event.exchange_name);
+                match new_event {
+                    Some(e) => {
+                        e.insert(&self.ig_pool)
+                            .await
+                            .expect("Failed to insert event.");
+                    }
+                    None => {
+                        println!("Market complete, not further events.");
+                        println!(
+                            "Prev Status: {:?}\nNext Status: {:?}",
+                            mtd.previous_status, mtd.next_status
+                        );
+                    }
+                };
+                // Update current event to closed
+                event
+                    .update_status(&self.ig_pool, &EventStatus::Done)
+                    .await
+                    .expect("Failed to update event status.");
+            }
         }
     }
 }
@@ -1838,4 +2145,19 @@ mod tests {
         println!("Processing event: {:?}", event);
         ig.process_event_backfill_trades(&event).await;
     }
+
+    #[tokio::test]
+    pub async fn backfill_gdax_with_completed_does_nothing() {}
+
+    #[tokio::test]
+    pub async fn backfill_gdax_get_gets_trades_updates_mtd_creates_new_event() {}
+
+    #[tokio::test]
+    pub async fn backfill_gdax_get_gets_trades_zero_trades_completes_backfill() {}
+
+    #[tokio::test]
+    pub async fn backfill_gdax_validate_updates_mtd_creates_new_event() {}
+
+    #[tokio::test]
+    pub async fn backfill_gdax_archive_updates_mtd_creates_new_event() {}
 }
