@@ -145,6 +145,26 @@ impl RestClient {
         .await
     }
 
+    // Get the next trade AFTER the given trade id for a product
+    pub async fn get_gdax_next_trade(
+        &self,
+        product_name: &str,
+        after: i32,
+    ) -> Result<Vec<Trade>, RestError> {
+        self.get_gdax_trades(product_name, Some(1), None, Some(after + 2))
+            .await
+    }
+
+    // Get the next trade AFTER the given trade id for a product
+    pub async fn get_gdax_previous_trade(
+        &self,
+        product_name: &str,
+        after: i32,
+    ) -> Result<Vec<Trade>, RestError> {
+        self.get_gdax_trades(product_name, Some(1), None, Some(after))
+            .await
+    }
+
     // API will return 300 candles maximum, if start and end are used, both fields need to be
     // provided. Granularity can be 60, 300, 900, 3600, 21600, 86400 only. If there are no trades
     // in a bucket there will be no candle returned. Start and End are inclusive. To get one candle
@@ -251,6 +271,30 @@ mod tests {
         for at in after_trades.iter() {
             println!("{:?}", at);
         }
+    }
+
+    #[tokio::test]
+    async fn get_next_trade_returns_next_trade_id() {
+        let client = RestClient::new(&ExchangeName::Gdax);
+        let product_name = "AAVE-USD";
+        let trade_id = 17637569;
+        let next_trade = client
+            .get_gdax_next_trade(product_name, trade_id)
+            .await
+            .expect("Failed to get next trade.");
+        println!("{} trade. Next: {:?}", trade_id, next_trade);
+    }
+
+    #[tokio::test]
+    async fn get_previous_trade_returns_next_trade_id() {
+        let client = RestClient::new(&ExchangeName::Gdax);
+        let product_name = "AAVE-USD";
+        let trade_id = 17637569;
+        let next_trade = client
+            .get_gdax_previous_trade(product_name, trade_id)
+            .await
+            .expect("Failed to get next trade.");
+        println!("{} trade. Next: {:?}", trade_id, next_trade);
     }
 
     #[tokio::test]
