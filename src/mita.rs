@@ -460,7 +460,7 @@ impl Mita {
                 .expect("Failed to insert metric ap.");
         }
         // Update last candle in market table
-        update_markets_last_candle(&self.ed_pool, &market, &ts)
+        update_markets_last_candle(&self.ed_pool, market, &ts)
             .await
             .expect("Faile to update market last candle.");
         // Insert new processing event
