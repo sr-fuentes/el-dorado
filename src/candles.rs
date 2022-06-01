@@ -932,12 +932,14 @@ pub async fn get_ftx_candles_daterange<T: crate::utilities::Candle + Deserialize
             Ok(result) => result,
         };
         let num_candles = new_candles.len();
-        if num_candles > 0 {
+        end_or_last = if num_candles > 0 {
             candles.append(&mut new_candles);
+            candles.first().unwrap().datetime()
+        } else {
+            end_or_last
         };
         // Sort candles to get next last
         candles.sort_by_key(|c1| c1.datetime());
-        end_or_last = candles.first().unwrap().datetime();
         if num_candles < 1501 {
             // Max pagination on candles is 1501
             break;

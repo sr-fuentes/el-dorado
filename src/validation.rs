@@ -599,7 +599,7 @@ impl Inquisidor {
                 )
                 .await
                 .pop()
-                .unwrap();
+                .unwrap(); // Add error handling for no candle, pop() panic
                 let delta = candle.value - exchange_candle.volume;
                 let percent = delta / exchange_candle.volume * dec!(100.0);
                 println!("New Candle: {:?}", candle);
@@ -779,7 +779,7 @@ impl Inquisidor {
                 )
                 .await
                 .pop()
-                .unwrap();
+                .unwrap(); // Handle error for no candle pop() panic
                 let delta = candle.value - exchange_candle.volume;
                 let percent = delta / exchange_candle.volume * dec!(100.0);
                 println!("New Candle: {:?}", candle);
