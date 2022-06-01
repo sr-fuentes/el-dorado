@@ -10,7 +10,7 @@ use crate::markets::{
 };
 use crate::mita::Mita;
 use crate::trades::{
-    create_ftx_trade_table, create_gdax_trade_table, drop_table, insert_delete_ftx_trades,
+    create_ftx_trade_table, drop_create_trade_table, drop_table, insert_delete_ftx_trades,
     insert_delete_gdax_trades, insert_ftx_trades, insert_gdax_trades, select_ftx_trades_by_table,
     select_ftx_trades_by_time, select_gdax_trades_by_table, select_gdax_trades_by_time,
     select_trade_first_stream,
@@ -665,36 +665,15 @@ impl Inquisidor {
             ExchangeName::Ftx | ExchangeName::FtxUs => self.process_ftx_backfill(event, &mtd).await,
             ExchangeName::Gdax => {
                 let mut current_event = Some(event.clone());
+                println!("Current Event: {:?}", current_event);
                 while current_event.is_some() {
                     self.process_gdax_backfill(&current_event.unwrap(), &mtd)
                         .await;
                     mtd = MarketTradeDetail::select(&self.ig_pool, &event.market_id)
                         .await
                         .expect("Faile to select market trade detail.");
-                    // If there is no current event, create one.
-                    let events = Event::select_by_statuses_type(
-                        &self.ig_pool,
-                        &[EventStatus::New, EventStatus::Open],
-                        &EventType::BackfillTrades,
-                    )
-                    .await
-                    .expect("Failed to select backfill event.");
-                    current_event = match events.iter().find(|e| e.market_id == event.market_id) {
-                        Some(e) =>
-                        // There exists an event, use that one. Result of incomplete process event
-                        // ie: REST error in retreiving validation trade.
-                        {
-                            Some(e.clone())
-                        }
-                        None => {
-                            // There is no event, create one then start here
-                            Event::new_backfill_trades(
-                                &mtd,
-                                &self.market(&mtd.market_id).exchange_name,
-                            )
-                        }
-                    };
-                    // current_event = Event::new_backfill_trades(&mtd, &ExchangeName::Gdax);
+                    current_event = Event::new_backfill_trades(&mtd, &ExchangeName::Gdax);
+                    println!("Current Event: {:?}", current_event);
                 }
             }
         }
@@ -1010,14 +989,14 @@ impl Inquisidor {
                 let start = event.start_ts.unwrap();
                 let trade_table = format!("bf_{}", start.format("%Y%m%d"));
                 println!("Trade Table: {:?}", trade_table);
-                create_gdax_trade_table(
+                drop_create_trade_table(
                     &self.gdax_pool,
                     &event.exchange_name,
                     market,
                     &trade_table,
                 )
                 .await
-                .expect("Failed to create trade table.");
+                .expect("Failed to drop/create trade table.");
                 // Fill trade table with trades from start to end
                 // Get trade id from the start of the candle prior
                 let mut end_id = mtd.first_trade_id.parse::<i32>().unwrap();
@@ -1092,11 +1071,29 @@ impl Inquisidor {
                         // No new trades were returned. This should only happen when an attempt is
                         // made to reterive trades after id = 1. You have reached the end of the
                         // backfill and the beginning of the market. Mark as completed.
-                        println!("No trades for day. Market backfill as complete.");
-                        let _mtd = mtd
-                            .update_prev_status(&self.ig_pool, &MarketDataStatus::Completed)
+                        // Update the first trade info - This will need to be validated
+                        let mtd = mtd
+                            .update_prev_day_prev_status(
+                                &self.ig_pool,
+                                &(start - Duration::days(1)),
+                                &MarketDataStatus::Completed,
+                            )
                             .await
                             .expect("Failed to update mtd.");
+                        // If first trade is ealier than mtd first trade, then update mtd
+                        let _mtd = if mtd.first_trade_id.parse::<i32>().unwrap() > end_id {
+                            let mtd = mtd
+                                .update_first_trade(
+                                    &self.ig_pool,
+                                    &earliest_trade_ts,
+                                    &end_id.to_string(),
+                                )
+                                .await
+                                .expect("Faile to update first trade details.");
+                            mtd
+                        } else {
+                            mtd
+                        };
                         // Update current event to closed
                         event
                             .update_status(&self.ig_pool, &EventStatus::Done)
@@ -1130,31 +1127,10 @@ impl Inquisidor {
                     };
                 }
                 // Update mtd status to validate
-                let mtd = mtd
+                let _mtd = mtd
                     .update_prev_status(&self.ig_pool, &MarketDataStatus::Validate)
                     .await
                     .expect("Failed to update mtd.");
-                // Create new event and insert if it exists
-                let new_event = Event::new_backfill_trades(&mtd, &event.exchange_name);
-                match new_event {
-                    Some(e) => {
-                        e.insert(&self.ig_pool)
-                            .await
-                            .expect("Failed to insert event.");
-                    }
-                    None => {
-                        println!("Market complete, not further events.");
-                        println!(
-                            "Prev Status: {:?}\nNext Status: {:?}",
-                            mtd.previous_status, mtd.next_status
-                        );
-                    }
-                };
-                // Update current event to closed
-                event
-                    .update_status(&self.ig_pool, &EventStatus::Done)
-                    .await
-                    .expect("Failed to update event status.");
             }
             MarketDataStatus::Validate => {
                 // Validate the trades - GDAX trade ids are sequential per product. Validate:
@@ -1173,15 +1149,19 @@ impl Inquisidor {
                 let trades_in_table = select_gdax_trades_by_table(&self.gdax_pool, &trade_table)
                     .await
                     .expect("Failed to select backfill trades.");
+                println!("{} trades in table.", trades_in_table.len());
                 // Filter trades
                 let mut trades_to_validate: Vec<crate::exchanges::gdax::Trade> = trades_in_table
                     .iter()
                     .filter(|t| t.time() >= start && t.time() < start + Duration::days(1))
                     .cloned()
                     .collect();
+                println!("{} trades to validate.", trades_to_validate.len());
                 // Sort trades by id
                 trades_to_validate.sort_by(|t1, t2| t1.trade_id.cmp(&t2.trade_id));
                 // Perform validations
+                println!("First: {:?}", trades_to_validate.first());
+                println!("Last: {:?}", trades_to_validate.last());
                 let validation_1 = if trades_to_validate.is_empty() {
                     false
                 } else {
@@ -1190,6 +1170,7 @@ impl Inquisidor {
                         + 1
                         == trades_to_validate.len() as i64
                 };
+                println!("Validation 1: {}", validation_1);
                 let validation_2 = if trades_to_validate.is_empty() {
                     false
                 } else {
@@ -1236,6 +1217,7 @@ impl Inquisidor {
                         Err(e) => panic!("Other RestError: {:?}", e),
                         Ok(result) => result,
                     };
+                    println!("Next trade: {:?}", next_trade);
                     if !next_trade.is_empty() {
                         // Pop off the trade
                         let next_trade = next_trade.first().unwrap();
@@ -1248,13 +1230,14 @@ impl Inquisidor {
                         false
                     }
                 };
+                println!("Validation 2: {}", validation_2);
                 let validation_3 = if trades_to_validate.is_empty() {
                     false
                 } else {
                     let previous_trade = match self.clients[&event.exchange_name]
                         .get_gdax_previous_trade(
                             market.market_name.as_str(),
-                            trades_to_validate.last().unwrap().trade_id as i32,
+                            trades_to_validate.first().unwrap().trade_id as i32,
                         )
                         .await
                     {
@@ -1294,6 +1277,7 @@ impl Inquisidor {
                         Err(e) => panic!("Other RestError: {:?}", e),
                         Ok(result) => result,
                     };
+                    println!("Previous trade: {:?}", previous_trade);
                     if !previous_trade.is_empty() {
                         // Pop off the trade
                         let previous_trade = previous_trade.first().unwrap();
@@ -1308,41 +1292,62 @@ impl Inquisidor {
                         first_trade.trade_id == 1
                     }
                 };
-                let mtd = if validation_1 && validation_2 && validation_3 {
+                println!("Validation 3: {}", validation_3);
+                let _mtd = if validation_1 && validation_2 && validation_3 {
                     // All three validations met, market it as validated
                     mtd.update_prev_status(&self.ig_pool, &MarketDataStatus::Archive)
                         .await
                         .expect("Failed to update mtd status.")
                 } else {
-                    mtd.update_prev_day_prev_status(
-                        &self.ig_pool,
-                        &(start - Duration::days(1)),
-                        &MarketDataStatus::Get,
-                    )
-                    .await
-                    .expect("Failed to update mtd.")
-                };
-                // Create new event
-                let new_event = Event::new_backfill_trades(&mtd, &event.exchange_name);
-                match new_event {
-                    Some(e) => {
-                        e.insert(&self.ig_pool)
+                    let mtd = mtd
+                        .update_prev_day_prev_status(
+                            &self.ig_pool,
+                            &(start - Duration::days(1)),
+                            &MarketDataStatus::Get,
+                        )
+                        .await
+                        .expect("Failed to update mtd.");
+                    // Update first id
+                    if !trades_to_validate.is_empty() {
+                        let earliest_trade = trades_to_validate.first().unwrap();
+                        if mtd.first_trade_id.parse::<i32>().unwrap()
+                            > earliest_trade.trade_id as i32
+                        {
+                            mtd.update_first_trade(
+                                &self.ig_pool,
+                                &earliest_trade.time,
+                                &earliest_trade.trade_id.to_string(),
+                            )
                             .await
-                            .expect("Failed to insert event.");
-                    }
-                    None => {
-                        println!("Market complete, not further events.");
-                        println!(
-                            "Prev Status: {:?}\nNext Status: {:?}",
-                            mtd.previous_status, mtd.next_status
-                        );
+                            .expect("Failed to update previous trade.")
+                        } else {
+                            mtd
+                        }
+                    } else {
+                        mtd
                     }
                 };
-                // Update current event to closed
-                event
-                    .update_status(&self.ig_pool, &EventStatus::Done)
-                    .await
-                    .expect("Failed to update event status.");
+                // // Create new event
+                // let new_event = Event::new_backfill_trades(&mtd, &event.exchange_name);
+                // match new_event {
+                //     Some(e) => {
+                //         e.insert(&self.ig_pool)
+                //             .await
+                //             .expect("Failed to insert event.");
+                //     }
+                //     None => {
+                //         println!("Market complete, not further events.");
+                //         println!(
+                //             "Prev Status: {:?}\nNext Status: {:?}",
+                //             mtd.previous_status, mtd.next_status
+                //         );
+                //     }
+                // };
+                // // Update current event to closed
+                // event
+                //     .update_status(&self.ig_pool, &EventStatus::Done)
+                //     .await
+                //     .expect("Failed to update event status.");
             }
             MarketDataStatus::Archive => {
                 // Save and archive trades
@@ -1393,7 +1398,7 @@ impl Inquisidor {
                     .await
                     .expect("Failed to update mtd.");
                 // If first trade is ealier than mtd first trade, then update mtd
-                let mtd = if !trades_to_archive.is_empty() {
+                let _mtd = if !trades_to_archive.is_empty() {
                     let first_trade = trades_to_archive.first().unwrap();
                     let mtd = if mtd.first_trade_ts > trades_to_archive.first().unwrap().time {
                         let mtd = mtd
@@ -1412,27 +1417,27 @@ impl Inquisidor {
                 } else {
                     mtd
                 };
-                // Create new event
-                let new_event = Event::new_backfill_trades(&mtd, &event.exchange_name);
-                match new_event {
-                    Some(e) => {
-                        e.insert(&self.ig_pool)
-                            .await
-                            .expect("Failed to insert event.");
-                    }
-                    None => {
-                        println!("Market complete, not further events.");
-                        println!(
-                            "Prev Status: {:?}\nNext Status: {:?}",
-                            mtd.previous_status, mtd.next_status
-                        );
-                    }
-                };
-                // Update current event to closed
-                event
-                    .update_status(&self.ig_pool, &EventStatus::Done)
-                    .await
-                    .expect("Failed to update event status.");
+                // // Create new event
+                // let new_event = Event::new_backfill_trades(&mtd, &event.exchange_name);
+                // match new_event {
+                //     Some(e) => {
+                //         e.insert(&self.ig_pool)
+                //             .await
+                //             .expect("Failed to insert event.");
+                //     }
+                //     None => {
+                //         println!("Market complete, not further events.");
+                //         println!(
+                //             "Prev Status: {:?}\nNext Status: {:?}",
+                //             mtd.previous_status, mtd.next_status
+                //         );
+                //     }
+                // };
+                // // Update current event to closed
+                // event
+                //     .update_status(&self.ig_pool, &EventStatus::Done)
+                //     .await
+                //     .expect("Failed to update event status.");
             }
         }
     }
@@ -2147,17 +2152,154 @@ mod tests {
     }
 
     #[tokio::test]
-    pub async fn backfill_gdax_with_completed_does_nothing() {}
+    pub async fn backfill_gdax_with_completed_does_nothing() {
+        // Setup
+        let ig = Inquisidor::new().await;
+        let sql = r#"
+            UPDATE markets
+            SET (market_data_status, last_candle) = ('active', $1)
+            WHERE market_name = 'AAVE-USD'
+            "#;
+        sqlx::query(sql)
+            .bind(Utc.ymd(2021, 12, 01).and_hms(0, 0, 0))
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        let sql = r#"
+            DELETE FROM market_trade_details
+            WHERE 1=1
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update market trade details.");
+        let sql = r#"
+            DELETE FROM candles_01d
+            WHERE market_id = $1
+            "#;
+        sqlx::query(sql)
+            .bind(Uuid::parse_str("94ef1d69-cddb-4e42-94db-af2675c05e1c").unwrap())
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to delete 01 candles.");
+        let sql = r#"
+            DELETE FROM events
+            WHERE event_type = 'backfilltrades'
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to delete events.");
+        let sql = r#"
+            INSERT INTO candles_01d (
+                datetime, open, high, low, close, volume, volume_net, volume_liquidation, value,
+                trade_count, liquidation_count, last_trade_ts, last_trade_id, is_validated,
+                market_id, first_trade_ts, first_trade_id, is_archived, is_complete)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                $18, $19)
+            "#;
+        sqlx::query(sql)
+            .bind(Utc.ymd(2020, 12, 16).and_hms(0, 0, 0))
+            .bind(dec!(50))
+            .bind(dec!(50))
+            .bind(dec!(50))
+            .bind(dec!(50))
+            .bind(dec!(100))
+            .bind(dec!(0))
+            .bind(dec!(10))
+            .bind(dec!(5000))
+            .bind(20)
+            .bind(10)
+            .bind(Utc.ymd(2020, 12, 16).and_hms(0, 0, 0))
+            .bind("1234")
+            .bind(true)
+            .bind(Uuid::parse_str("94ef1d69-cddb-4e42-94db-af2675c05e1c").unwrap())
+            .bind(Utc.ymd(2020, 12, 16).and_hms(0, 0, 0))
+            .bind("1234")
+            .bind(true)
+            .bind(false)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to insert candle for test.");
+        // New ig will pick up new data items
+        let ig = Inquisidor::new().await;
+        // Run backfill to create mtd and event and run backfill loop
+        ig.backfill().await;
+    }
 
     #[tokio::test]
-    pub async fn backfill_gdax_get_gets_trades_updates_mtd_creates_new_event() {}
-
-    #[tokio::test]
-    pub async fn backfill_gdax_get_gets_trades_zero_trades_completes_backfill() {}
-
-    #[tokio::test]
-    pub async fn backfill_gdax_validate_updates_mtd_creates_new_event() {}
-
-    #[tokio::test]
-    pub async fn backfill_gdax_archive_updates_mtd_creates_new_event() {}
+    pub async fn backfill_gdax_get_validate_archive() {
+        // Setup
+        let ig = Inquisidor::new().await;
+        let sql = r#"
+            UPDATE markets
+            SET (market_data_status, last_candle) = ('active', $1)
+            WHERE market_name = 'AAVE-USD'
+            "#;
+        sqlx::query(sql)
+            .bind(Utc.ymd(2021, 12, 06).and_hms(0, 0, 0))
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        let sql = r#"
+            DELETE FROM market_trade_details
+            WHERE 1=1
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update market trade details.");
+        let sql = r#"
+            DELETE FROM candles_01d
+            WHERE market_id = $1
+            "#;
+        sqlx::query(sql)
+            .bind(Uuid::parse_str("94ef1d69-cddb-4e42-94db-af2675c05e1c").unwrap())
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to delete 01 candles.");
+        let sql = r#"
+            DELETE FROM events
+            WHERE event_type = 'backfilltrades'
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to delete events.");
+        let sql = r#"
+            INSERT INTO candles_01d (
+                datetime, open, high, low, close, volume, volume_net, volume_liquidation, value,
+                trade_count, liquidation_count, last_trade_ts, last_trade_id, is_validated,
+                market_id, first_trade_ts, first_trade_id, is_archived, is_complete)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                $18, $19)
+            "#;
+        sqlx::query(sql)
+            .bind(Utc.ymd(2021, 12, 06).and_hms(0, 0, 0))
+            .bind(dec!(50))
+            .bind(dec!(50))
+            .bind(dec!(50))
+            .bind(dec!(50))
+            .bind(dec!(100))
+            .bind(dec!(0))
+            .bind(dec!(10))
+            .bind(dec!(5000))
+            .bind(20)
+            .bind(10)
+            .bind(Utc.ymd(2021, 12, 06).and_hms(0, 0, 0))
+            .bind("13183391")
+            .bind(true)
+            .bind(Uuid::parse_str("94ef1d69-cddb-4e42-94db-af2675c05e1c").unwrap())
+            .bind(Utc.ymd(2021, 12, 06).and_hms(0, 0, 0))
+            .bind("13183391")
+            .bind(true)
+            .bind(false)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to insert candle for test.");
+        // New ig will pick up new data items
+        let ig = Inquisidor::new().await;
+        // Run backfill to create mtd and event and run backfill loop
+        ig.backfill().await;
+    }
 }
