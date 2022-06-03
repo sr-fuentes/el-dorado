@@ -515,7 +515,7 @@ impl Mita {
             .await
             .expect("Failed to update event status to done.");
         // Add validation event
-        insert_event_validated_candles(&self.ed_pool, "ig", event.start_ts.unwrap(), market)
+        insert_event_validate_candles(&self.ed_pool, "ig", event.start_ts.unwrap(), market)
             .await
             .expect("Failed in insert event - validate candle.");
     }
@@ -552,7 +552,7 @@ pub async fn insert_event_process_trades(
     Ok(())
 }
 
-pub async fn insert_event_validated_candles(
+pub async fn insert_event_validate_candles(
     pool: &PgPool,
     droplet: &str,
     end: DateTime<Utc>,
