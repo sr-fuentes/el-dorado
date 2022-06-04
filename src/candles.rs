@@ -517,6 +517,7 @@ pub async fn validate_hb_candles<T: crate::utilities::Candle + DeserializeOwned>
     if unvalidated_candles.is_empty() {
         return;
     };
+    // Safe to call unwrap() as there is at least one candle based on above return check
     let first_candle = unvalidated_candles.first().unwrap().datetime;
     let last_candle = unvalidated_candles.last().unwrap().datetime;
     // Match exchange because the exchange candles will be in different formats
@@ -533,33 +534,14 @@ pub async fn validate_hb_candles<T: crate::utilities::Candle + DeserializeOwned>
             "Validating {} candle {}.",
             &market.market_name, unvalidated_candle.datetime
         );
-        // Get previous candle for GDAX validation
-        let previous_candle = match exchange_name {
-            ExchangeName::Ftx | ExchangeName::FtxUs => None,
+        let is_valid = match exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                validate_ftx_candle(unvalidated_candle, &mut exchange_candles)
+            }
             ExchangeName::Gdax => {
-                match select_previous_candle(
-                    pool,
-                    exchange_name,
-                    &market.market_id,
-                    unvalidated_candle.datetime,
-                    TimeFrame::T15,
-                )
-                .await
-                {
-                    Ok(c) => Some(c),
-                    Err(sqlx::Error::RowNotFound) => None,
-                    Err(e) => {
-                        panic!("Failed to select previoius candle. {:?}", e);
-                    }
-                }
+                validate_gdax_candle_by_volume(unvalidated_candle, &mut exchange_candles)
             }
         };
-        let is_valid = validate_candle(
-            exchange_name,
-            unvalidated_candle,
-            &mut exchange_candles,
-            &previous_candle,
-        );
         process_validation_result(
             pool,
             trade_pool,
@@ -738,28 +720,32 @@ pub async fn validate_01d_candles<T: crate::utilities::Candle + DeserializeOwned
     }
 }
 
-pub fn validate_candle<T: crate::utilities::Candle + DeserializeOwned>(
+pub fn validate_candle_to_be_deleted<T: crate::utilities::Candle + DeserializeOwned>(
     exchange_name: &ExchangeName,
     candle: &Candle,
     exchange_candles: &mut Vec<T>,
     previous_candle: &Option<Candle>,
 ) -> bool {
-    let exchange_candle = exchange_candles
-        .iter()
-        .find(|c| c.datetime() == candle.datetime);
-    match exchange_name {
-        ExchangeName::Ftx | ExchangeName::FtxUs => validate_ftx_candle(candle, exchange_candle),
-        ExchangeName::Gdax => validate_gdax_candle(candle, exchange_candle, previous_candle),
-    }
+    // let exchange_candle = exchange_candles
+    //     .iter()
+    //     .find(|c| c.datetime() == candle.datetime);
+    // match exchange_name {
+    //     ExchangeName::Ftx | ExchangeName::FtxUs => validate_ftx_candle(candle, exchange_candle),
+    //     ExchangeName::Gdax => validate_gdax_candle(candle, exchange_candle, previous_candle),
+    // }
+    Ok(())
 }
 
 pub fn validate_ftx_candle<T: crate::utilities::Candle + DeserializeOwned>(
     candle: &Candle,
-    exchange_candle: Option<&T>,
+    exchange_candles: &mut Vec<T>,
 ) -> bool {
     // FTX candle validation on FTX Volume = ED Value, FTX sets open = last trade event if the
     // last trades was in the prior time period.
     // Consider valid if candle.value == exchange_candle.volume.
+    let exchange_candle = exchange_candles
+        .iter()
+        .find(|c| c.datetime() == candle.datetime);
     match exchange_candle {
         Some(c) => {
             if c.volume() == candle.value {
@@ -787,61 +773,25 @@ pub fn validate_ftx_candle<T: crate::utilities::Candle + DeserializeOwned>(
     }
 }
 
-pub fn validate_gdax_candle<T: crate::utilities::Candle + DeserializeOwned>(
+pub fn validate_gdax_candle_by_volume<T: crate::utilities::Candle + DeserializeOwned>(
     candle: &Candle,
-    exchange_candle: Option<&T>,
-    previous_candle: &Option<Candle>,
+    exchange_candles: &mut Vec<T>,
 ) -> bool {
-    // GDAX candle validation on GDAX Volume = ED Volume.
+    // GDAX candle validation on GDAX Volume = ED Volume and trade id count matches id first/last.
     // Consider valid if candle.volume == exchange_candle.volume.
+    let exchange_candle = exchange_candles
+        .iter()
+        .find(|c| c.datetime() == candle.datetime);
     match exchange_candle {
         Some(c) => {
-            if c.volume() == candle.volume {
+            if c.volume() == candle.volume
+                && candle.last_trade_id.parse::<i32>().unwrap()
+                    - candle.first_trade_id.parse::<i32>().unwrap()
+                    + 1
+                    == candle.trade_count as i32
+            {
                 // Volume matches - candle valid
                 true
-            } else if candle.last_trade_id.parse::<i32>().unwrap()
-                - candle.first_trade_id.parse::<i32>().unwrap()
-                + 1
-                == candle.trade_count as i32
-            {
-                // Gdax volume does not always match the sum of all trades for the time period
-                // on lower time frame. Secondary validation is needed
-                // to match the trade count with the number of expected trades (last trade id -
-                // first trade id). This however does not guarentee validation if a trade is missing
-                // before the first trade or after the last trade. To confirm that no trade is
-                // missing before the first trade, the id can be compared to the id of the last
-                // trade of the previous candle if there is a previous candle. If there is a missing
-                // trade after the last trade - this will prevent the validation of the subsequent
-                // candle.
-                match previous_candle {
-                    &None => {
-                        println!("No previous candle. Failing validation.");
-                        false
-                    }
-                    Some(pc) => {
-                        println!(
-                            "PC Last ID: {} - C First ID: {}",
-                            pc.last_trade_id, candle.first_trade_id
-                        );
-                        if pc.last_trade_id.parse::<i32>().unwrap() + 1
-                            == candle.first_trade_id.parse::<i32>().unwrap()
-                        {
-                            println!(
-                                "Volume Failed ({} ED v {} GDAX) but trade count complete.",
-                                candle.volume,
-                                c.volume()
-                            );
-                            true
-                        } else {
-                            println!(
-                                "Volume Failed ({} ED v {} GDAX) and trade count failed.",
-                                candle.volume,
-                                c.volume(),
-                            );
-                            false
-                        }
-                    }
-                }
             } else {
                 println!(
                     "Failed to validate: El-D Val: {:?} Gdax Vol: {:?}",
