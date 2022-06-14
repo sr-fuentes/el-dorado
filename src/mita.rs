@@ -306,7 +306,6 @@ impl Mita {
     ) {
         let sync_trades = select_gdax_trades_by_time(
             &self.trade_pool,
-            &self.exchange.name,
             market,
             "ws",
             start,
@@ -375,7 +374,6 @@ impl Mita {
             ExchangeName::Gdax => {
                 let trades = select_gdax_trades_by_time(
                     &self.trade_pool,
-                    &self.exchange.name,
                     market,
                     "ws",
                     start,

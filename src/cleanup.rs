@@ -94,7 +94,6 @@ impl Inquisidor {
             for d in dr.iter() {
                 let validated_trades = select_gdax_trades_by_time(
                     &self.ftx_pool, // Trade were in main db before split
-                    &ExchangeName::Gdax,
                     market,
                     "validated",
                     *d,
@@ -145,7 +144,6 @@ impl Inquisidor {
             for d in dr.iter() {
                 let mut trades = select_gdax_trades_by_time(
                     &self.ftx_pool,
-                    &ExchangeName::Gdax,
                     market,
                     "processed",
                     *d,

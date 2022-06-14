@@ -82,7 +82,7 @@ pub async fn select_insert_delete_trades(
         }
         ExchangeName::Gdax => {
             let trades =
-                select_gdax_trades_by_time(pool, exchange_name, market, source, start, end).await?;
+                select_gdax_trades_by_time(pool, market, source, start, end).await?;
             insert_gdax_trades(pool, exchange_name, market, destination, trades).await?;
         }
     }
@@ -110,7 +110,7 @@ pub async fn select_insert_drop_trades(
         }
         ExchangeName::Gdax => {
             let trades =
-                select_gdax_trades_by_time(pool, exchange_name, market, source, start, end).await?;
+                select_gdax_trades_by_time(pool, market, source, start, end).await?;
             insert_gdax_trades(pool, exchange_name, market, destination, trades).await?;
         }
     }

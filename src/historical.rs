@@ -245,7 +245,6 @@ impl Mita {
             if newest_floor > candle_ts {
                 let mut interval_trades = select_gdax_trades_by_time(
                     &self.trade_pool,
-                    &self.exchange.name,
                     market,
                     "rest",
                     candle_ts,
