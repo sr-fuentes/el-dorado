@@ -1,7 +1,8 @@
 use crate::candles::{
     delete_candle, delete_candle_01d, get_ftx_candles_daterange, get_gdax_candles_daterange,
     insert_candle, insert_candles_01d, resample_candles, select_candles_by_daterange,
-    select_previous_candle, validate_candle, Candle, TimeFrame,
+    select_previous_candle, validate_ftx_candle, validate_gdax_candle_by_trade_ids, Candle,
+    TimeFrame,
 };
 use crate::exchanges::{
     error::RestError, ftx::Trade as FtxTrade, gdax::Trade as GdaxTrade, ExchangeName,
@@ -365,12 +366,7 @@ impl Inquisidor {
                     )
                     .await;
                 // Validate new candle an d return validation status
-                let is_valid = validate_candle(
-                    &validation.exchange_name,
-                    &candle,
-                    &mut exchange_candles,
-                    &None,
-                );
+                let is_valid = Some(validate_ftx_candle(&candle, &mut exchange_candles));
                 (candle, is_valid)
             }
             ExchangeName::Gdax => {
@@ -388,26 +384,18 @@ impl Inquisidor {
                     )
                     .await;
                 println!("Exchange candles: {:?}", exchange_candles);
-                // Validate new candle and return validation status
-                let previous_candle = match select_previous_candle(
-                    &self.ig_pool,
-                    &validation.exchange_name,
-                    &market.market_id,
-                    validation.datetime,
-                    TimeFrame::T15,
-                )
-                .await
-                {
-                    Ok(c) => Some(c),
-                    Err(sqlx::Error::RowNotFound) => None,
-                    Err(e) => panic!("Sqlx Error: {:?}", e),
-                };
-                let is_valid = validate_candle(
-                    &validation.exchange_name,
+                // Validate trades in qc table to trade id validation
+                let trade_table = format!("qc_{}", validation.validation_type.as_str());
+                let is_valid = validate_gdax_candle_by_trade_ids(
+                    &self.gdax_pool,
+                    &self.clients[&validation.exchange_name],
+                    market,
                     &candle,
                     &mut exchange_candles,
-                    &previous_candle,
-                );
+                    &TimeFrame::T15, // TODO: Remove hardcoding to HB TF
+                    &trade_table,
+                )
+                .await;
                 // Check for missing trades - gap from last trade id of previous candle to first
                 // trade id of current validation candle as cause of invalidation. If missing trades
                 // are found -> 1) if part of previous candle - mark previous candle as invalid,
@@ -417,27 +405,35 @@ impl Inquisidor {
                 (candle, is_valid)
             }
         };
-        if is_valid {
-            let message = "Re-validation successful.".to_string();
-            // New candle was validated, save trades if heartbeat and replace unvalidated candle
-            self.process_revalidated_candle(validation, market, candle)
-                .await;
-            // Update validation to complete
-            update_candle_validation_status_processed(&self.ig_pool, validation, &message)
-                .await
-                .expect("Failed to update valdiations status to done.");
-        } else {
-            // Candle was not auto validated, update type to manual and status to open
-            update_candle_validations_type_status(
-                &self.ig_pool,
-                validation,
-                ValidationType::Manual,
-                ValidationStatus::Open,
-                "Failed to auto-validate.",
-            )
-            .await
-            .expect("Failed to update validation status.");
-        }
+        match is_valid {
+            Some(v) => {
+                if v {
+                    let message = "Re-validation successful.".to_string();
+                    // New candle was validated, save trades if heartbeat and replace unvalidated candle
+                    self.process_revalidated_candle(validation, market, candle)
+                        .await;
+                    // Update validation to complete
+                    update_candle_validation_status_processed(&self.ig_pool, validation, &message)
+                        .await
+                        .expect("Failed to update valdiations status to done.");
+                } else {
+                    // Candle was not auto validated, update type to manual and status to open
+                    update_candle_validations_type_status(
+                        &self.ig_pool,
+                        validation,
+                        ValidationType::Manual,
+                        ValidationStatus::Open,
+                        "Failed to auto-validate.",
+                    )
+                    .await
+                    .expect("Failed to update validation status.");
+                }
+            }
+            None => {
+                // There was no validation completed, return without doing anything
+                println!("There was no result from validation, try again.");
+            }
+        };
         // Drop the validation trade table
         let qc_table = format!(
             "trades_{}_{}_qc_{}",
@@ -1147,16 +1143,10 @@ impl Inquisidor {
                 .expect("Failed to insert tmp gdax trades.");
             }
         }
-        let interval_trades = select_gdax_trades_by_time(
-            &self.gdax_pool,
-            &validation.exchange_name,
-            market,
-            &trade_table,
-            start_ts,
-            end_ts,
-        )
-        .await
-        .expect("Could not fetch trades from temp table.");
+        let interval_trades =
+            select_gdax_trades_by_time(&self.gdax_pool, market, &trade_table, start_ts, end_ts)
+                .await
+                .expect("Could not fetch trades from temp table.");
         // Create candle from interval trades, trades are already sorted and deduped
         // from select query and primary key uniqueness
         if !interval_trades.is_empty() {
@@ -1249,10 +1239,18 @@ impl Inquisidor {
                 .expect("Could not insert validated trades.");
             }
             ExchangeName::Gdax => {
-                let validated_trades =
-                    select_gdax_trades_by_table(&self.gdax_pool, qc_table.as_str())
-                        .await
-                        .expect("Failed to select trades from temp table.");
+                // Gdax needs to grab trades by time as the temp table has trades before and after
+                // the start and end to qc and recreate the candle
+                let trade_table = format!("qc_{}", validation.validation_type.as_str());
+                let validated_trades = select_gdax_trades_by_time(
+                    &self.gdax_pool,
+                    market,
+                    &trade_table,
+                    validation.datetime,
+                    validation.datetime + Duration::seconds(900),
+                )
+                .await
+                .expect("Failed to select trades from temp table.");
                 // Insert trades into _validated
                 insert_gdax_trades(
                     &self.gdax_pool,
