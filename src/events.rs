@@ -410,6 +410,7 @@ impl Inquisidor {
                 ExchangeName::Ftx | ExchangeName::FtxUs => {
                     validate_01d_candles::<crate::exchanges::ftx::Candle>(
                         &self.ig_pool,
+                        &self.ftx_pool,
                         &self.clients[&event.exchange_name],
                         &event.exchange_name,
                         market,
@@ -419,6 +420,7 @@ impl Inquisidor {
                 ExchangeName::Gdax => {
                     validate_01d_candles::<crate::exchanges::gdax::Candle>(
                         &self.ig_pool,
+                        &self.gdax_pool,
                         &self.clients[&event.exchange_name],
                         &event.exchange_name,
                         market,
