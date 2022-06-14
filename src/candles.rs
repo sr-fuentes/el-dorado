@@ -839,10 +839,9 @@ pub async fn validate_gdax_candle_by_trade_ids<T: crate::utilities::Candle + Des
         .find(|c| c.datetime() == candle.datetime);
     let start = candle.datetime;
     let end = start + time_frame.as_dur();
-    let mut trades =
-        select_gdax_trades_by_time(pool, market, trade_table, start, end)
-            .await
-            .expect("Failed to select GDAX trades.");
+    let mut trades = select_gdax_trades_by_time(pool, market, trade_table, start, end)
+        .await
+        .expect("Failed to select GDAX trades.");
     // Sort trades by id
     trades.sort_by(|t1, t2| t1.trade_id.cmp(&t2.trade_id));
     if trades.is_empty() {

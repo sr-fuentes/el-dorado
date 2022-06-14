@@ -496,10 +496,7 @@ impl Inquisidor {
                     )
                     .await;
                 // Validate new candle volume
-                Some(validate_ftx_candle(
-                    &candle,
-                    &mut exchange_candles,
-                ))
+                Some(validate_ftx_candle(&candle, &mut exchange_candles))
             }
             ExchangeName::Gdax => {
                 // Get exchange candle
@@ -549,7 +546,7 @@ impl Inquisidor {
                     .await
                     .expect("Failed to update validation status.");
                 }
-            },
+            }
             None => {
                 // There was no validation completed, return without doing anything
                 println!("There was no result from validation, try again.");
