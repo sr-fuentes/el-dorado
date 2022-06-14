@@ -271,6 +271,7 @@ impl Inquisidor {
             println!("Validating 01d candles.");
             validate_01d_candles::<crate::exchanges::gdax::Candle>(
                 &self.ig_pool,
+                &self.gdax_pool,
                 &self.clients[&ExchangeName::Gdax],
                 &ExchangeName::Gdax,
                 market,

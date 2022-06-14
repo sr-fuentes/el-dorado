@@ -682,7 +682,6 @@ pub async fn validate_01d_candles<T: crate::utilities::Candle + DeserializeOwned
                 Some(validate_ftx_candle(candle, &mut exchange_candles))
             }
             ExchangeName::Gdax => {
-                let trade_table = format!("trades_gdax_{}_validated", &market.as_strip());
                 validate_gdax_candle_by_trade_ids(
                     trade_pool,
                     client,
