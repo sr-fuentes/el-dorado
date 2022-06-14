@@ -4,7 +4,6 @@ use crate::mita::Mita;
 use crate::trades::*;
 use crate::utilities::Trade;
 use crate::validation::insert_candle_validation;
-use crate::validation::CandleValidation;
 use chrono::{DateTime, Datelike, Duration, DurationRound, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
@@ -324,7 +323,14 @@ impl Mita {
         // Create 01d candles
         create_01d_candles(&self.ed_pool, &self.exchange.name, &market.market_id).await;
         // Validate 01d candles
-        validate_01d_candles::<T>(&self.ed_pool, client, &self.exchange.name, market).await;
+        validate_01d_candles::<T>(
+            &self.ed_pool,
+            &self.trade_pool,
+            client,
+            &self.exchange.name,
+            market,
+        )
+        .await;
     }
 
     pub async fn create_interval_candles<T: Trade + std::clone::Clone>(
@@ -607,20 +613,25 @@ pub async fn process_validation_result(
 }
 
 pub async fn validate_01d_candles<T: crate::utilities::Candle + DeserializeOwned>(
-    pool: &PgPool,
+    eld_pool: &PgPool,
+    trade_pool: &PgPool,
     client: &RestClient,
     exchange_name: &ExchangeName,
     market: &MarketDetail,
 ) {
     // Get unvalidated 01d candles
-    let unvalidated_candles =
-        match select_unvalidated_candles(pool, exchange_name, &market.market_id, TimeFrame::D01)
-            .await
-        {
-            Ok(c) => c,
-            Err(sqlx::Error::RowNotFound) => return,
-            Err(e) => panic!("Sqlx Error: {:?}", e),
-        };
+    let unvalidated_candles = match select_unvalidated_candles(
+        eld_pool,
+        exchange_name,
+        &market.market_id,
+        TimeFrame::D01,
+    )
+    .await
+    {
+        Ok(c) => c,
+        Err(sqlx::Error::RowNotFound) => return,
+        Err(e) => panic!("Sqlx Error: {:?}", e),
+    };
     // println!("Unvalidated 01D candles: {:?}", unvalidated_candles);
     // If no candles returned from query - return function
     if unvalidated_candles.is_empty() {
@@ -641,7 +652,7 @@ pub async fn validate_01d_candles<T: crate::utilities::Candle + DeserializeOwned
 
     // Get 15T candles to compare
     let hb_candles = select_candles_by_daterange(
-        pool,
+        eld_pool,
         exchange_name,
         &market.market_id,
         first_candle,
@@ -665,45 +676,59 @@ pub async fn validate_01d_candles<T: crate::utilities::Candle + DeserializeOwned
         // Check if all hb candles are valid
         let hb_is_validated = filtered_candles.iter().all(|c| c.is_validated);
         // Check if candle is valid
+        // a value of None means the validation could not take place (REST error or something)
         let daily_is_validated = match exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
-                validate_ftx_candle(candle, &mut exchange_candles)
+                Some(validate_ftx_candle(candle, &mut exchange_candles))
             }
             ExchangeName::Gdax => {
                 let trade_table = format!("trades_gdax_{}_validated", &market.as_strip());
-                validate_gdax_candle_by_trade_ids::<crate::exchanges::gdax::Candle>(
+                validate_gdax_candle_by_trade_ids(
+                    trade_pool,
+                    client,
+                    market,
                     candle,
-                    &trade_table,
+                    &mut exchange_candles,
+                    &TimeFrame::D01,
+                    "validated",
                 )
                 .await
             }
         };
         // Updated candle validation status
-        if hb_is_validated && daily_is_validated {
-            update_candle_validation(
-                pool,
-                exchange_name,
-                &market.market_id,
-                candle,
-                TimeFrame::D01,
-            )
-            .await
-            .expect("Could not update candle validation status.");
-        } else {
-            println!(
-                "{:?} 01d not validated adding to validation table. HB={}, 01D={}",
-                candle.datetime, hb_is_validated, daily_is_validated
-            );
-            insert_candle_validation(
-                pool,
-                exchange_name,
-                &market.market_id,
-                &candle.datetime,
-                86400,
-            )
-            .await
-            .expect("Failed to insert candle validation.");
-        }
+        match daily_is_validated {
+            Some(v) => {
+                if hb_is_validated && v {
+                    update_candle_validation(
+                        eld_pool,
+                        exchange_name,
+                        &market.market_id,
+                        candle,
+                        TimeFrame::D01,
+                    )
+                    .await
+                    .expect("Could not update candle validation status.");
+                } else {
+                    println!(
+                        "{:?} 01d not validated adding to validation table. HB={}, 01D={}",
+                        candle.datetime, hb_is_validated, v
+                    );
+                    insert_candle_validation(
+                        eld_pool,
+                        exchange_name,
+                        &market.market_id,
+                        &candle.datetime,
+                        86400,
+                    )
+                    .await
+                    .expect("Failed to insert candle validation.");
+                }
+            }
+            None => {
+                // There was no validation completed, return without doing anything
+                println!("There was no result from validation, try again.");
+            }
+        };
     }
 }
 
