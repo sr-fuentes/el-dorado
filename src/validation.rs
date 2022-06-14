@@ -258,7 +258,6 @@ impl Inquisidor {
     ) -> i32 {
         let trades = select_gdax_trades_by_time(
             &self.gdax_pool,
-            &validation.exchange_name,
             market,
             "validated",
             validation.datetime,
@@ -497,12 +496,10 @@ impl Inquisidor {
                     )
                     .await;
                 // Validate new candle volume
-                validate_candle(
-                    &validation.exchange_name,
+                Some(validate_ftx_candle(
                     &candle,
                     &mut exchange_candles,
-                    &None,
-                )
+                ))
             }
             ExchangeName::Gdax => {
                 // Get exchange candle
@@ -515,50 +512,49 @@ impl Inquisidor {
                         86400,
                     )
                     .await;
-                let previous_candle = match select_previous_candle(
-                    &self.ig_pool,
-                    &validation.exchange_name,
-                    &market.market_id,
-                    validation.datetime,
-                    TimeFrame::D01,
-                )
-                .await
-                {
-                    Ok(c) => Some(c),
-                    Err(sqlx::Error::RowNotFound) => None,
-                    Err(e) => panic!("Sqlx Error: {:?}", e),
-                };
                 // Validate new candle volume
-                validate_candle(
-                    &validation.exchange_name,
+                validate_gdax_candle_by_trade_ids(
+                    &self.gdax_pool,
+                    &self.clients[&validation.exchange_name],
+                    market,
                     &candle,
                     &mut exchange_candles,
-                    &previous_candle,
+                    &TimeFrame::D01,
+                    "validated",
                 )
+                .await
             }
         };
-        if is_valid {
-            let message = "Re-validation successful.".to_string();
-            // New candle was validated, update new candle
-            self.process_revalidated_01d_candle(validation, candle)
-                .await;
-            // Update validation to complete
-            update_candle_validation_status_processed(&self.ig_pool, validation, &message)
-                .await
-                .expect("Failed to update validation status to done.");
-        } else {
-            // Candle was not validated, update to manual and open
-            println!("Failed to validated 01D candle.");
-            update_candle_validations_type_status(
-                &self.ig_pool,
-                validation,
-                ValidationType::Manual,
-                ValidationStatus::Open,
-                "Failed to auto-validate.",
-            )
-            .await
-            .expect("Failed to update validation status.");
-        }
+        match is_valid {
+            Some(v) => {
+                if v {
+                    let message = "Re-validation successful.".to_string();
+                    // New candle was validated, update new candle
+                    self.process_revalidated_01d_candle(validation, candle)
+                        .await;
+                    // Update validation to complete
+                    update_candle_validation_status_processed(&self.ig_pool, validation, &message)
+                        .await
+                        .expect("Failed to update validation status to done.");
+                } else {
+                    // Candle was not validated, update to manual and open
+                    println!("Failed to validated 01D candle.");
+                    update_candle_validations_type_status(
+                        &self.ig_pool,
+                        validation,
+                        ValidationType::Manual,
+                        ValidationStatus::Open,
+                        "Failed to auto-validate.",
+                    )
+                    .await
+                    .expect("Failed to update validation status.");
+                }
+            },
+            None => {
+                // There was no validation completed, return without doing anything
+                println!("There was no result from validation, try again.");
+            }
+        };
     }
 
     pub async fn manual_validate_candle(
