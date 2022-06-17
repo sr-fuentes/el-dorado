@@ -2,7 +2,6 @@ use crate::candles::{
     delete_candle, delete_candle_01d, get_ftx_candles_daterange, get_gdax_candles_daterange,
     insert_candle, insert_candles_01d, resample_candles, select_candles_by_daterange,
     select_previous_candle, validate_ftx_candle, validate_gdax_candle_by_trade_ids, Candle,
-    TimeFrame,
 };
 use crate::exchanges::{
     error::RestError, ftx::Trade as FtxTrade, gdax::Trade as GdaxTrade, ExchangeName,
@@ -14,7 +13,7 @@ use crate::trades::{
     drop_trade_table, insert_ftx_trades, insert_gdax_trades, select_ftx_trades_by_table,
     select_ftx_trades_by_time, select_gdax_trades_by_table, select_gdax_trades_by_time,
 };
-use crate::utilities::{get_input, Trade};
+use crate::utilities::{get_input, TimeFrame, Trade};
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal_macros::dec;
 use sqlx::PgPool;

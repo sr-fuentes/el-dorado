@@ -1,4 +1,3 @@
-use crate::candles::TimeFrame;
 use crate::candles::{resample_candles, select_candles_gte_datetime, select_last_candle, Candle};
 use crate::configuration::{get_configuration, Settings};
 use crate::events::insert_event_process_trades;
@@ -12,6 +11,7 @@ use crate::trades::{
     insert_delete_ftx_trades, insert_delete_gdax_trades, select_ftx_trades_by_time,
     select_gdax_trades_by_time, select_insert_drop_trades,
 };
+use crate::utilities::TimeFrame;
 use crate::utilities::Twilio;
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal::Decimal;

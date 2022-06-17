@@ -1,6 +1,6 @@
 use crate::candles::{
     create_01d_candles, select_candles_unvalidated_lt_datetime, validate_01d_candles,
-    validate_hb_candles, TimeFrame,
+    validate_hb_candles,
 };
 use crate::exchanges::{select_exchanges_by_status, ExchangeName, ExchangeStatus};
 use crate::inquisidor::Inquisidor;
@@ -10,6 +10,7 @@ use crate::markets::{
 };
 use crate::mita::Mita;
 use crate::trades::select_insert_delete_trades;
+use crate::utilities::TimeFrame;
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use sqlx::PgPool;
 use std::convert::TryFrom;

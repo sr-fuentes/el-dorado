@@ -184,6 +184,7 @@ mod test {
     use crate::exchanges::{client::RestClient, ftx::Trade, select_exchanges};
     use crate::markets::{select_market_detail, select_market_ids_by_exchange};
     use crate::trades::select_ftx_trades_by_time;
+    use crate::utilities::TimeFrame;
     use chrono::{Duration, DurationRound};
     use csv::Writer;
     use flate2::{write::GzEncoder, write::ZlibEncoder, Compression};
