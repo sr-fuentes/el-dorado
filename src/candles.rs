@@ -4,7 +4,7 @@ use crate::mita::Mita;
 use crate::trades::*;
 use crate::utilities::{TimeFrame, Trade};
 use crate::validation::insert_candle_validation;
-use chrono::{DateTime, Datelike, Duration, DurationRound, Utc};
+use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use serde::de::DeserializeOwned;
@@ -844,7 +844,8 @@ pub async fn validate_gdax_candle_by_trade_ids<T: crate::utilities::Candle + Des
                 let next_trade = next_trade.first().unwrap();
                 // Compare the day of the next trade to the last trade day of the trades
                 // to validated
-                next_trade.time().day() > last_trade.time().day()
+                time_frame.is_gt_timeframe(last_trade.time(), next_trade.time())
+                // next_trade.time().day() > last_trade.time().day()
             } else {
                 // If next trade is empty, return false. There should always be a next trade
                 false
@@ -894,7 +895,8 @@ pub async fn validate_gdax_candle_by_trade_ids<T: crate::utilities::Candle + Des
                 let previous_trade = previous_trade.first().unwrap();
                 // Compare the day of the previous trade to the first trade day of the trades
                 // to validated
-                previous_trade.time().day() < last_trade.time().day() // Works only for 01d
+                time_frame.is_lt_timeframe(first_trade.time(), previous_trade.time())
+                // previous_trade.time().day() < last_trade.time().day() // Works only for 01d
             } else {
                 // If previous trade is empty, check if the first trade id = 1. If so there is no
                 // previous trade or time period so it is valid
