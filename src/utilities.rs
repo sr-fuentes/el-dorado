@@ -1,4 +1,4 @@
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, Utc, DurationRound};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use std::convert::TryFrom;
@@ -111,6 +111,14 @@ impl TimeFrame {
             TimeFrame::D01,
         ];
         time_frames
+    }
+
+    pub fn is_gt_timeframe(&self, dt1: DateTime<Utc>, dt2: DateTime<Utc>) -> bool {
+        dt1.duration_trunc(self.as_dur()).unwrap() < dt2.duration_trunc(self.as_dur()).unwrap()
+    }
+
+    pub fn is_lt_timeframe(&self, dt1: DateTime<Utc>, dt2: DateTime<Utc>) -> bool {
+        dt1.duration_trunc(self.as_dur()).unwrap() > dt2.duration_trunc(self.as_dur()).unwrap()
     }
 }
 
@@ -307,5 +315,13 @@ mod tests {
         let client = Twilio::new();
         let message = "Test rust / twilio sms send.";
         client.send_sms(message).await;
+    }
+
+    #[test]
+    pub fn is_gt_timeframe() {
+        // Assert that a given datetime is in a greate timeframe than first datetime
+        let dt1 = Utc.ymd(2021, 6, 27).and_hms(2, 29, 59);
+        let dt2 = Utc.ymd(2021, 6, 27).and_hms(2, 30, 01);
+        assert!(super::TimeFrame::T15.is_gt_timeframe(dt1, dt2));
     }
 }
