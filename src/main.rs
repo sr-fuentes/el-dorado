@@ -1,6 +1,8 @@
 use chrono::Utc;
 use clap::App;
-use el_dorado::{inquisidor::Inquisidor, instances::InstanceStatus, mita::Mita};
+use el_dorado::{
+    inquisidor::Inquisidor, instances::InstanceStatus, mita::Mita, utilities::get_input,
+};
 
 #[tokio::main]
 async fn main() {
@@ -46,6 +48,15 @@ async fn main() {
         Some("run") => {
             // Create new mita instance and run stream and backfill until no restart
             let mut mita = Mita::new().await;
+            // Check if user wants to reset processed and validated
+            let resp: String = get_input(
+                "Do you want to reset '_processed' and '_validated' trade tables? [y or yes]",
+            );
+            if resp == "y".to_string() || resp == "yes".to_string() {
+                println!("{:?}: Reseting tables.", Utc::now());
+                mita.reset_trade_tables(&["processed", "validated"]).await;
+                println!("{:?}: Tables reset.", Utc::now());
+            };
             // Restart loop if the mita restart value is true, else exit program
             while mita.restart {
                 // Set restart value to false, error handling must explicity set back to true
