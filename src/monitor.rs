@@ -1,9 +1,9 @@
 use chrono::{Duration, Utc};
 
 use crate::alerts::Alert;
-use crate::candles::TimeFrame;
 use crate::inquisidor::Inquisidor;
 use crate::instances::{select_instances, InstanceStatus};
+use crate::utilities::TimeFrame;
 
 impl Inquisidor {
     pub async fn monitor(&self) {

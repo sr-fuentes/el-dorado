@@ -1,6 +1,6 @@
 use crate::candles::{
     create_01d_candles, select_candles_unvalidated_lt_datetime, validate_01d_candles,
-    validate_hb_candles, TimeFrame,
+    validate_hb_candles,
 };
 use crate::exchanges::{select_exchanges_by_status, ExchangeName, ExchangeStatus};
 use crate::inquisidor::Inquisidor;
@@ -10,6 +10,7 @@ use crate::markets::{
 };
 use crate::mita::Mita;
 use crate::trades::select_insert_delete_trades;
+use crate::utilities::TimeFrame;
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use sqlx::PgPool;
 use std::convert::TryFrom;
@@ -410,6 +411,7 @@ impl Inquisidor {
                 ExchangeName::Ftx | ExchangeName::FtxUs => {
                     validate_01d_candles::<crate::exchanges::ftx::Candle>(
                         &self.ig_pool,
+                        &self.ftx_pool,
                         &self.clients[&event.exchange_name],
                         &event.exchange_name,
                         market,
@@ -419,6 +421,7 @@ impl Inquisidor {
                 ExchangeName::Gdax => {
                     validate_01d_candles::<crate::exchanges::gdax::Candle>(
                         &self.ig_pool,
+                        &self.gdax_pool,
                         &self.clients[&event.exchange_name],
                         &event.exchange_name,
                         market,
@@ -515,7 +518,7 @@ impl Mita {
             .await
             .expect("Failed to update event status to done.");
         // Add validation event
-        insert_event_validated_candles(&self.ed_pool, "ig", event.start_ts.unwrap(), market)
+        insert_event_validate_candles(&self.ed_pool, "ig", event.start_ts.unwrap(), market)
             .await
             .expect("Failed in insert event - validate candle.");
     }
@@ -552,7 +555,7 @@ pub async fn insert_event_process_trades(
     Ok(())
 }
 
-pub async fn insert_event_validated_candles(
+pub async fn insert_event_validate_candles(
     pool: &PgPool,
     droplet: &str,
     end: DateTime<Utc>,

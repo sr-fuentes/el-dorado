@@ -1,6 +1,6 @@
 use crate::candles::{
     create_01d_candles, insert_candle, select_candles, select_previous_candle,
-    select_unvalidated_candles, validate_01d_candles, validate_hb_candles, Candle, TimeFrame,
+    select_unvalidated_candles, validate_01d_candles, validate_hb_candles, Candle,
 };
 use crate::events::{Event, EventStatus, EventType};
 use crate::exchanges::{gdax::Trade, ExchangeName};
@@ -12,6 +12,7 @@ use crate::trades::{
     create_ftx_trade_table, create_gdax_trade_table, drop_trade_table, insert_ftx_trades,
     insert_gdax_trades, select_ftx_trades_by_table, select_gdax_trades_by_time,
 };
+use crate::utilities::TimeFrame;
 use crate::validation::{CandleValidation, ValidationStatus, ValidationType};
 use chrono::DurationRound;
 
@@ -94,7 +95,6 @@ impl Inquisidor {
             for d in dr.iter() {
                 let validated_trades = select_gdax_trades_by_time(
                     &self.ftx_pool, // Trade were in main db before split
-                    &ExchangeName::Gdax,
                     market,
                     "validated",
                     *d,
@@ -145,7 +145,6 @@ impl Inquisidor {
             for d in dr.iter() {
                 let mut trades = select_gdax_trades_by_time(
                     &self.ftx_pool,
-                    &ExchangeName::Gdax,
                     market,
                     "processed",
                     *d,
@@ -273,6 +272,7 @@ impl Inquisidor {
             println!("Validating 01d candles.");
             validate_01d_candles::<crate::exchanges::gdax::Candle>(
                 &self.ig_pool,
+                &self.gdax_pool,
                 &self.clients[&ExchangeName::Gdax],
                 &ExchangeName::Gdax,
                 market,

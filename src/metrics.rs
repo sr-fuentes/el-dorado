@@ -1,6 +1,7 @@
-use crate::candles::{Candle, TimeFrame};
+use crate::candles::Candle;
 use crate::exchanges::ExchangeName;
 use crate::markets::MarketDetail;
+use crate::utilities::TimeFrame;
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;

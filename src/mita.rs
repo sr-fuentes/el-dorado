@@ -1,4 +1,3 @@
-use crate::candles::TimeFrame;
 use crate::candles::{resample_candles, select_candles_gte_datetime, select_last_candle, Candle};
 use crate::configuration::{get_configuration, Settings};
 use crate::events::insert_event_process_trades;
@@ -12,6 +11,7 @@ use crate::trades::{
     insert_delete_ftx_trades, insert_delete_gdax_trades, select_ftx_trades_by_time,
     select_gdax_trades_by_time, select_insert_drop_trades,
 };
+use crate::utilities::TimeFrame;
 use crate::utilities::Twilio;
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal::Decimal;
@@ -304,16 +304,9 @@ impl Mita {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) {
-        let sync_trades = select_gdax_trades_by_time(
-            &self.trade_pool,
-            &self.exchange.name,
-            market,
-            "ws",
-            start,
-            end,
-        )
-        .await
-        .expect("Failed to select ws trades.");
+        let sync_trades = select_gdax_trades_by_time(&self.trade_pool, market, "ws", start, end)
+            .await
+            .expect("Failed to select ws trades.");
         // Get date range
         let date_range = self.create_date_range(start, end, self.hbtf.as_dur());
         // Make new candles
@@ -373,16 +366,9 @@ impl Mita {
                 }
             }
             ExchangeName::Gdax => {
-                let trades = select_gdax_trades_by_time(
-                    &self.trade_pool,
-                    &self.exchange.name,
-                    market,
-                    "ws",
-                    start,
-                    end,
-                )
-                .await
-                .expect("Failed to select gdax ws trades.");
+                let trades = select_gdax_trades_by_time(&self.trade_pool, market, "ws", start, end)
+                    .await
+                    .expect("Failed to select gdax ws trades.");
                 // If no trades return without updating hashmap
                 if trades.is_empty() {
                     // TODO: Consider returning candle forward filled from last and updating hb
