@@ -1437,7 +1437,7 @@ mod tests {
     use crate::exchanges::ExchangeName;
     use crate::inquisidor::Inquisidor;
     use crate::markets::select_market_details;
-    use crate::trades::{create_ftx_trade_table, drop_trade_table};
+    use crate::trades::{create_ftx_trade_table, create_gdax_trade_table, drop_trade_table};
     use crate::validation::{
         insert_candle_validation, CandleValidation, ValidationStatus, ValidationType,
     };
@@ -1446,7 +1446,7 @@ mod tests {
     use sqlx::PgPool;
     use uuid::Uuid;
 
-    pub async fn prep_candle_validation(validation: CandleValidation) {
+    pub async fn prep_ftx_candle_validation(validation: CandleValidation) {
         // Load configuration and db connection to dev
         let configuration = get_configuration().expect("Failed to read configuration.");
         println!("Configuration: {:?}", configuration);
@@ -1524,8 +1524,118 @@ mod tests {
         .expect("Failed to insert candle validation.");
     }
 
+    pub async fn prep_gdax_candle_validation(validation: CandleValidation) {
+        // Load configuration and db connection to dev
+        let configuration = get_configuration().expect("Failed to read configuration.");
+        println!("Configuration: {:?}", configuration);
+
+        // Create db connection
+        let pool = PgPool::connect_with(configuration.gdax_db.with_db())
+            .await
+            .expect("Failed to connect to Postgres.");
+
+
+        // Update FTX BTC-PERP market_id to 1fdb5971-fe5b-4db1-8269-8d34d4f1c7d1 to match prod val
+        let sql = r#"
+            UPDATE markets set market_id = '1fdb5971-fe5b-4db1-8269-8d34d4f1c7d1'
+            WHERE market_name = 'BTC-USD'
+            AND exchange_name = 'gdax'
+            "#;
+        sqlx::query(sql)
+            .execute(&pool)
+            .await
+            .expect("Failed to update id.");
+        
+        // Create candles table if it does not exists
+        let sql = r#"
+            DROP TABLE IF EXISTS candles_15t_gdax
+            "#;
+        sqlx::query(sql)
+            .execute(&pool)
+            .await
+            .expect("Failed to drop table.");
+        create_exchange_candle_table(&pool, &ExchangeName::Gdax)
+            .await
+            .expect("Failed to create table.");
+
+        // Get markets to extract BTC-PERP market
+        let market_details = select_market_details(&pool)
+            .await
+            .expect("Could not fetch market detail.");
+        let market = market_details
+            .iter()
+            .find(|m| m.market_name == "BTC-USD")
+            .unwrap();
+
+        // Create trades table if it does not exist
+        drop_trade_table(&pool, &ExchangeName::Gdax, market, "processed")
+            .await
+            .expect("Failed to drop table.");
+        create_gdax_trade_table(&pool, &ExchangeName::Gdax, market, "processed")
+            .await
+            .expect("Failed to create trade table.");
+        drop_trade_table(&pool, &ExchangeName::Gdax, market, "validated")
+            .await
+            .expect("Failed to drop table.");
+        create_gdax_trade_table(&pool, &ExchangeName::Gdax, market, "validated")
+            .await
+            .expect("Failed to create trade table.");
+
+        // Clear candle validations table
+        let sql = r#"
+            DELETE FROM candle_validations
+            WHERE 1=1
+            "#;
+        sqlx::query(sql)
+            .execute(&pool)
+            .await
+            .expect("Failed to delete validation records.");
+
+        // Insert bad candle validation that can be fixed automatically
+        insert_candle_validation(
+            &pool,
+            &validation.exchange_name,
+            &validation.market_id,
+            &validation.datetime,
+            validation.duration,
+        )
+        .await
+        .expect("Failed to insert candle validation.");
+
+        // Insert candle - needed for GDAX recreation to get trade id to start with
+        let candle = Candle {
+            datetime: Utc.ymd(2021, 12, 18).and_hms(7, 45, 0),
+            open: dec!(46149),
+            high: dec!(46268),
+            low: dec!(45778),
+            close: dec!(45889),
+            volume: dec!(1559.2075),
+            volume_net: dec!(-333.4519),
+            volume_liquidation: dec!(0.5508),
+            value: dec!(71748093.1406),
+            trade_count: 9801,
+            liquidation_count: 20,
+            last_trade_ts: Utc.ymd(2021, 12, 18).and_hms(7, 59, 43),
+            last_trade_id: "252564379".to_string(),
+            first_trade_ts: Utc.ymd(2021, 12, 18).and_hms(7, 45, 1),
+            first_trade_id: "252562781".to_string(),
+            is_validated: false,
+            market_id: Uuid::parse_str("1fdb5971-fe5b-4db1-8269-8d34d4f1c7d1").unwrap(),
+        };
+
+        insert_candle(
+            &pool,
+            &ExchangeName::Gdax,
+            &Uuid::parse_str("1fdb5971-fe5b-4db1-8269-8d34d4f1c7d1").unwrap(),
+            candle,
+            true,
+        )
+        .await
+        .expect("Failed to insert hb candle.");
+    }
+
     #[tokio::test]
-    pub async fn auto_revalidate_candle() {
+    pub async fn auto_revalidate_ftx_candle() {
         // Create validation that can be auto revalidated
         let validation = CandleValidation {
             exchange_name: ExchangeName::Ftx,
@@ -1538,14 +1648,34 @@ mod tests {
             validation_status: ValidationStatus::New,
             notes: None,
         };
-        prep_candle_validation(validation).await;
+        prep_ftx_candle_validation(validation).await;
         // Create ig instance and process new validation
         let ig = Inquisidor::new().await;
         ig.process_candle_validations(ValidationStatus::New).await;
     }
 
     #[tokio::test]
-    pub async fn manual_revalidate_candle() {
+    pub async fn auto_revalidate_gdax_candle() {
+        // Create validation that can be auto revalidated
+        let validation = CandleValidation {
+            exchange_name: ExchangeName::Gdax,
+            market_id: Uuid::parse_str("1fdb5971-fe5b-4db1-8269-8d34d4f1c7d1").unwrap(),
+            datetime: Utc.ymd(2021, 12, 18).and_hms(7, 45, 00),
+            duration: 900,
+            validation_type: ValidationType::Auto,
+            created_ts: Utc::now(),
+            processed_ts: None,
+            validation_status: ValidationStatus::New,
+            notes: None,
+        };
+        prep_gdax_candle_validation(validation).await;
+        // Create ig instance and process new validation
+        let ig = Inquisidor::new().await;
+        ig.process_candle_validations(ValidationStatus::New).await;
+    }
+
+    #[tokio::test]
+    pub async fn manual_revalidate_ftx_candle() {
         // Create validation that cannot be auto revalidated and needs to be manual revalidated
         let validation = CandleValidation {
             exchange_name: ExchangeName::Ftx,
@@ -1558,7 +1688,7 @@ mod tests {
             validation_status: ValidationStatus::New,
             notes: None,
         };
-        prep_candle_validation(validation).await;
+        prep_ftx_candle_validation(validation).await;
         // Create ig instance and process new validation
         let ig = Inquisidor::new().await;
         ig.process_candle_validations(ValidationStatus::New).await;
@@ -1568,7 +1698,7 @@ mod tests {
     }
 
     #[tokio::test]
-    pub async fn auto_revalidate_01d_candle_no_heartbeats() {
+    pub async fn auto_revalidate_01d_ftx_candle_no_heartbeats() {
         // Create validation that cannot be auto revalidated and needs to be manual revalidated
         let validation = CandleValidation {
             exchange_name: ExchangeName::Ftx,
@@ -1581,7 +1711,7 @@ mod tests {
             validation_status: ValidationStatus::New,
             notes: None,
         };
-        prep_candle_validation(validation).await;
+        prep_ftx_candle_validation(validation).await;
         // Create ig instance and process new validation
         let ig = Inquisidor::new().await;
         ig.process_candle_validations(ValidationStatus::New).await;
@@ -1601,7 +1731,7 @@ mod tests {
             validation_status: ValidationStatus::New,
             notes: None,
         };
-        prep_candle_validation(validation).await;
+        prep_ftx_candle_validation(validation).await;
         // Insert hb candles into db
         let candle = Candle {
             datetime: Utc.ymd(2021, 12, 18).and_hms(0, 0, 0),
