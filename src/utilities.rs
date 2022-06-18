@@ -1,6 +1,7 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc, DurationRound};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
+use std::convert::TryFrom;
 use std::env;
 use std::io::{self, Write};
 use twilio::{OutboundMessage, TwilioClient};
@@ -57,6 +58,82 @@ impl Twilio {
             Ok(m) => println!("{:?}", m),
             Err(e) => eprintln!("{:?}", e),
         };
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type)]
+#[sqlx(rename_all = "lowercase")]
+pub enum TimeFrame {
+    T15,
+    H01,
+    H04,
+    H12,
+    D01,
+}
+
+impl TimeFrame {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TimeFrame::T15 => "t15",
+            TimeFrame::H01 => "h01",
+            TimeFrame::H04 => "h04",
+            TimeFrame::H12 => "h12",
+            TimeFrame::D01 => "d01",
+        }
+    }
+
+    pub fn as_secs(&self) -> i64 {
+        match self {
+            TimeFrame::T15 => 900,
+            TimeFrame::H01 => 3600,
+            TimeFrame::H04 => 14400,
+            TimeFrame::H12 => 43200,
+            TimeFrame::D01 => 86400,
+        }
+    }
+
+    pub fn as_dur(&self) -> Duration {
+        match self {
+            TimeFrame::T15 => Duration::minutes(15),
+            TimeFrame::H01 => Duration::hours(1),
+            TimeFrame::H04 => Duration::hours(4),
+            TimeFrame::H12 => Duration::hours(12),
+            TimeFrame::D01 => Duration::days(1),
+        }
+    }
+
+    pub fn time_frames() -> Vec<TimeFrame> {
+        let time_frames = vec![
+            TimeFrame::T15,
+            TimeFrame::H01,
+            TimeFrame::H04,
+            TimeFrame::H12,
+            TimeFrame::D01,
+        ];
+        time_frames
+    }
+
+    pub fn is_gt_timeframe(&self, dt1: DateTime<Utc>, dt2: DateTime<Utc>) -> bool {
+        dt1.duration_trunc(self.as_dur()).unwrap() < dt2.duration_trunc(self.as_dur()).unwrap()
+    }
+
+    pub fn is_lt_timeframe(&self, dt1: DateTime<Utc>, dt2: DateTime<Utc>) -> bool {
+        dt1.duration_trunc(self.as_dur()).unwrap() > dt2.duration_trunc(self.as_dur()).unwrap()
+    }
+}
+
+impl TryFrom<String> for TimeFrame {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        match s.to_lowercase().as_str() {
+            "t15" => Ok(Self::T15),
+            "h01" => Ok(Self::H01),
+            "h04" => Ok(Self::H04),
+            "h12" => Ok(Self::H12),
+            "d01" => Ok(Self::D01),
+            other => Err(format!("{} is not a supported TimeFrame.", other)),
+        }
     }
 }
 
@@ -238,5 +315,13 @@ mod tests {
         let client = Twilio::new();
         let message = "Test rust / twilio sms send.";
         client.send_sms(message).await;
+    }
+
+    #[test]
+    pub fn is_gt_timeframe() {
+        // Assert that a given datetime is in a greate timeframe than first datetime
+        let dt1 = Utc.ymd(2021, 6, 27).and_hms(2, 29, 59);
+        let dt2 = Utc.ymd(2021, 6, 27).and_hms(2, 30, 01);
+        assert!(super::TimeFrame::T15.is_gt_timeframe(dt1, dt2));
     }
 }

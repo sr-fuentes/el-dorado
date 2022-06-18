@@ -81,8 +81,7 @@ pub async fn select_insert_delete_trades(
             insert_ftx_trades(pool, exchange_name, market, destination, trades).await?;
         }
         ExchangeName::Gdax => {
-            let trades =
-                select_gdax_trades_by_time(pool, exchange_name, market, source, start, end).await?;
+            let trades = select_gdax_trades_by_time(pool, market, source, start, end).await?;
             insert_gdax_trades(pool, exchange_name, market, destination, trades).await?;
         }
     }
@@ -109,8 +108,7 @@ pub async fn select_insert_drop_trades(
             insert_ftx_trades(pool, exchange_name, market, destination, trades).await?;
         }
         ExchangeName::Gdax => {
-            let trades =
-                select_gdax_trades_by_time(pool, exchange_name, market, source, start, end).await?;
+            let trades = select_gdax_trades_by_time(pool, market, source, start, end).await?;
             insert_gdax_trades(pool, exchange_name, market, destination, trades).await?;
         }
     }
@@ -535,7 +533,6 @@ pub async fn select_ftx_trades_by_time(
 
 pub async fn select_gdax_trades_by_time(
     pool: &PgPool,
-    exchange_name: &ExchangeName,
     market: &MarketDetail,
     trade_table: &str,
     interval_start: DateTime<Utc>,
@@ -549,7 +546,7 @@ pub async fn select_gdax_trades_by_time(
         WHERE time >= $1 and time < $2
         ORDER BY trade_id
         "#,
-        exchange_name.as_str(),
+        ExchangeName::Gdax.as_str(),
         market.as_strip(),
         trade_table,
     );

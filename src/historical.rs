@@ -1,6 +1,5 @@
 use crate::candles::{
     get_ftx_candles_daterange, insert_candle, select_last_candle, select_previous_candle, Candle,
-    TimeFrame,
 };
 use crate::events::{Event, EventStatus, EventType};
 use crate::exchanges::{client::RestClient, error::RestError, Exchange, ExchangeName};
@@ -15,7 +14,7 @@ use crate::trades::{
     select_ftx_trades_by_time, select_gdax_trades_by_table, select_gdax_trades_by_time,
     select_trade_first_stream,
 };
-use crate::utilities::{get_input, Trade};
+use crate::utilities::{get_input, TimeFrame, Trade};
 use chrono::{DateTime, Datelike, Duration, DurationRound, TimeZone, Utc};
 use csv::Writer;
 use rust_decimal_macros::dec;
@@ -245,7 +244,6 @@ impl Mita {
             if newest_floor > candle_ts {
                 let mut interval_trades = select_gdax_trades_by_time(
                     &self.trade_pool,
-                    &self.exchange.name,
                     market,
                     "rest",
                     candle_ts,

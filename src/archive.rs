@@ -138,7 +138,6 @@ impl Inquisidor {
     ) -> bool {
         let trades_to_archive = select_gdax_trades_by_time(
             &self.gdax_pool,
-            &ExchangeName::Gdax,
             market,
             "validated",
             candle.datetime,
@@ -185,6 +184,7 @@ mod test {
     use crate::exchanges::{client::RestClient, ftx::Trade, select_exchanges};
     use crate::markets::{select_market_detail, select_market_ids_by_exchange};
     use crate::trades::select_ftx_trades_by_time;
+    use crate::utilities::TimeFrame;
     use chrono::{Duration, DurationRound};
     use csv::Writer;
     use flate2::{write::GzEncoder, write::ZlibEncoder, Compression};
@@ -302,8 +302,7 @@ mod test {
             // Check if all hb candles are valid
             let hb_is_validated = hb_candles.iter().all(|c| c.is_validated == true);
             // Check if volume matches value
-            let vol_is_validated =
-                validate_candle(&exchange.name, &candle, &mut exchange_candles, &None);
+            let vol_is_validated = validate_ftx_candle(&candle, &mut exchange_candles);
             // Update candle validation status
             if hb_is_validated && vol_is_validated {
                 update_candle_validation(

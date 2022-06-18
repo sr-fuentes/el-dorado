@@ -1,8 +1,8 @@
 use crate::{
-    candles::TimeFrame,
     configuration::{get_configuration, Settings},
     exchanges::{client::RestClient, select_exchanges, Exchange, ExchangeName},
     markets::{select_market_details, MarketDetail},
+    utilities::TimeFrame,
     utilities::Twilio,
     validation::ValidationStatus,
 };

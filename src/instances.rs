@@ -1,6 +1,6 @@
-use crate::candles::TimeFrame;
 use crate::markets::{select_market_detail_by_exchange_mita, MarketDetail};
 use crate::metrics::select_metrics_ap_by_exchange_market;
+use crate::utilities::TimeFrame;
 use crate::{exchanges::ExchangeName, inquisidor::Inquisidor, mita::Mita};
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use sqlx::PgPool;

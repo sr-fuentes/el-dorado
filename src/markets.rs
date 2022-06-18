@@ -1,7 +1,7 @@
-use crate::candles::{select_first_01d_candle, TimeFrame};
+use crate::candles::select_first_01d_candle;
 use crate::exchanges::{client::RestClient, error::RestError, select_exchanges, ExchangeName};
 use crate::inquisidor::Inquisidor;
-use crate::utilities::get_input;
+use crate::utilities::{get_input, TimeFrame};
 use chrono::{DateTime, Duration, Utc};
 use core::cmp::Reverse;
 use rust_decimal::Decimal;
