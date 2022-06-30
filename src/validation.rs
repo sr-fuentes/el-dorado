@@ -336,8 +336,8 @@ impl Inquisidor {
         // user to determine whether to accept or not.
         // For 01d candles - TODO!
         println!(
-            "Manual Candle Validation for {:?} {} {}",
-            validation.exchange_name, validation.datetime, validation.duration
+            "Manual Candle Validation ({}) for {:?} {}",
+            validation.duration, validation.exchange_name, validation.datetime, 
         );
         match validation.duration {
             900 => self.manual_validate_candle(validation, market).await,
@@ -577,16 +577,12 @@ impl Inquisidor {
         // Present candle data versus exchange data and get input from user to validate or not
         let message = match validation.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
-                println!(
-                    "Manual Validation (HB) for {:?} {} {}",
-                    validation.exchange_name, market.market_name, validation.datetime
-                );
-                println!(
-                    "New Candle (DT/Close/Count/Volume/Value): {} / {} / {} / {} / {}",
-                    candle.datetime, candle.close, candle.trade_count, candle.volume, candle.value
-                );
+                // println!(
+                //     "New Candle (DT/Close/Count/Volume/Value): {} / {} / {} / {} / {}",
+                //     candle.datetime, candle.close, candle.trade_count, candle.volume, candle.value
+                // );
                 println!("Compare ED Value versus FTX Volume:");
-                println!("ElDorado Value: {:?}", candle.value);
+                println!("ELD Value: \t{:?}", candle.value);
                 let exchange_candle = get_ftx_candles_daterange::<crate::exchanges::ftx::Candle>(
                     &self.clients[&validation.exchange_name],
                     market,
@@ -601,9 +597,9 @@ impl Inquisidor {
                     Some(ec) => {
                         let delta = candle.value - ec.volume;
                         let percent = delta / ec.volume * dec!(100.0);
-                        println!("FTX Volume: {:?}", ec.volume);
+                        println!("FTX Volume: \t{:?}", ec.volume);
                         format!(
-                            "Delta: {:?} & Percent: {:?}",
+                            "Delta: ${:?} & Percent: {:?}%",
                             delta.round_dp(2),
                             percent.round_dp(4)
                         )
@@ -614,16 +610,12 @@ impl Inquisidor {
                 message
             }
             ExchangeName::Gdax => {
-                println!(
-                    "Manual Validation (HB) for {:?} {} {}",
-                    validation.exchange_name, market.market_name, validation.datetime
-                );
-                println!(
-                    "New Candle (DT/Close/Count/Volume/Value): {} / {} / {} / {} / {}",
-                    candle.datetime, candle.close, candle.trade_count, candle.volume, candle.value
-                );
+                // println!(
+                //     "New Candle (DT/Close/Count/Volume/Value): {} / {} / {} / {} / {}",
+                //     candle.datetime, candle.close, candle.trade_count, candle.volume, candle.value
+                // );
                 println!("Compare ED Volume versus GDAX Volume:");
-                println!("ElDorado Volume: {:?}", candle.volume);
+                println!("ELD Volume: \t{:?}", candle.volume);
                 let exchange_candle = get_gdax_candles_daterange::<crate::exchanges::gdax::Candle>(
                     &self.clients[&validation.exchange_name],
                     market,
@@ -637,9 +629,9 @@ impl Inquisidor {
                     Some(ec) => {
                         let delta = candle.volume - ec.volume;
                         let percent = delta / ec.volume * dec!(100.0);
-                        println!("Gdax Volume: {:?}", ec.volume);
+                        println!("Gdax Volume: \t{:?}", ec.volume);
                         format!(
-                            "Delta: {:?} & Percent: {:?}",
+                            "Delta: {:?} & Percent: {:?}%",
                             delta.round_dp(2),
                             percent.round_dp(4)
                         )
@@ -866,16 +858,12 @@ impl Inquisidor {
         // Present candle data versus exchange data and get input from user to validate
         let message = match validation.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
-                println!(
-                    "Manual Validation (01D) for {:?} {} {}",
-                    validation.exchange_name, market.market_name, validation.datetime
-                );
-                println!(
-                    "New Candle (DT/Close/Count/Volume/Value): {} / {} / {} / {} / {}",
-                    candle.datetime, candle.close, candle.trade_count, candle.volume, candle.value
-                );
+                // println!(
+                //     "New Candle (DT/Close/Count/Volume/Value): {} / {} / {} / {} / {}",
+                //     candle.datetime, candle.close, candle.trade_count, candle.volume, candle.value
+                // );
                 println!("Compare ED Value versus FTX Volume:");
-                println!("ElDorado Value: {:?}", candle.value);
+                println!("ELD Value: \t{:?}", candle.value);
                 let exchange_candle = get_ftx_candles_daterange::<crate::exchanges::ftx::Candle>(
                     &self.clients[&validation.exchange_name],
                     market,
@@ -890,9 +878,9 @@ impl Inquisidor {
                     Some(ec) => {
                         let delta = candle.value - ec.volume;
                         let percent = delta / ec.volume * dec!(100.0);
-                        println!("FTX Volume: {:?}", ec.volume);
+                        println!("FTX Volume: \t{:?}", ec.volume);
                         format!(
-                            "Delta: {:?} & Percent: {:?}",
+                            "Delta: ${:?} & Percent: {:?}%",
                             delta.round_dp(2),
                             percent.round_dp(4)
                         )
@@ -907,16 +895,12 @@ impl Inquisidor {
                 message
             }
             ExchangeName::Gdax => {
-                println!(
-                    "Manual Validation (01D) for {:?} {} {}",
-                    validation.exchange_name, market.market_name, validation.datetime
-                );
-                println!(
-                    "New Candle (DT/Close/Count/Volume/Value): {} / {} / {} / {} / {}",
-                    candle.datetime, candle.close, candle.trade_count, candle.volume, candle.value
-                );
+                // println!(
+                //     "New Candle (DT/Close/Count/Volume/Value): {} / {} / {} / {} / {}",
+                //     candle.datetime, candle.close, candle.trade_count, candle.volume, candle.value
+                // );
                 println!("Compare ED Volume versus GDAX Volume:");
-                println!("ElDorado Volume: {:?}", candle.volume);
+                println!("ELD Volume: \t{:?}", candle.volume);
                 let exchange_candle = get_gdax_candles_daterange::<crate::exchanges::gdax::Candle>(
                     &self.clients[&validation.exchange_name],
                     market,
@@ -930,9 +914,9 @@ impl Inquisidor {
                     Some(ec) => {
                         let delta = candle.volume - ec.volume;
                         let percent = delta / ec.volume * dec!(100.0);
-                        println!("Gdax Volume: {:?}", ec.volume);
+                        println!("Gdax Volume: \t{:?}", ec.volume);
                         format!(
-                            "Delta: {:?} & Percent: {:?}",
+                            "Delta: {:?} & Percent: {:?}%",
                             delta.round_dp(2),
                             percent.round_dp(4)
                         )
@@ -1783,7 +1767,18 @@ mod tests {
             .await
             .expect("Failed to connect to Postgres.");
 
-        // Update FTX BTC-PERP market_id to 1fdb5971-fe5b-4db1-8269-8d34d4f1c7d1 to match prod val
+        // Update GDAX BCH-USD market_id to 34266818-0d34-4e71-b9ad-ef93723d7497 to match prod val
+        let sql = r#"
+            UPDATE markets set market_id = '34266818-0d34-4e71-b9ad-ef93723d7497'
+            WHERE market_name = 'BCH-USD'
+            AND exchange_name = 'gdax'
+            "#;
+        sqlx::query(sql)
+            .execute(&pool)
+            .await
+            .expect("Failed to update id.");
+
+        // Update GDAX BTC-USD market_id to 1fdb5971-fe5b-4db1-8269-8d34d4f1c7d1 to match prod val
         let sql = r#"
             UPDATE markets set market_id = '1fdb5971-fe5b-4db1-8269-8d34d4f1c7d1'
             WHERE market_name = 'BTC-USD'
@@ -1813,6 +1808,29 @@ mod tests {
         let market = market_details
             .iter()
             .find(|m| m.market_name == "BTC-USD")
+            .unwrap();
+
+        // Create trades table if it does not exist
+        drop_trade_table(&pool, &ExchangeName::Gdax, market, "processed")
+            .await
+            .expect("Failed to drop table.");
+        create_gdax_trade_table(&pool, &ExchangeName::Gdax, market, "processed")
+            .await
+            .expect("Failed to create trade table.");
+        drop_trade_table(&pool, &ExchangeName::Gdax, market, "validated")
+            .await
+            .expect("Failed to drop table.");
+        create_gdax_trade_table(&pool, &ExchangeName::Gdax, market, "validated")
+            .await
+            .expect("Failed to create trade table.");
+
+        // Get markets to extract BCH-PERP market
+        let market_details = select_market_details(&pool)
+            .await
+            .expect("Could not fetch market detail.");
+        let market = market_details
+            .iter()
+            .find(|m| m.market_name == "BCH-USD")
             .unwrap();
 
         // Create trades table if it does not exist
@@ -1875,6 +1893,37 @@ mod tests {
             &pool,
             &ExchangeName::Gdax,
             &Uuid::parse_str("1fdb5971-fe5b-4db1-8269-8d34d4f1c7d1").unwrap(),
+            candle,
+            true,
+        )
+        .await
+        .expect("Failed to insert hb candle.");
+
+        // Insert candle - needed for GDAX recreation to get trade id to start with
+        let candle = Candle {
+            datetime: Utc.ymd(2021, 12, 18).and_hms(7, 45, 0),
+            open: dec!(46149),
+            high: dec!(46268),
+            low: dec!(45778),
+            close: dec!(45889),
+            volume: dec!(1559.2075),
+            volume_net: dec!(-333.4519),
+            volume_liquidation: dec!(0.5508),
+            value: dec!(71748093.1406),
+            trade_count: 9801,
+            liquidation_count: 20,
+            last_trade_ts: Utc.ymd(2021, 12, 18).and_hms(7, 59, 43),
+            last_trade_id: "252564379".to_string(),
+            first_trade_ts: Utc.ymd(2021, 12, 18).and_hms(7, 45, 1),
+            first_trade_id: "252562781".to_string(),
+            is_validated: false,
+            market_id: Uuid::parse_str("34266818-0d34-4e71-b9ad-ef93723d7497").unwrap(),
+        };
+
+        insert_candle(
+            &pool,
+            &ExchangeName::Gdax,
+            &Uuid::parse_str("34266818-0d34-4e71-b9ad-ef93723d7497").unwrap(),
             candle,
             true,
         )
@@ -1943,6 +1992,26 @@ mod tests {
         println!("Sleeping 5 seconds before starting manual validation.");
         tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
         ig.process_candle_validations(ValidationStatus::Open).await;
+    }
+
+    #[tokio::test]
+    pub async fn manual_revalidate_gdax_candle() {
+        // Create validation that can be auto revalidated
+        let validation = CandleValidation {
+            exchange_name: ExchangeName::Gdax,
+            market_id: Uuid::parse_str("34266818-0d34-4e71-b9ad-ef93723d7497").unwrap(),
+            datetime: Utc.ymd(2022, 6, 20).and_hms(0, 0, 00),
+            duration: 900,
+            validation_type: ValidationType::Auto,
+            created_ts: Utc::now(),
+            processed_ts: None,
+            validation_status: ValidationStatus::New,
+            notes: None,
+        };
+        prep_gdax_candle_validation(validation).await;
+        // Create ig instance and process new validation
+        let ig = Inquisidor::new().await;
+        ig.process_candle_validations(ValidationStatus::New).await;
     }
 
     #[tokio::test]
