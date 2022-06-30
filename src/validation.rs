@@ -337,7 +337,7 @@ impl Inquisidor {
         // For 01d candles - TODO!
         println!(
             "Manual Candle Validation ({}) for {:?} {}",
-            validation.duration, validation.exchange_name, validation.datetime, 
+            validation.duration, validation.exchange_name, validation.datetime,
         );
         match validation.duration {
             900 => self.manual_validate_candle(validation, market).await,
