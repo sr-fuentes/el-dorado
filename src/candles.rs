@@ -952,6 +952,10 @@ pub async fn get_ftx_candles_daterange<T: crate::utilities::Candle + Deserialize
                                 tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
                                 continue;
                             }
+                            404 => {
+                                println!("404 status code: {:?} / {:?}", s, e);
+                                return Vec::new();
+                            },
                             _ => {
                                 panic!("Status code not handled: {:?} {:?}", s, e)
                             }
