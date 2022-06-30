@@ -1,4 +1,4 @@
-use chrono::{DateTime, Duration, Utc, DurationRound};
+use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use std::convert::TryFrom;

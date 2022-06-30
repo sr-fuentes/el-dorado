@@ -52,7 +52,7 @@ async fn main() {
             let resp: String = get_input(
                 "Do you want to reset '_processed' and '_validated' trade tables? [y or yes]",
             );
-            if resp == "y".to_string() || resp == "yes".to_string() {
+            if resp == *"y" || resp == *"yes" {
                 println!("{:?}: Reseting tables.", Utc::now());
                 mita.reset_trade_tables(&["processed", "validated"]).await;
                 println!("{:?}: Tables reset.", Utc::now());
