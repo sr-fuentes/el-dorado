@@ -15,7 +15,7 @@ pub struct Product {
     pub quote_increment: Decimal,
     pub base_increment: Decimal,
     pub display_name: String,
-    pub min_market_funds: Decimal, // Can this be int?
+    pub min_market_funds: Decimal,         // Can this be int?
     pub max_market_funds: Option<Decimal>, // Can this be int?
     pub margin_enabled: bool,
     pub fx_stablecoin: Option<bool>,
