@@ -8,16 +8,18 @@ The goal of this repository is to create:
 - Docker
 
 # Setup and Install
-- Launch a Postgres database with migrations
+- Launch a Postgres database in Docker with migrations
 `./scripts/init_db.sh`
 - Build with Cargo
-`cargo build`
+`cargo build --release`
 
 # Usage
-- Add Exchange
-`./el-dorado add`
 - Run Live Feed
-`./el-dorado run`
+`./target/release/el-dorado run`
+
+This will subscribe to the SOL-PERP (default example) websocket stream and begin syncing the trades from 90 days prior to the first trade of the stream. Once the trades are synced they will be aggregated into 15 minute buckets and inserted into the database. At each new interval of 15 minutes the new candle will be aggregated and saved based on the trades captured from the websocket stream.
+
+- Backfill and Validation of the captured trades can be run on separate instances with the `backfill` and `manage` commands respectively.
 
 # System Design
 ![system_design](https://user-images.githubusercontent.com/29989568/183924160-51a64c5a-4e07-400f-9212-78795d8ba4d7.jpg)
