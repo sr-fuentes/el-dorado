@@ -643,7 +643,9 @@ impl Inquisidor {
                 ExchangeName::Gdax => {
                     match e.event_type {
                         EventType::BackfillTrades => self.process_event_backfill_trades(&e).await,
-                        EventType::ForwardFillTrades => self.process_event_forwardfill_trades(&e).await,
+                        EventType::ForwardFillTrades => {
+                            self.process_event_forwardfill_trades(&e).await
+                        }
                         _ => return, // Unreachable as the event needs to be a fill trade event
                     }
                 }
@@ -658,7 +660,7 @@ impl Inquisidor {
         }
     }
 
-    pub async fn process_event_forwardfill_trades(&self, event: &Event) {}
+    pub async fn process_event_forwardfill_trades(&self, _event: &Event) {}
 
     pub async fn process_event_backfill_trades(&self, event: &Event) {
         // Get current market trade detail

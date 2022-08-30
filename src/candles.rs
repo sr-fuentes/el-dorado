@@ -955,7 +955,7 @@ pub async fn get_ftx_candles_daterange<T: crate::utilities::Candle + Deserialize
                             404 => {
                                 println!("404 status code: {:?} / {:?}", s, e);
                                 return Vec::new();
-                            },
+                            }
                             _ => {
                                 panic!("Status code not handled: {:?} {:?}", s, e)
                             }

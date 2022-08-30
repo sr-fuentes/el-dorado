@@ -142,7 +142,9 @@ impl Event {
                         match ns {
                             MarketDataStatus::Completed => {
                                 // Determine if date is valid, return event if valid
-                                if mtd.next_trade_day.unwrap() < Utc::now().duration_trunc(Duration::days(1)).unwrap() {
+                                if mtd.next_trade_day.unwrap()
+                                    < Utc::now().duration_trunc(Duration::days(1)).unwrap()
+                                {
                                     return Some(Self {
                                         event_id: Uuid::new_v4(),
                                         droplet: "ig".to_string(),
@@ -156,12 +158,14 @@ impl Event {
                                         processed_ts: None,
                                         event_status: EventStatus::New,
                                         notes: Some(ns.as_str().to_string()),
-                                    })
+                                    });
                                 } else {
-                                    return None
+                                    return None;
                                 }
-                            },
-                            MarketDataStatus::Get | MarketDataStatus::Archive | MarketDataStatus::Validate => {
+                            }
+                            MarketDataStatus::Get
+                            | MarketDataStatus::Archive
+                            | MarketDataStatus::Validate => {
                                 // Add event with next_date
                                 return Some(Self {
                                     event_id: Uuid::new_v4(),
@@ -176,10 +180,10 @@ impl Event {
                                     processed_ts: None,
                                     event_status: EventStatus::New,
                                     notes: Some(ns.as_str().to_string()),
-                                })
-                            },
+                                });
+                            }
                         }
-                    },
+                    }
                     None => {
                         // This can occur once the backfill back is complete and we are ready to
                         // to move forward.
@@ -196,8 +200,8 @@ impl Event {
                             processed_ts: None,
                             event_status: EventStatus::New,
                             notes: Some(MarketDataStatus::Validate.as_str().to_string()),
-                        })
-                    },
+                        });
+                    }
                 }
             }
             MarketDataStatus::Get | MarketDataStatus::Archive | MarketDataStatus::Validate => {

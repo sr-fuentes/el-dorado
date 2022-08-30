@@ -8,9 +8,10 @@ use twilio::{OutboundMessage, TwilioClient};
 
 #[derive(Debug)]
 pub struct Twilio {
-    pub client: TwilioClient,
-    pub to_number: String,
-    pub from_number: String,
+    pub has_twilio: bool,
+    pub client: Option<TwilioClient>,
+    pub to_number: Option<String>,
+    pub from_number: Option<String>,
 }
 
 impl Default for Twilio {
@@ -21,24 +22,44 @@ impl Default for Twilio {
 
 impl Twilio {
     pub fn new() -> Self {
+        let mut has_twilio = true;
         let account_sid = match env::var("TWILIO_ACCOUNT_SID") {
-            Ok(val) => val,
-            Err(_) => panic!("No TWILIO_ACCOUNT_SID found in env."),
+            Ok(val) => Some(val),
+            Err(_) => {
+                has_twilio = false;
+                None
+            }
         };
         let auth_token = match env::var("TWILIO_AUTH_TOKEN") {
-            Ok(val) => val,
-            Err(_) => panic!("No TWILIO_ACCOUNT_SID found in env."),
+            Ok(val) => Some(val),
+            Err(_) => {
+                has_twilio = false;
+                None
+            }
         };
         let to_number = match env::var("MY_PHONE_NUMBER") {
-            Ok(val) => val,
-            Err(_) => panic!("No MY_PHONE_NUMBER found in env."),
+            Ok(val) => Some(val),
+            Err(_) => {
+                has_twilio = false;
+                None
+            }
         };
         let from_number = match env::var("MY_TWILIO_NUMBER") {
-            Ok(val) => val,
-            Err(_) => panic!("No MY_TWILIO_NUMBER found in env."),
+            Ok(val) => Some(val),
+            Err(_) => {
+                has_twilio = false;
+                None
+            }
         };
-        let client = TwilioClient::new(&account_sid, &auth_token);
+        let client = match has_twilio {
+            true => Some(TwilioClient::new(
+                &account_sid.unwrap(),
+                &auth_token.unwrap(),
+            )),
+            false => None,
+        };
         Self {
+            has_twilio,
             client,
             to_number,
             from_number,
@@ -46,18 +67,23 @@ impl Twilio {
     }
 
     pub async fn send_sms(&self, message: &str) {
-        match self
-            .client
-            .send_message(OutboundMessage::new(
-                &self.from_number,
-                &self.to_number,
-                message,
-            ))
-            .await
-        {
-            Ok(m) => println!("{:?}", m),
-            Err(e) => eprintln!("{:?}", e),
-        };
+        match self.has_twilio {
+            true => match self
+                .client
+                .as_ref()
+                .unwrap()
+                .send_message(OutboundMessage::new(
+                    &self.from_number.as_ref().unwrap(),
+                    &self.to_number.as_ref().unwrap(),
+                    message,
+                ))
+                .await
+            {
+                Ok(m) => println!("{:?}", m),
+                Err(e) => eprintln!("{:?}", e),
+            },
+            false => todo!(),
+        }
     }
 }
 
