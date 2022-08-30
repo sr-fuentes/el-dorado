@@ -44,8 +44,8 @@ impl crate::utilities::Market for Market {
     fn dp_price(&self) -> i32 {
         crate::utilities::min_to_dp(self.price_increment)
     }
-    fn min_quantity(&self) -> Decimal {
-        self.min_provide_size
+    fn min_quantity(&self) -> Option<Decimal> {
+        Some(self.min_provide_size)
     }
     fn base_currency(&self) -> Option<String> {
         self.base_currency.clone()

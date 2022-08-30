@@ -225,7 +225,7 @@ pub trait Market {
     fn market_type(&self) -> String;
     fn dp_quantity(&self) -> i32;
     fn dp_price(&self) -> i32;
-    fn min_quantity(&self) -> Decimal;
+    fn min_quantity(&self) -> Option<Decimal>;
     fn base_currency(&self) -> Option<String>;
     fn quote_currency(&self) -> Option<String>;
     fn underlying(&self) -> Option<String>;
