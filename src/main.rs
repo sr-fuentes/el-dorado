@@ -9,7 +9,7 @@ async fn main() {
     // Load clap commands and arguments
     let matches = App::new("El Dorado")
         .version("0.1.4")
-        .subcommand(App::new("add").about("add new exchange to app"))
+        // .subcommand(App::new("add").about("add new exchange to app"))
         .subcommand(App::new("refresh").about("refresh markets for exchange"))
         .subcommand(App::new("rank").about("rank exchange markets"))
         .subcommand(App::new("set").about("update ranks from proposed to current"))
@@ -25,11 +25,11 @@ async fn main() {
 
     // Match subcommand and route
     match matches.subcommand_name() {
-        Some("add") => {
-            // Create new admin instance and add new exchange
-            let ig = Inquisidor::new().await;
-            ig.add_new_exchange().await;
-        }
+        // Some("add") => {
+        //     // Create new admin instance and add new exchange
+        //     let ig = Inquisidor::new().await;
+        //     ig.add_new_exchange().await;
+        // }
         Some("refresh") => {
             // Create new admin instance and refresh exchange
             let ig = Inquisidor::new().await;
