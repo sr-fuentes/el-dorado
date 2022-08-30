@@ -5,7 +5,7 @@ ftx_db:
 gdax_db:
   require_ssl: false
 application:
-  exchange: "gdax"
-  market: "BTC/USD"
+  exchange: "ftx"
+  market: "SOL-PERP"
   droplet: "localdev"
   archive_path: "../ed"

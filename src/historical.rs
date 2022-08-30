@@ -631,7 +631,7 @@ impl Inquisidor {
             }
             None => {
                 // There is no event, create one then start here
-                Event::new_backfill_trades(&mtd, &self.market(&mtd.market_id).exchange_name)
+                Event::new_fill_trades(&mtd, &self.market(&mtd.market_id).exchange_name)
             }
         };
         match event {
@@ -640,7 +640,15 @@ impl Inquisidor {
                     .insert(&self.ig_pool)
                     .await
                     .expect("Failed to insert event."),
-                ExchangeName::Gdax => self.process_event_backfill_trades(&e).await,
+                ExchangeName::Gdax => {
+                    match e.event_type {
+                        EventType::BackfillTrades => self.process_event_backfill_trades(&e).await,
+                        EventType::ForwardFillTrades => {
+                            self.process_event_forwardfill_trades(&e).await
+                        }
+                        _ => return, // Unreachable as the event needs to be a fill trade event
+                    }
+                }
             },
             None => {
                 println!("Market not eligible for backfill event.");
@@ -651,6 +659,8 @@ impl Inquisidor {
             }
         }
     }
+
+    pub async fn process_event_forwardfill_trades(&self, _event: &Event) {}
 
     pub async fn process_event_backfill_trades(&self, event: &Event) {
         // Get current market trade detail
@@ -670,7 +680,7 @@ impl Inquisidor {
                     mtd = MarketTradeDetail::select(&self.ig_pool, &event.market_id)
                         .await
                         .expect("Faile to select market trade detail.");
-                    current_event = Event::new_backfill_trades(&mtd, &ExchangeName::Gdax);
+                    current_event = Event::new_fill_trades(&mtd, &ExchangeName::Gdax);
                     println!("Current Event: {:?}", current_event);
                 }
             }
@@ -790,7 +800,7 @@ impl Inquisidor {
                     .await
                     .expect("Failed to update mtd.");
                 // Create new event and insert if it exists
-                let new_event = Event::new_backfill_trades(&mtd, &event.exchange_name);
+                let new_event = Event::new_fill_trades(&mtd, &event.exchange_name);
                 match new_event {
                     Some(e) => {
                         e.insert(&self.ig_pool)
@@ -871,7 +881,7 @@ impl Inquisidor {
                     }
                 };
                 // Create new event
-                let new_event = Event::new_backfill_trades(&mtd, &event.exchange_name);
+                let new_event = Event::new_fill_trades(&mtd, &event.exchange_name);
                 match new_event {
                     Some(e) => {
                         e.insert(&self.ig_pool)
@@ -950,7 +960,7 @@ impl Inquisidor {
                     mtd
                 };
                 // Create new event
-                let new_event = Event::new_backfill_trades(&mtd, &event.exchange_name);
+                let new_event = Event::new_fill_trades(&mtd, &event.exchange_name);
                 match new_event {
                     Some(e) => {
                         e.insert(&self.ig_pool)

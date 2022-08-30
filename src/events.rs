@@ -41,6 +41,7 @@ pub enum EventType {
     ValidateDailyCandles,
     ArchiveDailyCandles,
     BackfillTrades,
+    ForwardFillTrades,
     // PurgeMetrics,
     // WeeklyClean,
     // DeepClean,
@@ -55,6 +56,7 @@ impl EventType {
             EventType::ValidateDailyCandles => "validatedailycandles",
             EventType::ArchiveDailyCandles => "archivedailycandles",
             EventType::BackfillTrades => "backfilltrades",
+            EventType::ForwardFillTrades => "forwardfilltrades",
         }
     }
 }
@@ -70,6 +72,7 @@ impl TryFrom<String> for EventType {
             "validatedailycandles" => Ok(Self::ValidateDailyCandles),
             "archivedailycandles" => Ok(Self::ArchiveDailyCandles),
             "backfilltrades" => Ok(Self::BackfillTrades),
+            "forwardfilltrades" => Ok(Self::ForwardFillTrades),
             other => Err(format!("{} is not a supported validation type.", other)),
         }
     }
@@ -107,8 +110,8 @@ impl TryFrom<String> for EventStatus {
 }
 
 impl Event {
-    pub fn new_backfill_trades(mtd: &MarketTradeDetail, exchange: &ExchangeName) -> Option<Self> {
-        // Create a new backfill event
+    pub fn new_fill_trades(mtd: &MarketTradeDetail, exchange: &ExchangeName) -> Option<Self> {
+        // Create a new fill trades event (back or forward)
         // Logic for determining action based on mtd (market trade detail)
         // At this point we are only interested in getting trades prior to active el-d candles
         // As those trades have already be retrieved and processed, possibly validated and archived.
@@ -120,12 +123,89 @@ impl Event {
         match mtd.previous_status {
             MarketDataStatus::Completed => {
                 // Add logic to look at next_status
-                println!("Backfill completed, next status functions not yet implemented.");
-                None
+                // Market Backfill is complete, work forward from Next Trade Day until current
+                // 1) Locate trades:
+                //      a) Check for csv file (multi directory)
+                //      b) Check for backfill table
+                //      c) Check for candle status
+                // 2) Based on trade location implement logic:
+                //      a) If in csv file, load csv file, quick validated
+                //      b) If in table, manually calc validation (or redownload)
+                //      c) If not in table, check candle status
+                //          i) If validated, look for trades and archive to file
+                //          ii) If not validated, create manual validation event for day
+                //              (invalidated all hb candles, delete all candle validation entries)
+                // 3) If successful update last trade id and ts, next trade day and status
+                // 4) Continue until next trade day = current day
+                match mtd.next_status {
+                    Some(ns) => {
+                        match ns {
+                            MarketDataStatus::Completed => {
+                                // Determine if date is valid, return event if valid
+                                if mtd.next_trade_day.unwrap()
+                                    < Utc::now().duration_trunc(Duration::days(1)).unwrap()
+                                {
+                                    return Some(Self {
+                                        event_id: Uuid::new_v4(),
+                                        droplet: "ig".to_string(),
+                                        event_type: EventType::ForwardFillTrades,
+                                        exchange_name: *exchange,
+                                        market_id: mtd.market_id,
+                                        start_ts: Some(mtd.next_trade_day.unwrap()),
+                                        end_ts: None,
+                                        event_ts: Utc::now(),
+                                        created_ts: Utc::now(),
+                                        processed_ts: None,
+                                        event_status: EventStatus::New,
+                                        notes: Some(ns.as_str().to_string()),
+                                    });
+                                } else {
+                                    return None;
+                                }
+                            }
+                            MarketDataStatus::Get
+                            | MarketDataStatus::Archive
+                            | MarketDataStatus::Validate => {
+                                // Add event with next_date
+                                return Some(Self {
+                                    event_id: Uuid::new_v4(),
+                                    droplet: "ig".to_string(),
+                                    event_type: EventType::ForwardFillTrades,
+                                    exchange_name: *exchange,
+                                    market_id: mtd.market_id,
+                                    start_ts: Some(mtd.next_trade_day.unwrap()),
+                                    end_ts: None,
+                                    event_ts: Utc::now(),
+                                    created_ts: Utc::now(),
+                                    processed_ts: None,
+                                    event_status: EventStatus::New,
+                                    notes: Some(ns.as_str().to_string()),
+                                });
+                            }
+                        }
+                    }
+                    None => {
+                        // This can occur once the backfill back is complete and we are ready to
+                        // to move forward.
+                        return Some(Self {
+                            event_id: Uuid::new_v4(),
+                            droplet: "ig".to_string(),
+                            event_type: EventType::ForwardFillTrades,
+                            exchange_name: *exchange,
+                            market_id: mtd.market_id,
+                            start_ts: Some(mtd.previous_trade_day + Duration::days(1)),
+                            end_ts: None,
+                            event_ts: Utc::now(),
+                            created_ts: Utc::now(),
+                            processed_ts: None,
+                            event_status: EventStatus::New,
+                            notes: Some(MarketDataStatus::Validate.as_str().to_string()),
+                        });
+                    }
+                }
             }
             MarketDataStatus::Get | MarketDataStatus::Archive | MarketDataStatus::Validate => {
                 //  Add event with prev_date
-                // TODO: add logic to look forward if prev status is complete
                 return Some(Self {
                     event_id: Uuid::new_v4(),
                     droplet: "ig".to_string(),
@@ -318,6 +398,7 @@ impl Inquisidor {
                     self.process_event_archive_daily_candles(event).await
                 }
                 EventType::BackfillTrades => self.process_event_backfill_trades(event).await,
+                EventType::ForwardFillTrades => self.process_event_forwardfill_trades(event).await,
             }
         }
     }
@@ -495,6 +576,7 @@ impl Mita {
                 EventType::ValidateDailyCandles => continue, // IG only
                 EventType::ArchiveDailyCandles => continue, // IG only
                 EventType::BackfillTrades => continue, // IG only
+                EventType::ForwardFillTrades => continue, // IG only
             }
         }
         true

@@ -527,7 +527,7 @@ impl Inquisidor {
                 mps: (market.usd_volume_24h().unwrap() * dec!(0.005)).round_dp(2),
                 dp_quantity: market.dp_quantity(),
                 dp_price: market.dp_price(),
-                min_quantity: market.min_quantity(),
+                min_quantity: market.min_quantity().unwrap(),
             };
             new_ranks.push(new_rank);
             rank += 1;
