@@ -588,7 +588,7 @@ impl Inquisidor {
                 return;
             }
         };
-        // Validate market is eligible to backfill
+        // Validate market is eligible to fill
         // 1) Market detail contains a last candle - ie it has been live in El-Dorado
         // 2) Market Trade Archive record exists and status is not Complete
         // 3) Backfill event does not exist
@@ -660,7 +660,108 @@ impl Inquisidor {
         }
     }
 
-    pub async fn process_event_forwardfill_trades(&self, _event: &Event) {}
+    pub async fn process_event_forwardfill_trades(&self, event: &Event) {
+        // Get current market trade detail
+        // Match the exchage and process the event
+        let mtd = MarketTradeDetail::select(&self.ig_pool, &event.market_id)
+            .await
+            .expect("Failed to select market trade detail.");
+        match event.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                self.process_ftx_forwardfill(event, &mtd).await
+            }
+            ExchangeName::Gdax => self.process_gdax_forwardfill(event, &mtd).await,
+        }
+    }
+
+    pub async fn process_ftx_forwardfill(&self, event: &Event, mtd: &MarketTradeDetail) {
+        // Match the notes to a market data status
+        let status = event.notes.as_ref().unwrap().clone();
+        let status: MarketDataStatus = status.try_into().unwrap();
+        match status {
+            MarketDataStatus::Completed => {} // completed, nothing to do
+            MarketDataStatus::Get => {
+                // Re-download trades
+
+                // Re-validate
+
+                // Set manual input option to write file
+
+                // If accepted, write to file and set status to Validate
+            }
+            MarketDataStatus::Validate => {
+                // Locate trade file for date
+                let market = self.market(&event.market_id);
+                let start = event.start_ts.unwrap();
+                let f = format!("{}_{}.csv", market.as_strip(), start.format("%F"));
+                let archive_path = format!(
+                    "{}/csv/{}",
+                    &self.settings.application.archive_path,
+                    &market.exchange_name.as_str()
+                );
+                let f_path = std::path::Path::new(&archive_path).join(f.clone());
+                // Try location 3
+                let bad_archive_path =
+                    format!("{}/csv/gdax2", &self.settings.application.archive_path,);
+                let bf_path = std::path::Path::new(&bad_archive_path).join(f.clone());
+                if bf_path.exists() {
+                    // File exists but in wrong location - copy to correct location
+                    std::fs::rename(bf_path, &f_path)
+                        .expect("Failed to copy file from location 3.");
+                }
+                // Try location 2
+                let bad_archive_path =
+                    format!("{}/csv/gdax/gdax", &self.settings.application.archive_path,);
+                let bf_path = std::path::Path::new(&bad_archive_path).join(f.clone());
+                if bf_path.exists() {
+                    // File exists but in wrong location - copy to correct location
+                    std::fs::rename(bf_path, &f_path)
+                        .expect("Failed to copy file from location 2.");
+                };
+                // Try location 1 - Correct Location
+                if f_path.exists() {
+                    // File exists, day is validated. Update mtd next status to Archive
+                    mtd.update_next_status(&self.ig_pool, &MarketDataStatus::Archive)
+                        .await
+                        .expect("Failed to update mtd status.");
+                };
+            }
+            MarketDataStatus::Archive => {
+                // Get trade file path
+                let market = self.market(&event.market_id);
+                let start = event.start_ts.unwrap();
+                let f = format!("{}_{}.csv", market.as_strip(), start.format("%F"));
+                let current_path = format!(
+                    "{}/csv/{}",
+                    &self.settings.application.archive_path,
+                    &market.exchange_name.as_str()
+                );
+                let f_path = std::path::Path::new(&current_path).join(f.clone());
+                // Set archive file path
+                let archive_path = format!(
+                    "{}/trades/{}/{}/{}/{}",
+                    &self.settings.application.archive_path,
+                    &market.exchange_name.as_str(),
+                    &market.as_strip(),
+                    start.format("%Y"),
+                    start.format("%m")
+                );
+                let a_path = std::path::Path::new(&archive_path).join(f.clone());
+                // Move trade file to validated location
+                std::fs::rename(f_path, a_path).expect("Failed to copy file to trade folder.");
+                // Update mtd next status and next day
+                mtd.update_next_day_next_status(
+                    &self.ig_pool,
+                    &(start + Duration::days(1)),
+                    &MarketDataStatus::Completed,
+                )
+                .await
+                .expect("Failed to update next day and next status.");
+            }
+        };
+    }
+
+    pub async fn process_gdax_forwardfill(&self, _event: &Event, _mtd: &MarketTradeDetail) {}
 
     pub async fn process_event_backfill_trades(&self, event: &Event) {
         // Get current market trade detail
@@ -668,7 +769,7 @@ impl Inquisidor {
         // if Gdax => Create loop to process event and the next until the next is None
         let mut mtd = MarketTradeDetail::select(&self.ig_pool, &event.market_id)
             .await
-            .expect("Faile to select market trade detail.");
+            .expect("Failed to select market trade detail.");
         match event.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => self.process_ftx_backfill(event, &mtd).await,
             ExchangeName::Gdax => {

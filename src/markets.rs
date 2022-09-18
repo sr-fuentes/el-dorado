@@ -241,6 +241,36 @@ impl MarketTradeDetail {
         })
     }
 
+    pub async fn update_next_status(
+        &self,
+        pool: &PgPool,
+        status: &MarketDataStatus,
+    ) -> Result<Self, sqlx::Error> {
+        sqlx::query!(
+            r#"
+            UPDATE market_trade_details
+            SET next_status = $1
+            WHERE market_id = $2
+            "#,
+            status.as_str(),
+            self.market_id,
+        )
+        .execute(pool)
+        .await?;
+        Ok(Self {
+            market_id: self.market_id,
+            market_start_ts: self.market_start_ts,
+            first_trade_ts: self.first_trade_ts,
+            first_trade_id: self.first_trade_id.clone(),
+            last_trade_ts: self.last_trade_ts,
+            last_trade_id: self.last_trade_id.clone(),
+            previous_trade_day: self.previous_trade_day,
+            previous_status: self.previous_status,
+            next_trade_day: self.next_trade_day,
+            next_status: Some(*status),
+        })
+    }
+
     pub async fn update_prev_day_prev_status(
         &self,
         pool: &PgPool,
@@ -270,6 +300,38 @@ impl MarketTradeDetail {
             previous_status: *status,
             next_trade_day: self.next_trade_day,
             next_status: self.next_status,
+        })
+    }
+
+    pub async fn update_next_day_next_status(
+        &self,
+        pool: &PgPool,
+        datetime: &DateTime<Utc>,
+        status: &MarketDataStatus,
+    ) -> Result<Self, sqlx::Error> {
+        sqlx::query!(
+            r#"
+            UPDATE market_trade_details
+            SET (next_trade_day, next_status) = ($1, $2)
+            WHERE market_id = $3
+            "#,
+            datetime,
+            status.as_str(),
+            self.market_id,
+        )
+        .execute(pool)
+        .await?;
+        Ok(Self {
+            market_id: self.market_id,
+            market_start_ts: self.market_start_ts,
+            first_trade_ts: self.first_trade_ts,
+            first_trade_id: self.first_trade_id.clone(),
+            last_trade_ts: self.last_trade_ts,
+            last_trade_id: self.last_trade_id.clone(),
+            previous_trade_day: self.previous_trade_day,
+            previous_status: self.previous_status,
+            next_trade_day: Some(*datetime),
+            next_status: Some(*status),
         })
     }
 
