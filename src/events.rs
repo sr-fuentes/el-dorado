@@ -170,7 +170,7 @@ impl Event {
                                         ),
                                     });
                                 } else {
-                                    return None;
+                                    None
                                 }
                             }
                             MarketDataStatus::Get

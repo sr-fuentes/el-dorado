@@ -73,8 +73,8 @@ impl Twilio {
                 .as_ref()
                 .unwrap()
                 .send_message(OutboundMessage::new(
-                    &self.from_number.as_ref().unwrap(),
-                    &self.to_number.as_ref().unwrap(),
+                    self.from_number.as_ref().unwrap(),
+                    self.to_number.as_ref().unwrap(),
                     message,
                 ))
                 .await
@@ -170,7 +170,7 @@ pub fn get_input<U: std::str::FromStr>(prompt: &str) -> U {
         // Reads the input from STDIN and places it in the String
         println!("{}", prompt);
         // Flush stdout to get on same line as prompt.
-        let _ = io::stdout().flush().expect("Failed to flush stdout.");
+        io::stdout().flush().expect("Failed to flush stdout.");
         io::stdin()
             .read_line(&mut input)
             .expect("Failed to read input.");

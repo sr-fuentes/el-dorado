@@ -646,7 +646,7 @@ impl Inquisidor {
                         EventType::ForwardFillTrades => {
                             self.process_event_forwardfill_trades(&e).await
                         }
-                        _ => return, // Unreachable as the event needs to be a fill trade event
+                        _ => (), // Unreachable as the event needs to be a fill trade event
                     }
                 }
             },
