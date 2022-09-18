@@ -566,32 +566,12 @@ impl Inquisidor {
         //          10) Validated next day, if validated - archive and move date forward
         //          11) If not validated, create manual validation event, send sms, exit
         // Get market to backfill
-        let exchange: String = get_input("Enter Exchange to Backfill: ");
-        let exchange: ExchangeName = match exchange.try_into() {
-            Ok(exchange) => exchange,
-            Err(err) => {
-                // Exchange inputed is not part of existing exchanges
-                println!("{:?} has not been added to El-Dorado.", err);
-                println!("Available exchanges are: {:?}", self.list_exchanges());
-                return;
-            }
-        };
-        let market_name: String = get_input("Enter Market Name to Backfill: ");
-        let market = match self.markets.iter().find(|m| m.market_name == market_name) {
+        let market = match self.get_backfill_market().await {
             Some(m) => m,
-            None => {
-                println!("{:?} not found in markets for {:?}", market_name, exchange);
-                println!(
-                    "Available markets are: {:?}",
-                    self.list_markets(Some(&exchange))
-                );
-                return;
-            }
+            None => return,
         };
-        // Validate market is eligible to fill
-        // 1) Market detail contains a last candle - ie it has been live in El-Dorado
-        // 2) Market Trade Archive record exists and status is not Complete
-        // 3) Backfill event does not exist
+        // Validate market is eligible to fill:
+        // Market detail contains a last candle - ie it has been live in El-Dorado
         if market.market_data_status != MarketStatus::Active || market.last_candle.is_none() {
             println!(
                 "Market not eligible for backfill. \nStatus: {:?}\nLast Candle: {:?}",
@@ -599,6 +579,12 @@ impl Inquisidor {
             );
             return;
         };
+        // Process backfill for market
+        self.process_market_backfill(&market).await;
+    }
+
+    pub async fn process_market_backfill(&self, market: &MarketDetail) {
+        // Get the current MarketTradeDetail for market or create record if it does not exists
         let market_trade_details = MarketTradeDetail::select_all(&self.ig_pool)
             .await
             .expect("Failed to select market trade details.");
@@ -609,7 +595,7 @@ impl Inquisidor {
             Some(mtd) => mtd.clone(),
             None => {
                 // No trade archive exists, create one
-                let mtd = MarketTradeDetail::new(&self.ig_pool, market).await;
+                let mtd = MarketTradeDetail::new(&self.ig_pool, &market).await;
                 mtd.insert(&self.ig_pool)
                     .await
                     .expect("Failed to insert market trade detail.");
@@ -631,7 +617,7 @@ impl Inquisidor {
             }
             None => {
                 // There is no event, create one then start here
-                Event::new_fill_trades(market, &mtd, &self.market(&mtd.market_id).exchange_name)
+                Event::new_fill_trades(&market, &mtd, &self.market(&mtd.market_id).exchange_name)
             }
         };
         match event {
@@ -658,6 +644,32 @@ impl Inquisidor {
                 );
             }
         }
+    }
+
+    pub async fn get_backfill_market(&self) -> Option<MarketDetail> {
+        let exchange: String = get_input("Enter Exchange to Backfill: ");
+        let exchange: ExchangeName = match exchange.try_into() {
+            Ok(exchange) => exchange,
+            Err(err) => {
+                // Exchange inputed is not part of existing exchanges
+                println!("{:?} has not been added to El-Dorado.", err);
+                println!("Available exchanges are: {:?}", self.list_exchanges());
+                return None;
+            }
+        };
+        let market_name: String = get_input("Enter Market Name to Backfill: ");
+        let market = match self.markets.iter().find(|m| m.market_name == market_name) {
+            Some(m) => m,
+            None => {
+                println!("{:?} not found in markets for {:?}", market_name, exchange);
+                println!(
+                    "Available markets are: {:?}",
+                    self.list_markets(Some(&exchange))
+                );
+                return None;
+            }
+        };
+        Some(market.clone())
     }
 
     pub async fn process_event_forwardfill_trades(&self, event: &Event) {
