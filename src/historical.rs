@@ -631,7 +631,7 @@ impl Inquisidor {
             }
             None => {
                 // There is no event, create one then start here
-                Event::new_fill_trades(&mtd, &self.market(&mtd.market_id).exchange_name)
+                Event::new_fill_trades(market, &mtd, &self.market(&mtd.market_id).exchange_name)
             }
         };
         match event {
@@ -680,7 +680,11 @@ impl Inquisidor {
                     mtd = MarketTradeDetail::select(&self.ig_pool, &event.market_id)
                         .await
                         .expect("Faile to select market trade detail.");
-                    current_event = Event::new_fill_trades(&mtd, &ExchangeName::Gdax);
+                    current_event = Event::new_fill_trades(
+                        self.market(&event.market_id),
+                        &mtd,
+                        &ExchangeName::Gdax,
+                    );
                     println!("Current Event: {:?}", current_event);
                 }
             }
@@ -800,7 +804,7 @@ impl Inquisidor {
                     .await
                     .expect("Failed to update mtd.");
                 // Create new event and insert if it exists
-                let new_event = Event::new_fill_trades(&mtd, &event.exchange_name);
+                let new_event = Event::new_fill_trades(market, &mtd, &event.exchange_name);
                 match new_event {
                     Some(e) => {
                         e.insert(&self.ig_pool)
@@ -881,7 +885,7 @@ impl Inquisidor {
                     }
                 };
                 // Create new event
-                let new_event = Event::new_fill_trades(&mtd, &event.exchange_name);
+                let new_event = Event::new_fill_trades(market, &mtd, &event.exchange_name);
                 match new_event {
                     Some(e) => {
                         e.insert(&self.ig_pool)
@@ -960,7 +964,7 @@ impl Inquisidor {
                     mtd
                 };
                 // Create new event
-                let new_event = Event::new_fill_trades(&mtd, &event.exchange_name);
+                let new_event = Event::new_fill_trades(market, &mtd, &event.exchange_name);
                 match new_event {
                     Some(e) => {
                         e.insert(&self.ig_pool)

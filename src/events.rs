@@ -110,7 +110,11 @@ impl TryFrom<String> for EventStatus {
 }
 
 impl Event {
-    pub fn new_fill_trades(mtd: &MarketTradeDetail, exchange: &ExchangeName) -> Option<Self> {
+    pub fn new_fill_trades(
+        market: &MarketDetail,
+        mtd: &MarketTradeDetail,
+        exchange: &ExchangeName,
+    ) -> Option<Self> {
         // Create a new fill trades event (back or forward)
         // Logic for determining action based on mtd (market trade detail)
         // At this point we are only interested in getting trades prior to active el-d candles
@@ -143,7 +147,11 @@ impl Event {
                             MarketDataStatus::Completed => {
                                 // Determine if date is valid, return event if valid
                                 if mtd.next_trade_day.unwrap()
-                                    < Utc::now().duration_trunc(Duration::days(1)).unwrap()
+                                    < market
+                                        .last_candle
+                                        .unwrap()
+                                        .duration_trunc(Duration::days(1))
+                                        .unwrap()
                                 {
                                     return Some(Self {
                                         event_id: Uuid::new_v4(),
@@ -157,7 +165,9 @@ impl Event {
                                         created_ts: Utc::now(),
                                         processed_ts: None,
                                         event_status: EventStatus::New,
-                                        notes: Some(ns.as_str().to_string()),
+                                        notes: Some(
+                                            MarketDataStatus::Validate.as_str().to_string(),
+                                        ),
                                     });
                                 } else {
                                     return None;
