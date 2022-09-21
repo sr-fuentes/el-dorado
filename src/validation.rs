@@ -1504,6 +1504,10 @@ impl Inquisidor {
             .await
             .expect("Failed to insert 01D candle.");
     }
+
+    pub async fn manual_evaluate_ftx_trades(&self, trades: &Vec<FtxTrade>) -> bool {
+        false
+    }
 }
 
 pub async fn insert_candle_validation(

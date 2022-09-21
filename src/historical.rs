@@ -543,7 +543,7 @@ impl Mita {
 }
 
 impl Inquisidor {
-    pub async fn backfill(&self) {
+    pub async fn fill(&self) {
         // Fill trades to the beginning of the market open on exchange from the first candle/trade
         // day in el-dorado. Process will create a new trade detail table for each market working
         // from the first candle backwards until the first trade for the market. From there the
@@ -566,87 +566,31 @@ impl Inquisidor {
         //          10) Validated next day, if validated - archive and move date forward
         //          11) If not validated, create manual validation event, send sms, exit
         // Get market to backfill
-        let market = match self.get_backfill_market().await {
+        let market = match self.get_fill_market().await {
             Some(m) => m,
             None => return,
         };
-        // Validate market is eligible to fill:
-        // Market detail contains a last candle - ie it has been live in El-Dorado
-        if market.market_data_status != MarketStatus::Active || market.last_candle.is_none() {
-            println!(
-                "Market not eligible for backfill. \nStatus: {:?}\nLast Candle: {:?}",
-                market.market_data_status, market.last_candle
-            );
-            return;
-        };
-        // Process backfill for market
-        self.process_market_backfill(&market).await;
-    }
-
-    pub async fn process_market_backfill(&self, market: &MarketDetail) {
-        // Get the current MarketTradeDetail for market or create record if it does not exists
-        let market_trade_details = MarketTradeDetail::select_all(&self.ig_pool)
-            .await
-            .expect("Failed to select market trade details.");
-        let mtd = match market_trade_details
-            .iter()
-            .find(|mtd| mtd.market_id == market.market_id)
-        {
-            Some(mtd) => mtd.clone(),
+        // Get the market trade detail
+        let mtd = self.get_market_trade_detail(&market).await;
+        // Get fill event
+        let event = match self.get_fill_event(&market, &mtd).await {
+            Some(e) => e,
             None => {
-                // No trade archive exists, create one
-                let mtd = MarketTradeDetail::new(&self.ig_pool, &market).await;
-                mtd.insert(&self.ig_pool)
-                    .await
-                    .expect("Failed to insert market trade detail.");
-                mtd
-            }
-        };
-        let events = Event::select_by_statuses_type(
-            &self.ig_pool,
-            &[EventStatus::New, EventStatus::Open],
-            &EventType::BackfillTrades,
-        )
-        .await
-        .expect("Failed to select backfill event.");
-        let event = match events.iter().find(|e| e.market_id == market.market_id) {
-            Some(e) =>
-            // There exists an event, start there
-            {
-                Some(e.clone())
-            }
-            None => {
-                // There is no event, create one then start here
-                Event::new_fill_trades(&market, &mtd, &self.market(&mtd.market_id).exchange_name)
-            }
-        };
-        match event {
-            Some(e) => match e.exchange_name {
-                ExchangeName::Ftx | ExchangeName::FtxUs => e
-                    .insert(&self.ig_pool)
-                    .await
-                    .expect("Failed to insert event."),
-                ExchangeName::Gdax => {
-                    match e.event_type {
-                        EventType::BackfillTrades => self.process_event_backfill_trades(&e).await,
-                        EventType::ForwardFillTrades => {
-                            self.process_event_forwardfill_trades(&e).await
-                        }
-                        _ => (), // Unreachable as the event needs to be a fill trade event
-                    }
-                }
-            },
-            None => {
-                println!("Market not eligible for backfill event.");
+                // No new events to create and process for the market. It is up to date in validated
+                // trades from the start of the market through the last day of of tracking.
+                println!("No fill event for market: {:?}.", market.market_name);
                 println!(
                     "Prev Status: {:?}\nNext Status: {:?}",
                     mtd.previous_status, mtd.next_status
                 );
+                return;
             }
-        }
+        };
+        // Process backfill for market
+        self.process_fill_event(&event).await;
     }
 
-    pub async fn get_backfill_market(&self) -> Option<MarketDetail> {
+    pub async fn get_fill_market(&self) -> Option<MarketDetail> {
         let exchange: String = get_input("Enter Exchange to Backfill: ");
         let exchange: ExchangeName = match exchange.try_into() {
             Ok(exchange) => exchange,
@@ -669,20 +613,106 @@ impl Inquisidor {
                 return None;
             }
         };
+        // Validate market is eligible to fill:
+        // Market detail contains a last candle - ie it has been live in El-Dorado
+        if market.market_data_status != MarketStatus::Active || market.last_candle.is_none() {
+            println!(
+                "Market not eligible for backfill. \nStatus: {:?}\nLast Candle: {:?}",
+                market.market_data_status, market.last_candle
+            );
+            return None;
+        };
         Some(market.clone())
+    }
+
+    pub async fn process_fill_event(&self, e: &Event) {
+        // Process event
+        match e.event_type {
+            // Insert into db for processing during normal IG loop
+            EventType::BackfillTrades => match e.exchange_name {
+                ExchangeName::Ftx | ExchangeName::FtxUs => e
+                    .insert(&self.ig_pool)
+                    .await
+                    .expect("Failed to insert event."),
+                ExchangeName::Gdax => self.process_event_backfill_trades(&e).await,
+            },
+            // Do not insert into db. Process on separate instance. Manage API 429
+            // calls through REST handling.
+            EventType::ForwardFillTrades => self.process_event_forwardfill_trades(&e).await,
+            _ => (), // Unreachable
+        }
+    }
+
+    pub async fn get_market_trade_detail(&self, market: &MarketDetail) -> MarketTradeDetail {
+        let market_trade_details = MarketTradeDetail::select_all(&self.ig_pool)
+            .await
+            .expect("Failed to select market trade details.");
+        match market_trade_details
+            .iter()
+            .find(|mtd| mtd.market_id == market.market_id)
+        {
+            Some(mtd) => mtd.clone(),
+            None => {
+                // No trade archive exists, create one
+                let mtd = MarketTradeDetail::new(&self.ig_pool, market).await;
+                mtd.insert(&self.ig_pool)
+                    .await
+                    .expect("Failed to insert market trade detail.");
+                mtd
+            }
+        }
+    }
+
+    pub async fn get_fill_event(
+        &self,
+        market: &MarketDetail,
+        mtd: &MarketTradeDetail,
+    ) -> Option<Event> {
+        // Checks to see new or open events for a fill event for the given market. If there is no
+        // event, it will try to create a new event. If there is no new event possible (the market
+        // is fully synced from beginning to current day) it will return None.
+        let events = Event::select_by_statuses_type(
+            &self.ig_pool,
+            &[EventStatus::New, EventStatus::Open],
+            &EventType::BackfillTrades,
+        )
+        .await
+        .expect("Failed to select backfill event.");
+        match events.iter().find(|e| e.market_id == market.market_id) {
+            Some(e) =>
+            // There exists an event, start there
+            {
+                Some(e.clone())
+            }
+            None => {
+                // There is no event, create one then start here
+                Event::new_fill_trades(market, mtd, &self.market(&mtd.market_id).exchange_name)
+            }
+        }
     }
 
     pub async fn process_event_forwardfill_trades(&self, event: &Event) {
         // Get current market trade detail
         // Match the exchage and process the event
-        let mtd = MarketTradeDetail::select(&self.ig_pool, &event.market_id)
+        let mut mtd = MarketTradeDetail::select(&self.ig_pool, &event.market_id)
             .await
             .expect("Failed to select market trade detail.");
-        match event.exchange_name {
-            ExchangeName::Ftx | ExchangeName::FtxUs => {
-                self.process_ftx_forwardfill(event, &mtd).await
-            }
-            ExchangeName::Gdax => self.process_gdax_forwardfill(event, &mtd).await,
+        let mut current_event = Some(event.clone());
+        println!("Current Event: {:?}", current_event);
+        while current_event.is_some() {
+            match event.exchange_name {
+                ExchangeName::Ftx | ExchangeName::FtxUs => {
+                    self.process_ftx_forwardfill(event, &mtd).await;
+                }
+                ExchangeName::Gdax => {
+                    self.process_gdax_forwardfill(event, &mtd).await;
+                }
+            };
+            mtd = MarketTradeDetail::select(&self.ig_pool, &event.market_id)
+                .await
+                .expect("Failed to select market trade detail.");
+            current_event =
+                Event::new_fill_trades(self.market(&event.market_id), &mtd, &event.exchange_name);
         }
     }
 
@@ -690,21 +720,46 @@ impl Inquisidor {
         // Match the notes to a market data status
         let status = event.notes.as_ref().unwrap().clone();
         let status: MarketDataStatus = status.try_into().unwrap();
+        let market = self.market(&event.market_id);
+        let start = event.start_ts.unwrap();
         match status {
             MarketDataStatus::Completed => {} // completed, nothing to do
             MarketDataStatus::Get => {
+                // Only used to re-validate days processed via backfill, ongoing el-dorado days
+                // are validated via the manage / manual ig processes
                 // Re-download trades
-
-                // Re-validate
-
-                // Set manual input option to write file
-
+                let new_trade_table = format!("ff_{}", start.format("%Y%m%d"));
+                self.get_ftx_trades_dr_into_table(
+                    &event,
+                    &new_trade_table,
+                    start,
+                    start + Duration::days(1),
+                )
+                .await;
+                let new_trade_table = format!(
+                    "trades_ftx_{}_ff_{}",
+                    market.as_strip(),
+                    start.format("%Y%m%d")
+                );
+                let new_trades = self
+                    .select_ftx_trades_by_table(&new_trade_table)
+                    .await
+                    .expect("Failed to select FTX trades by table.");
+                let original_trade_table = format!(
+                    "trades_ftx_{}_bf_{}",
+                    market.as_strip(),
+                    start.format("%Y%m%d")
+                );
+                let original_trades = self
+                    .select_ftx_trades_by_table(&original_trade_table)
+                    .await
+                    .expect("Failed to select FTX trades by table.");
+                // Manually re-validate
+                let is_valid = self.manual_evaluate_ftx_trades(&new_trades).await;
                 // If accepted, write to file and set status to Validate
             }
             MarketDataStatus::Validate => {
                 // Locate trade file for date
-                let market = self.market(&event.market_id);
-                let start = event.start_ts.unwrap();
                 let f = format!("{}_{}.csv", market.as_strip(), start.format("%F"));
                 let archive_path = format!(
                     "{}/csv/{}",
@@ -736,12 +791,14 @@ impl Inquisidor {
                     mtd.update_next_status(&self.ig_pool, &MarketDataStatus::Archive)
                         .await
                         .expect("Failed to update mtd status.");
+                } else {
+                    // Determine if file creation is part of backfill or el-dorado
+
+                    // If part of backfill process - update mtd status to GET
                 };
             }
             MarketDataStatus::Archive => {
                 // Get trade file path
-                let market = self.market(&event.market_id);
-                let start = event.start_ts.unwrap();
                 let f = format!("{}_{}.csv", market.as_strip(), start.format("%F"));
                 let current_path = format!(
                     "{}/csv/{}",
@@ -777,7 +834,7 @@ impl Inquisidor {
 
     pub async fn process_event_backfill_trades(&self, event: &Event) {
         // Get current market trade detail
-        // Match the exchange, if Ftx => Process the Event
+        // Match the exchange, if Ftx => Process the Event and mark as complete
         // if Gdax => Create loop to process event and the next until the next is None
         let mut mtd = MarketTradeDetail::select(&self.ig_pool, &event.market_id)
             .await
@@ -792,7 +849,7 @@ impl Inquisidor {
                         .await;
                     mtd = MarketTradeDetail::select(&self.ig_pool, &event.market_id)
                         .await
-                        .expect("Faile to select market trade detail.");
+                        .expect("Failed to select market trade detail.");
                     current_event = Event::new_fill_trades(
                         self.market(&event.market_id),
                         &mtd,
@@ -1648,7 +1705,7 @@ mod tests {
             .execute(&ig.ig_pool)
             .await
             .expect("Failed to update last candle to null.");
-        ig.backfill().await;
+        ig.fill().await;
     }
 
     #[tokio::test]
@@ -1664,7 +1721,7 @@ mod tests {
             .execute(&ig.ig_pool)
             .await
             .expect("Failed to update last candle to null.");
-        ig.backfill().await;
+        ig.fill().await;
     }
 
     #[tokio::test]
@@ -1732,7 +1789,7 @@ mod tests {
         // New ig will pick up new data items
         let ig = Inquisidor::new().await;
         // Test
-        ig.backfill().await;
+        ig.fill().await;
         // Validate
         let mtd = MarketTradeDetail::select(
             &ig.ig_pool,
@@ -1816,7 +1873,7 @@ mod tests {
         // New ig will pick up new data items
         let ig = Inquisidor::new().await;
         // Run backfill to create mtd and event
-        ig.backfill().await;
+        ig.fill().await;
         // Get event
         let mi = Uuid::parse_str("c5bbfb83-963c-4ef8-b4dc-3d572ac47943").unwrap();
         let events = Event::select_by_statuses_type(
@@ -1934,7 +1991,7 @@ mod tests {
         // New ig will pick up new data items
         let ig = Inquisidor::new().await;
         // Run backfill to create mtd and event
-        ig.backfill().await;
+        ig.fill().await;
         // Get event
         let mi = Uuid::parse_str("c5bbfb83-963c-4ef8-b4dc-3d572ac47943").unwrap();
         let events = Event::select_by_statuses_type(
@@ -2030,7 +2087,7 @@ mod tests {
         // New ig will pick up new data items
         let ig = Inquisidor::new().await;
         // Run backfill to create mtd and event
-        ig.backfill().await;
+        ig.fill().await;
         // Get event
         let mi = Uuid::parse_str("21967aba-94ca-4442-8d5a-1af7c24781b6").unwrap();
         let events = Event::select_by_statuses_type(
@@ -2127,7 +2184,7 @@ mod tests {
         // New ig will pick up new data items
         let ig = Inquisidor::new().await;
         // Run backfill to create mtd and event
-        ig.backfill().await;
+        ig.fill().await;
         // Get event
         let mi = Uuid::parse_str("c5bbfb83-963c-4ef8-b4dc-3d572ac47943").unwrap();
         let events = Event::select_by_statuses_type(
@@ -2236,7 +2293,7 @@ mod tests {
         // New ig will pick up new data items
         let ig = Inquisidor::new().await;
         // Run backfill to create mtd and event
-        ig.backfill().await;
+        ig.fill().await;
         // Get event
         let mi = Uuid::parse_str("c5bbfb83-963c-4ef8-b4dc-3d572ac47943").unwrap();
         let events = Event::select_by_statuses_type(
@@ -2349,7 +2406,7 @@ mod tests {
         // New ig will pick up new data items
         let ig = Inquisidor::new().await;
         // Run backfill to create mtd and event and run backfill loop
-        ig.backfill().await;
+        ig.fill().await;
     }
 
     #[tokio::test]
@@ -2425,6 +2482,6 @@ mod tests {
         // New ig will pick up new data items
         let ig = Inquisidor::new().await;
         // Run backfill to create mtd and event and run backfill loop
-        ig.backfill().await;
+        ig.fill().await;
     }
 }
