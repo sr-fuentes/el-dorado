@@ -1,24 +1,28 @@
 use crate::candles::{
-    get_ftx_candles_daterange, insert_candle, select_last_candle, select_previous_candle, Candle,
+    get_ftx_candles_daterange, insert_candle, select_first_01d_candle, select_last_candle,
+    select_previous_candle, Candle,
 };
 use crate::events::{Event, EventStatus, EventType};
-use crate::exchanges::{client::RestClient, error::RestError, Exchange, ExchangeName};
+use crate::exchanges::{
+    client::RestClient, error::RestError, ftx::Trade as FtxTrade, Exchange, ExchangeName,
+};
 use crate::inquisidor::Inquisidor;
 use crate::markets::{
     update_market_data_status, MarketDataStatus, MarketDetail, MarketStatus, MarketTradeDetail,
 };
 use crate::mita::Mita;
 use crate::trades::{
-    create_ftx_trade_table, drop_create_trade_table, drop_table, insert_delete_ftx_trades,
-    insert_delete_gdax_trades, insert_ftx_trades, insert_gdax_trades, select_ftx_trades_by_table,
-    select_ftx_trades_by_time, select_gdax_trades_by_table, select_gdax_trades_by_time,
-    select_trade_first_stream,
+    create_ftx_trade_table, drop_create_trade_table, drop_table, drop_trade_table,
+    insert_delete_ftx_trades, insert_delete_gdax_trades, insert_ftx_trades, insert_gdax_trades,
+    select_ftx_trades_by_table, select_ftx_trades_by_time, select_gdax_trades_by_table,
+    select_gdax_trades_by_time, select_trade_first_stream,
 };
 use crate::utilities::{get_input, TimeFrame, Trade};
 use chrono::{DateTime, Datelike, Duration, DurationRound, TimeZone, Utc};
-use csv::Writer;
+use csv::{Reader, Writer};
 use rust_decimal_macros::dec;
 use std::convert::TryInto;
+use std::fs::File;
 
 impl Mita {
     pub async fn historical(&self, end_source: &str) {
@@ -634,11 +638,11 @@ impl Inquisidor {
                     .insert(&self.ig_pool)
                     .await
                     .expect("Failed to insert event."),
-                ExchangeName::Gdax => self.process_event_backfill_trades(&e).await,
+                ExchangeName::Gdax => self.process_event_backfill_trades(e).await,
             },
             // Do not insert into db. Process on separate instance. Manage API 429
             // calls through REST handling.
-            EventType::ForwardFillTrades => self.process_event_forwardfill_trades(&e).await,
+            EventType::ForwardFillTrades => self.process_event_forwardfill_trades(e).await,
             _ => (), // Unreachable
         }
     }
@@ -691,6 +695,17 @@ impl Inquisidor {
         }
     }
 
+    pub async fn is_backfill(&self, event: &Event) -> bool {
+        // Determine is date of event is populated by fill process or by normal el-dorado trade /
+        // candle processing.
+        let market = self.market(&event.market_id);
+        let start = event.start_ts.unwrap();
+        let first_candle = select_first_01d_candle(&self.ig_pool, &market.market_id)
+            .await
+            .expect("Failed to select first 01d candle.");
+        start < first_candle.datetime
+    }
+
     pub async fn process_event_forwardfill_trades(&self, event: &Event) {
         // Get current market trade detail
         // Match the exchage and process the event
@@ -730,33 +745,63 @@ impl Inquisidor {
                 // Re-download trades
                 let new_trade_table = format!("ff_{}", start.format("%Y%m%d"));
                 self.get_ftx_trades_dr_into_table(
-                    &event,
+                    event,
                     &new_trade_table,
                     start,
                     start + Duration::days(1),
                 )
                 .await;
-                let new_trade_table = format!(
-                    "trades_ftx_{}_ff_{}",
-                    market.as_strip(),
-                    start.format("%Y%m%d")
-                );
-                let new_trades = self
-                    .select_ftx_trades_by_table(&new_trade_table)
-                    .await
-                    .expect("Failed to select FTX trades by table.");
-                let original_trade_table = format!(
-                    "trades_ftx_{}_bf_{}",
-                    market.as_strip(),
-                    start.format("%Y%m%d")
-                );
-                let original_trades = self
-                    .select_ftx_trades_by_table(&original_trade_table)
-                    .await
-                    .expect("Failed to select FTX trades by table.");
                 // Manually re-validate
-                let is_valid = self.manual_evaluate_ftx_trades(&new_trades).await;
-                // If accepted, write to file and set status to Validate
+                let is_valid = self.manual_evaluate_ftx_trades(event).await;
+                if is_valid {
+                    // If accepted, write to file and set status to Validate
+                    // TODO: REFACTOR with Backfill and Archvive
+                    // Check directory for exchange csv is created
+                    let path = format!(
+                        "{}/csv/{}",
+                        &self.settings.application.archive_path,
+                        &market.exchange_name.as_str()
+                    );
+                    std::fs::create_dir_all(&path).expect("Failed to create directories.");
+                    let trade_table =
+                        format!("trades_ftx_{}_{}", market.as_strip(), new_trade_table);
+                    let trades_to_archive =
+                        select_ftx_trades_by_table(&self.ftx_pool, &trade_table)
+                            .await
+                            .expect("Failed to select backfill trades.");
+                    // Define filename = TICKER_YYYYMMDD.csv
+                    let f = format!("{}_{}.csv", market.as_strip(), start.format("%F"));
+                    // Set filepath and file name
+                    let fp = std::path::Path::new(&path).join(f);
+                    // Write trades to file
+                    let mut wtr = Writer::from_path(fp).expect("Failed to open file.");
+                    for trade in trades_to_archive.iter() {
+                        wtr.serialize(trade).expect("Failed to serialize trade.");
+                    }
+                    wtr.flush().expect("Failed to flush wtr.");
+                    // Drop tables ff and bf
+                    let old_trade_table = format!("bf_{}", start.format("%Y%m%d"));
+                    drop_trade_table(
+                        &self.ig_pool,
+                        &market.exchange_name,
+                        market,
+                        &new_trade_table,
+                    )
+                    .await
+                    .expect("Failed to drop trade table.");
+                    drop_trade_table(
+                        &self.ig_pool,
+                        &market.exchange_name,
+                        market,
+                        &old_trade_table,
+                    )
+                    .await
+                    .expect("Failed to drop trade table.");
+                    // Update mtd status to validated
+                    mtd.update_next_status(&self.ig_pool, &MarketDataStatus::Validate)
+                        .await
+                        .expect("Failed to update mtd status.");
+                };
             }
             MarketDataStatus::Validate => {
                 // Locate trade file for date
@@ -793,8 +838,12 @@ impl Inquisidor {
                         .expect("Failed to update mtd status.");
                 } else {
                     // Determine if file creation is part of backfill or el-dorado
-
-                    // If part of backfill process - update mtd status to GET
+                    if self.is_backfill(event).await {
+                        // If part of backfill process - update mtd status to GET
+                        mtd.update_next_status(&self.ig_pool, &MarketDataStatus::Get)
+                            .await
+                            .expect("Failed to update mtd status.");
+                    };
                 };
             }
             MarketDataStatus::Archive => {
@@ -817,15 +866,34 @@ impl Inquisidor {
                 );
                 let a_path = std::path::Path::new(&archive_path).join(f.clone());
                 // Move trade file to validated location
-                std::fs::rename(f_path, a_path).expect("Failed to copy file to trade folder.");
+                std::fs::rename(f_path, &a_path).expect("Failed to copy file to trade folder.");
                 // Update mtd next status and next day
-                mtd.update_next_day_next_status(
-                    &self.ig_pool,
-                    &(start + Duration::days(1)),
-                    &MarketDataStatus::Completed,
-                )
-                .await
-                .expect("Failed to update next day and next status.");
+                let mtd = mtd
+                    .update_next_day_next_status(
+                        &self.ig_pool,
+                        &(start + Duration::days(1)),
+                        &MarketDataStatus::Completed,
+                    )
+                    .await
+                    .expect("Failed to update next day and next status.");
+                // Set filepath and file name
+                let file = File::open(a_path).expect("Failed to open file.");
+                // Read file from new location
+                let mut trades = Vec::new();
+                let mut rdr = Reader::from_reader(file);
+                for result in rdr.deserialize() {
+                    let record: FtxTrade = result.expect("Faile to deserialize record.");
+                    trades.push(record)
+                }
+                // Get first and last trades
+                if !trades.is_empty() {
+                    let first_trade = trades.first().unwrap();
+                    let last_trade = trades.last().unwrap();
+                    // Update first and last trade in the mtd
+                    mtd.update_first_and_last_trades(&self.ig_pool, first_trade, last_trade)
+                        .await
+                        .expect("Failed to update first and last trade details.");
+                }
             }
         };
     }
@@ -966,6 +1034,7 @@ impl Inquisidor {
                             .await
                             .expect("Failed to update event status.");
                         return;
+                        // TODO: Drop trade table for date
                     };
                 }
                 // Update mtd status to validate

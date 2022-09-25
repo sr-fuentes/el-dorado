@@ -6,7 +6,7 @@ use crate::inquisidor::Inquisidor;
 use crate::markets::MarketDetail;
 use crate::mita::Mita;
 use crate::utilities::Trade;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 
 impl Mita {
@@ -73,11 +73,10 @@ impl Inquisidor {
         end: DateTime<Utc>,
     ) {
         let market = self.market(&event.market_id);
-        create_ftx_trade_table(&self.ftx_pool, &event.exchange_name, market, &table_suf)
+        create_ftx_trade_table(&self.ftx_pool, &event.exchange_name, market, table_suf)
             .await
             .expect("Failed to create trade table.");
         // Fill trade table with trades
-        let end = event.start_ts.unwrap() + Duration::days(1);
         let mut end_or_last_trade = end;
         let mut total_trades: usize = 0;
         while start < end_or_last_trade {
@@ -138,7 +137,7 @@ impl Inquisidor {
                     &self.ftx_pool,
                     &event.exchange_name,
                     market,
-                    &table_suf,
+                    table_suf,
                     new_trades,
                 )
                 .await
