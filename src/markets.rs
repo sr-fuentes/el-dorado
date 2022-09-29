@@ -970,6 +970,31 @@ pub async fn select_market_detail(
     Ok(row)
 }
 
+pub async fn select_market_detail_by_name(
+    pool: &PgPool,
+    market_name: &str,
+) -> Result<MarketDetail, sqlx::Error> {
+    let row = sqlx::query_as!(
+        MarketDetail,
+        r#"
+        SELECT market_id,
+            exchange_name as "exchange_name: ExchangeName",
+            market_name, market_type, base_currency, quote_currency, underlying,
+            market_status as "market_status: MarketStatus",
+            market_data_status as "market_data_status: MarketStatus",
+            mita,
+            candle_timeframe as "candle_timeframe: TimeFrame",
+            last_candle
+            FROM markets
+            WHERE market_name = $1
+        "#,
+        market_name,
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(row)
+}
+
 pub async fn select_markets_by_market_data_status(
     pool: &PgPool,
     market_status: &MarketStatus,
