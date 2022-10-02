@@ -1,7 +1,7 @@
 use crate::candles::select_first_01d_candle;
 use crate::exchanges::{client::RestClient, error::RestError, select_exchanges, ExchangeName};
 use crate::inquisidor::Inquisidor;
-use crate::utilities::{get_input, TimeFrame};
+use crate::utilities::{get_input, TimeFrame, Trade};
 use chrono::{DateTime, Duration, Utc};
 use core::cmp::Reverse;
 use rust_decimal::Decimal;
@@ -241,6 +241,36 @@ impl MarketTradeDetail {
         })
     }
 
+    pub async fn update_next_status(
+        &self,
+        pool: &PgPool,
+        status: &MarketDataStatus,
+    ) -> Result<Self, sqlx::Error> {
+        sqlx::query!(
+            r#"
+            UPDATE market_trade_details
+            SET next_status = $1
+            WHERE market_id = $2
+            "#,
+            status.as_str(),
+            self.market_id,
+        )
+        .execute(pool)
+        .await?;
+        Ok(Self {
+            market_id: self.market_id,
+            market_start_ts: self.market_start_ts,
+            first_trade_ts: self.first_trade_ts,
+            first_trade_id: self.first_trade_id.clone(),
+            last_trade_ts: self.last_trade_ts,
+            last_trade_id: self.last_trade_id.clone(),
+            previous_trade_day: self.previous_trade_day,
+            previous_status: self.previous_status,
+            next_trade_day: self.next_trade_day,
+            next_status: Some(*status),
+        })
+    }
+
     pub async fn update_prev_day_prev_status(
         &self,
         pool: &PgPool,
@@ -273,6 +303,38 @@ impl MarketTradeDetail {
         })
     }
 
+    pub async fn update_next_day_next_status(
+        &self,
+        pool: &PgPool,
+        datetime: &DateTime<Utc>,
+        status: &MarketDataStatus,
+    ) -> Result<Self, sqlx::Error> {
+        sqlx::query!(
+            r#"
+            UPDATE market_trade_details
+            SET (next_trade_day, next_status) = ($1, $2)
+            WHERE market_id = $3
+            "#,
+            datetime,
+            status.as_str(),
+            self.market_id,
+        )
+        .execute(pool)
+        .await?;
+        Ok(Self {
+            market_id: self.market_id,
+            market_start_ts: self.market_start_ts,
+            first_trade_ts: self.first_trade_ts,
+            first_trade_id: self.first_trade_id.clone(),
+            last_trade_ts: self.last_trade_ts,
+            last_trade_id: self.last_trade_id.clone(),
+            previous_trade_day: self.previous_trade_day,
+            previous_status: self.previous_status,
+            next_trade_day: Some(*datetime),
+            next_status: Some(*status),
+        })
+    }
+
     pub async fn update_first_trade(
         &self,
         pool: &PgPool,
@@ -282,9 +344,11 @@ impl MarketTradeDetail {
         sqlx::query!(
             r#"
             UPDATE market_trade_details
-            SET (first_trade_ts, first_trade_id) = ($1, $2)
-            WHERE market_id = $3
+            SET (first_trade_ts, first_trade_id, last_trade_ts, last_trade_id) = ($1, $2, $3, $4)
+            WHERE market_id = $5
             "#,
+            datetime,
+            trade_id,
             datetime,
             trade_id,
             self.market_id,
@@ -296,8 +360,46 @@ impl MarketTradeDetail {
             market_start_ts: self.market_start_ts,
             first_trade_ts: *datetime,
             first_trade_id: trade_id.to_string(),
-            last_trade_ts: self.last_trade_ts,
-            last_trade_id: self.last_trade_id.clone(),
+            last_trade_ts: *datetime, // Last trade will be updated on ffill
+            last_trade_id: trade_id.to_string(), // Last trade will be update on ffill
+            previous_trade_day: self.previous_trade_day,
+            previous_status: self.previous_status,
+            next_trade_day: self.next_trade_day,
+            next_status: self.next_status,
+        })
+    }
+
+    pub async fn update_first_and_last_trades(
+        &self,
+        pool: &PgPool,
+        first: &dyn Trade,
+        last: &dyn Trade,
+    ) -> Result<Self, sqlx::Error> {
+        let first_trade_ts = first.time().min(self.first_trade_ts);
+        let first_trade_id = first
+            .trade_id()
+            .min(self.first_trade_id.parse::<i64>().unwrap());
+        sqlx::query!(
+            r#"
+            UPDATE market_trade_details
+            SET (first_trade_ts, first_trade_id, last_trade_ts, last_trade_id) = ($1, $2, $3, $4)
+            WHERE market_id = $5
+            "#,
+            first_trade_ts,
+            first_trade_id.to_string(),
+            last.time(),
+            last.trade_id().to_string(),
+            self.market_id,
+        )
+        .execute(pool)
+        .await?;
+        Ok(Self {
+            market_id: self.market_id,
+            market_start_ts: self.market_start_ts,
+            first_trade_ts,
+            first_trade_id: first_trade_id.to_string(),
+            last_trade_ts: last.time(),
+            last_trade_id: last.trade_id().to_string(),
             previous_trade_day: self.previous_trade_day,
             previous_status: self.previous_status,
             next_trade_day: self.next_trade_day,
@@ -862,6 +964,31 @@ pub async fn select_market_detail(
             WHERE market_id = $1
         "#,
         market.market_id,
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(row)
+}
+
+pub async fn select_market_detail_by_name(
+    pool: &PgPool,
+    market_name: &str,
+) -> Result<MarketDetail, sqlx::Error> {
+    let row = sqlx::query_as!(
+        MarketDetail,
+        r#"
+        SELECT market_id,
+            exchange_name as "exchange_name: ExchangeName",
+            market_name, market_type, base_currency, quote_currency, underlying,
+            market_status as "market_status: MarketStatus",
+            market_data_status as "market_data_status: MarketStatus",
+            mita,
+            candle_timeframe as "candle_timeframe: TimeFrame",
+            last_candle
+            FROM markets
+            WHERE market_name = $1
+        "#,
+        market_name,
     )
     .fetch_one(pool)
     .await?;

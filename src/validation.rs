@@ -3,6 +3,7 @@ use crate::candles::{
     insert_candle, insert_candles_01d, resample_candles, select_candles_by_daterange,
     validate_ftx_candle, validate_gdax_candle_by_trade_ids, Candle,
 };
+use crate::events::Event;
 use crate::exchanges::{
     error::RestError, ftx::Trade as FtxTrade, gdax::Trade as GdaxTrade, ExchangeName,
 };
@@ -1503,6 +1504,82 @@ impl Inquisidor {
         insert_candles_01d(&self.ig_pool, &validation.market_id, &vec![candle], true)
             .await
             .expect("Failed to insert 01D candle.");
+    }
+
+    pub async fn manual_evaluate_ftx_trades(&self, event: &Event) -> bool {
+        let market = self.market(&event.market_id);
+        let start = event.start_ts.unwrap();
+        let new_trade_table = format!(
+            "trades_ftx_{}_ff_{}",
+            market.as_strip(),
+            start.format("%Y%m%d")
+        );
+        let new_trades = self
+            .select_ftx_trades_by_table(&new_trade_table)
+            .await
+            .expect("Failed to select FTX trades by table.");
+        let new_trades_value = new_trades
+            .iter()
+            .fold(dec!(0), |v, t| v + (t.size() * t.price()));
+        let original_trade_table = format!(
+            "trades_ftx_{}_bf_{}",
+            market.as_strip(),
+            start.format("%Y%m%d")
+        );
+        let original_trades = self
+            .select_ftx_trades_by_table(&original_trade_table)
+            .await
+            .expect("Failed to select FTX trades by table.");
+        let original_trades_value = original_trades
+            .iter()
+            .fold(dec!(0), |v, t| v + (t.size() * t.price()));
+        // Print Num trade and val for old and new
+        println!(
+            "Backfill Value & Count:\t{:?}\t\t{:?}",
+            original_trades_value,
+            original_trades.len()
+        );
+        println!(
+            "ForwardF Value & Count:\t{:?}\t\t{:?}",
+            new_trades_value,
+            new_trades.len()
+        );
+        // Get candle and print volume (in USD and should equal val)
+        let exchange_candle = get_ftx_candles_daterange::<crate::exchanges::ftx::Candle>(
+            &self.clients[&event.exchange_name],
+            market,
+            start,
+            start,
+            86400,
+        )
+        .await
+        .pop();
+        // Print Deltas
+        match exchange_candle {
+            Some(ec) => {
+                let delta = new_trades_value - ec.volume;
+                let percent = delta / ec.volume * dec!(100.0);
+                println!("FTX Volume: \t\t\t{:?}", ec.volume);
+                println!(
+                    "Delta: ${:?} & Percent: {:?}%",
+                    delta.round_dp(2),
+                    percent.round_dp(4)
+                )
+            }
+            None => println!("No FTX candle returned from API."),
+        };
+        // Get input on whether to keep original or new or neither
+        let response: String = get_input("Accept New Trades and Value? [y/yes/n/no]:");
+        match response.to_lowercase().as_str() {
+            "y" | "yes" => {
+                println!("Accepting recreated candle.");
+                true
+            }
+            _ => {
+                println!("Rejecting recreated candle.");
+                false
+            }
+        }
     }
 }
 

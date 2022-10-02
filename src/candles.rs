@@ -664,7 +664,7 @@ pub async fn validate_01d_candles<T: crate::utilities::Candle + DeserializeOwned
 
 pub fn validate_ftx_candle<T: crate::utilities::Candle + DeserializeOwned>(
     candle: &Candle,
-    exchange_candles: &mut Vec<T>,
+    exchange_candles: &mut [T],
 ) -> bool {
     // FTX candle validation on FTX Volume = ED Value, FTX sets open = last trade event if the
     // last trades was in the prior time period.
@@ -701,7 +701,7 @@ pub fn validate_ftx_candle<T: crate::utilities::Candle + DeserializeOwned>(
 
 pub fn validate_gdax_candle_by_volume<T: crate::utilities::Candle + DeserializeOwned>(
     candle: &Candle,
-    exchange_candles: &mut Vec<T>,
+    exchange_candles: &mut [T],
 ) -> bool {
     // GDAX candle validation on GDAX Volume = ED Volume and trade id count matches id first/last.
     // Consider valid if candle.volume == exchange_candle.volume.
@@ -755,7 +755,7 @@ pub async fn validate_gdax_candle_by_trade_ids<T: crate::utilities::Candle + Des
     client: &RestClient,
     market: &MarketDetail,
     candle: &Candle,
-    exchange_candles: &mut Vec<T>,
+    exchange_candles: &mut [T],
     time_frame: &TimeFrame,
     trade_table: &str,
 ) -> Option<bool> {

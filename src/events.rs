@@ -110,7 +110,11 @@ impl TryFrom<String> for EventStatus {
 }
 
 impl Event {
-    pub fn new_fill_trades(mtd: &MarketTradeDetail, exchange: &ExchangeName) -> Option<Self> {
+    pub fn new_fill_trades(
+        market: &MarketDetail,
+        mtd: &MarketTradeDetail,
+        exchange: &ExchangeName,
+    ) -> Option<Self> {
         // Create a new fill trades event (back or forward)
         // Logic for determining action based on mtd (market trade detail)
         // At this point we are only interested in getting trades prior to active el-d candles
@@ -143,8 +147,21 @@ impl Event {
                             MarketDataStatus::Completed => {
                                 // Determine if date is valid, return event if valid
                                 if mtd.next_trade_day.unwrap()
-                                    < Utc::now().duration_trunc(Duration::days(1)).unwrap()
+                                    < market
+                                        .last_candle
+                                        .unwrap()
+                                        .duration_trunc(Duration::days(1))
+                                        .unwrap()
                                 {
+                                    println!(
+                                        "{:?} < {:?}",
+                                        mtd.next_trade_day.unwrap(),
+                                        market
+                                            .last_candle
+                                            .unwrap()
+                                            .duration_trunc(Duration::days(1))
+                                            .unwrap()
+                                    );
                                     return Some(Self {
                                         event_id: Uuid::new_v4(),
                                         droplet: "ig".to_string(),
@@ -157,23 +174,29 @@ impl Event {
                                         created_ts: Utc::now(),
                                         processed_ts: None,
                                         event_status: EventStatus::New,
-                                        notes: Some(ns.as_str().to_string()),
+                                        notes: Some(
+                                            MarketDataStatus::Validate.as_str().to_string(),
+                                        ),
                                     });
                                 } else {
-                                    return None;
+                                    None
                                 }
                             }
                             MarketDataStatus::Get
                             | MarketDataStatus::Archive
                             | MarketDataStatus::Validate => {
-                                // Add event with next_date
+                                // Add event with next_date or prev trade date if next is none
                                 return Some(Self {
                                     event_id: Uuid::new_v4(),
                                     droplet: "ig".to_string(),
                                     event_type: EventType::ForwardFillTrades,
                                     exchange_name: *exchange,
                                     market_id: mtd.market_id,
-                                    start_ts: Some(mtd.next_trade_day.unwrap()),
+                                    start_ts: if mtd.next_trade_day.is_some() {
+                                        mtd.next_trade_day
+                                    } else {
+                                        Some(mtd.previous_trade_day + Duration::days(1))
+                                    },
                                     end_ts: None,
                                     event_ts: Utc::now(),
                                     created_ts: Utc::now(),

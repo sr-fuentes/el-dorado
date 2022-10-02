@@ -16,7 +16,7 @@ async fn main() {
         .subcommand(App::new("set").about("update ranks from proposed to current"))
         .subcommand(App::new("run").about("run el-dorado for a market"))
         .subcommand(App::new("sync").about("fill to current start of day"))
-        .subcommand(App::new("backfill").about("backfill from first candle to start"))
+        .subcommand(App::new("fill").about("fill from first candle to start"))
         .subcommand(App::new("manage").about("run current cleanup script"))
         .subcommand(App::new("manual").about("manually validate bad candles"))
         .subcommand(App::new("archive").about("archive trade for valid candles"))
@@ -100,11 +100,11 @@ async fn main() {
             );
             mita.twilio.send_sms(&message).await;
         }
-        Some("backfill") => {
+        Some("fill") => {
             // Download and archive trades from beginning of normal running sync (min 90 days) to
             // the first trades of exchange.
             let ig = Inquisidor::new().await;
-            ig.backfill().await;
+            ig.fill().await;
         }
         Some("manage") => {
             // Create new admin instance and refresh exchange
