@@ -722,14 +722,14 @@ impl Inquisidor {
             .await
             .expect("Failed to select market trade detail.");
         let mut current_event = Some(event.clone());
+        println!("First Current Event: {:?}", current_event);
         while current_event.is_some() {
-            println!("Current Event: {:?}", current_event);
             match event.exchange_name {
                 ExchangeName::Ftx | ExchangeName::FtxUs => {
-                    self.process_ftx_forwardfill(event, &mtd).await;
+                    self.process_ftx_forwardfill(&current_event.unwrap(), &mtd).await;
                 }
                 ExchangeName::Gdax => {
-                    self.process_gdax_forwardfill(event, &mtd).await;
+                    self.process_gdax_forwardfill(&current_event.unwrap(), &mtd).await;
                 }
             };
             mtd = MarketTradeDetail::select(&self.ig_pool, &event.market_id)
@@ -737,6 +737,7 @@ impl Inquisidor {
                 .expect("Failed to select market trade detail.");
             current_event =
                 Event::new_fill_trades(self.market(&event.market_id), &mtd, &event.exchange_name);
+            println!("Next Current Event: {:?}", current_event);
         }
     }
 
