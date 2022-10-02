@@ -153,6 +153,11 @@ impl Event {
                                         .duration_trunc(Duration::days(1))
                                         .unwrap()
                                 {
+                                    println!("{:?} < {:?}", mtd.next_trade_day.unwrap(),market
+                                    .last_candle
+                                    .unwrap()
+                                    .duration_trunc(Duration::days(1))
+                                    .unwrap());
                                     return Some(Self {
                                         event_id: Uuid::new_v4(),
                                         droplet: "ig".to_string(),
@@ -176,14 +181,18 @@ impl Event {
                             MarketDataStatus::Get
                             | MarketDataStatus::Archive
                             | MarketDataStatus::Validate => {
-                                // Add event with next_date
+                                // Add event with next_date or prev trade date if next is none
                                 return Some(Self {
                                     event_id: Uuid::new_v4(),
                                     droplet: "ig".to_string(),
                                     event_type: EventType::ForwardFillTrades,
                                     exchange_name: *exchange,
                                     market_id: mtd.market_id,
-                                    start_ts: Some(mtd.next_trade_day.unwrap()),
+                                    start_ts: if mtd.next_trade_day.is_some() {
+                                        mtd.next_trade_day
+                                    } else {
+                                        Some(mtd.previous_trade_day + Duration::days(1))
+                                    },
                                     end_ts: None,
                                     event_ts: Utc::now(),
                                     created_ts: Utc::now(),

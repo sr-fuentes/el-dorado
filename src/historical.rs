@@ -813,6 +813,7 @@ impl Inquisidor {
                 };
             }
             MarketDataStatus::Validate => {
+                println!("Validating forwardfill.");
                 // Locate trade file for date
                 let f = format!("{}_{}.csv", market.as_strip(), start.format("%F"));
                 let archive_path = format!(
@@ -826,6 +827,9 @@ impl Inquisidor {
                     format!("{}/csv/gdax2", &self.settings.application.archive_path,);
                 let bf_path = std::path::Path::new(&bad_archive_path).join(f.clone());
                 if bf_path.exists() {
+                    println!("File in location 3. Moving to correct location.");
+                    // Create directories in the correct location
+                    std::fs::create_dir_all(&archive_path).expect("Failed to create directories.");
                     // File exists but in wrong location - copy to correct location
                     std::fs::rename(bf_path, &f_path)
                         .expect("Failed to copy file from location 3.");
@@ -835,17 +839,22 @@ impl Inquisidor {
                     format!("{}/csv/gdax/gdax", &self.settings.application.archive_path,);
                 let bf_path = std::path::Path::new(&bad_archive_path).join(f.clone());
                 if bf_path.exists() {
+                    println!("File in location 2. Moving to correct location.");
+                    // Create directories in the correct location
+                    std::fs::create_dir_all(&archive_path).expect("Failed to create directories.");
                     // File exists but in wrong location - copy to correct location
                     std::fs::rename(bf_path, &f_path)
                         .expect("Failed to copy file from location 2.");
                 };
                 // Try location 1 - Correct Location
                 if f_path.exists() {
+                    println!("File correct location. Updating next status.");
                     // File exists, day is validated. Update mtd next status to Archive
                     mtd.update_next_status(&self.ig_pool, &MarketDataStatus::Archive)
                         .await
                         .expect("Failed to update mtd status.");
                 } else {
+                    println!("File not located.");
                     // Determine if file creation is part of backfill or el-dorado
                     if self.is_backfill(event).await {
                         // If part of backfill process - update mtd status to GET
@@ -873,6 +882,8 @@ impl Inquisidor {
                     start.format("%Y"),
                     start.format("%m")
                 );
+                // Create directories if not exists
+                std::fs::create_dir_all(&archive_path).expect("Failed to create directories.");
                 let a_path = std::path::Path::new(&archive_path).join(f.clone());
                 // Move trade file to validated location
                 std::fs::rename(f_path, &a_path).expect("Failed to copy file to trade folder.");
@@ -1715,7 +1726,8 @@ mod tests {
     };
     use crate::mita::Mita;
     use crate::trades::{create_ftx_trade_table, drop_trade_table, insert_ftx_trade};
-    use chrono::{TimeZone, Utc, Duration};
+    use chrono::{Duration, TimeZone, Utc};
+    use csv::Writer;
     use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
     use sqlx::PgPool;
@@ -1725,7 +1737,7 @@ mod tests {
         // Update market to active with valid timestamp
         let sql = r#"
             UPDATE markets
-            SET (market_data_status, last_candle) = ('active', '2022-12-01 00:00:00+00')
+            SET (market_data_status, last_candle) = ('active', '2021-12-01 00:00:00+00')
             WHERE market_name = 'SOL-PERP'
             "#;
         sqlx::query(sql)
@@ -1812,6 +1824,22 @@ mod tests {
             .expect("Failed to insert trade.");
     }
 
+    pub fn prep_ftx_file(path: &str) {
+        // Create trade
+        let trade = create_ftx_trade(dec!(886644021.83975), dec!(1));
+        let trades = vec![trade];
+        // Check directory is created
+        std::fs::create_dir_all(&path).expect("Failed to create directories.");
+        // Set filepath
+        let fp = std::path::Path::new(&path).join("SOLPERP_2021-11-30.csv");
+        // Write trades to file
+        let mut wtr = Writer::from_path(fp).expect("Failed to open file.");
+        for trade in trades.iter() {
+            wtr.serialize(trade).expect("Failed to serialize trade.");
+        }
+        wtr.flush().expect("Failed to flush wtr.");
+    }
+
     pub fn create_ftx_trade(price: Decimal, quantity: Decimal) -> FtxTrade {
         FtxTrade {
             id: 123,
@@ -1819,7 +1847,7 @@ mod tests {
             size: quantity,
             side: "buy".to_string(),
             liquidation: false,
-            time: Utc.ymd(2021, 12, 01).and_hms(0, 1, 0),
+            time: Utc.ymd(2021, 11, 30).and_hms(0, 1, 0),
         }
     }
 
@@ -2119,92 +2147,39 @@ mod tests {
             .unwrap();
         assert_eq!(event.notes, Some("archive".to_string()));
         // Assert new mtd next date is not changed
-        assert_eq!(original_prev_date, mtd.previous_trade_day + Duration::days(1));
+        assert_eq!(
+            original_prev_date,
+            mtd.previous_trade_day + Duration::days(1)
+        );
     }
 
     #[tokio::test]
     pub async fn backfill_ftx_archive_updates_mtd_creates_new_event() {
         // Setup
         let ig = Inquisidor::new().await;
-        let sql = r#"
-            UPDATE markets
-            SET (market_data_status, last_candle) = ('active', $1)
-            WHERE market_name = 'FTT-PERP'
-            "#;
-        sqlx::query(sql)
-            .bind(Utc.ymd(2021, 12, 01).and_hms(0, 0, 0))
-            .execute(&ig.ig_pool)
-            .await
-            .expect("Failed to update last candle to null.");
-        let sql = r#"
-            DELETE FROM market_trade_details
-            WHERE 1=1
-            "#;
-        sqlx::query(sql)
-            .execute(&ig.ig_pool)
-            .await
-            .expect("Failed to update market trade details.");
-        let sql = r#"
-            DELETE FROM candles_01d
-            WHERE market_id = $1
-            "#;
-        sqlx::query(sql)
-            .bind(Uuid::parse_str("c5bbfb83-963c-4ef8-b4dc-3d572ac47943").unwrap())
-            .execute(&ig.ig_pool)
-            .await
-            .expect("Failed to delete 01 candles.");
-        let sql = r#"
-            DELETE FROM events
-            WHERE event_type = 'backfilltrades'
-            "#;
-        sqlx::query(sql)
-            .execute(&ig.ig_pool)
-            .await
-            .expect("Failed to delete events.");
-        let sql = r#"
-            INSERT INTO candles_01d (
-                datetime, open, high, low, close, volume, volume_net, volume_liquidation, value,
-                trade_count, liquidation_count, last_trade_ts, last_trade_id, is_validated,
-                market_id, first_trade_ts, first_trade_id, is_archived, is_complete)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-                $18, $19)
-            "#;
-        sqlx::query(sql)
-            .bind(Utc.ymd(2021, 12, 01).and_hms(0, 0, 0))
-            .bind(dec!(50))
-            .bind(dec!(50))
-            .bind(dec!(50))
-            .bind(dec!(50))
-            .bind(dec!(100))
-            .bind(dec!(0))
-            .bind(dec!(10))
-            .bind(dec!(5000))
-            .bind(20)
-            .bind(10)
-            .bind(Utc.ymd(2021, 12, 01).and_hms(0, 0, 0))
-            .bind("1234")
-            .bind(true)
-            .bind(Uuid::parse_str("c5bbfb83-963c-4ef8-b4dc-3d572ac47943").unwrap())
-            .bind(Utc.ymd(2021, 12, 01).and_hms(0, 0, 0))
-            .bind("1234")
-            .bind(true)
-            .bind(false)
-            .execute(&ig.ig_pool)
-            .await
-            .expect("Failed to insert candle for test.");
-        let sql = r#"
-            DROP TABLE IF EXISTS trade_ftx_fttperp_bf_20211130
-            "#;
-        sqlx::query(sql)
-            .execute(&ig.ig_pool)
-            .await
-            .expect("Failed to drop trade table.");
+        prep_ftx_market(&ig.ig_pool).await;
         // New ig will pick up new data items
         let ig = Inquisidor::new().await;
-        // Run backfill to create mtd and event
-        ig.fill().await;
+        // Get mtd
+        let market = ig
+            .markets
+            .iter()
+            .find(|m| m.market_name == "SOL-PERP")
+            .unwrap();
+        let mut mtd = ig.get_market_trade_detail(&market).await;
+        // Modify mtd prev status to validate
+        mtd.previous_status = MarketDataStatus::Archive;
+        let original_prev_date = mtd.previous_trade_day;
         // Get event
-        let mi = Uuid::parse_str("c5bbfb83-963c-4ef8-b4dc-3d572ac47943").unwrap();
+        let event = ig.get_fill_event(&market, &mtd).await.unwrap();
+        // Add correct trade to trade table
+        prep_ftx_table_with_trade(&ig.ig_pool, market, dec!(886644021.83975), dec!(1)).await;
+        // Process the event
+        ig.process_event_backfill_trades(&event).await;
+        // Assert mtd is now get
+        let mtd = ig.get_market_trade_detail(&market).await;
+        assert_eq!(mtd.previous_status, MarketDataStatus::Get);
+        // Assert the new event was created to archive trades
         let events = Event::select_by_statuses_type(
             &ig.ig_pool,
             &vec![EventStatus::New, EventStatus::Open],
@@ -2212,34 +2187,246 @@ mod tests {
         )
         .await
         .expect("Failed to select backfill event.");
-        let event = events.iter().find(|e| e.market_id == mi).unwrap();
+        let event = events
+            .iter()
+            .find(|e| e.market_id == market.market_id)
+            .unwrap();
+        assert_eq!(event.notes, Some("get".to_string()));
+        // Assert new mtd next date is not changed
+        assert_eq!(
+            original_prev_date,
+            mtd.previous_trade_day + Duration::days(1)
+        );
+        // Assert file exists
+        let f = format!(
+            "{}_{}.csv",
+            market.as_strip(),
+            original_prev_date.format("%F")
+        );
+        let archive_path = format!(
+            "{}/csv/{}",
+            &ig.settings.application.archive_path,
+            &market.exchange_name.as_str()
+        );
+        let f_path = std::path::Path::new(&archive_path).join(f.clone());
+        assert!(f_path.exists());
+    }
+
+    #[tokio::test]
+    pub async fn backfill_ftx_completed_creates_first_forwardfill_event() {
+        // Setup
+        let ig = Inquisidor::new().await;
+        prep_ftx_market(&ig.ig_pool).await;
+        // New ig will pick up new data items
+        let ig = Inquisidor::new().await;
+        // Get mtd and event
+        let market = ig
+            .markets
+            .iter()
+            .find(|m| m.market_name == "SOL-PERP")
+            .unwrap();
+        let mut mtd = ig.get_market_trade_detail(&market).await;
+        // Modify mtd prev status to completed
+        mtd.previous_status = MarketDataStatus::Completed;
+        // Get event
+        let event = ig.get_fill_event(&market, &mtd).await.unwrap();
+        // Assert event is forwardfill
+        assert_eq!(event.event_type, EventType::ForwardFillTrades);
+        // Assert event is validate
+        assert_eq!(event.notes, Some("validate".to_string()));
+    }
+
+    // pub async fn forwardfill_ftx_get_accept_writes_file() {}
+
+    // pub async fn forwardfill_ftx_get_reject_does_nothing() {}
+
+    #[tokio::test]
+    pub async fn forwardfill_ftx_validate_loc3_moves_and_creates_archive() {
+        // Setup
+        let ig = Inquisidor::new().await;
+        prep_ftx_market(&ig.ig_pool).await;
+        // Get mtd and modify for test
+        let market = ig
+            .markets
+            .iter()
+            .find(|m| m.market_name == "SOL-PERP")
+            .unwrap();
+        let mut mtd = ig.get_market_trade_detail(&market).await;
+        // Set up trade file in location 3
+        let path = format!("{}/csv/gdax2", &ig.settings.application.archive_path,);
+        prep_ftx_file(&path);
+        // Modify mtd prev status to completed
+        mtd.previous_status = MarketDataStatus::Completed;
+        // Modify mt prev date to 11/29 (as 11/30 is our test day)
+        mtd.previous_trade_day = mtd.previous_trade_day - Duration::days(1);
+        let original_next_date = mtd.next_trade_day;
+        // Get event
+        let event = ig.get_fill_event(&market, &mtd).await.unwrap();
         println!("{:?}", event);
-        // Test backfill ftx with event
-        println!("Processing event: {:?}", event);
-        ig.process_event_backfill_trades(&event).await;
-        // Get archive event
-        let events = Event::select_by_statuses_type(
-            &ig.ig_pool,
-            &vec![EventStatus::New, EventStatus::Open],
-            &EventType::BackfillTrades,
-        )
-        .await
-        .expect("Failed to select backfill event.");
-        let event = events.iter().find(|e| e.market_id == mi).unwrap();
-        // Test validated events
-        println!("Processing event: {:?}", event);
-        ig.process_event_backfill_trades(&event).await;
-        let events = Event::select_by_statuses_type(
-            &ig.ig_pool,
-            &vec![EventStatus::New, EventStatus::Open],
-            &EventType::BackfillTrades,
-        )
-        .await
-        .expect("Failed to select backfill event.");
-        let event = events.iter().find(|e| e.market_id == mi).unwrap();
-        // Test validated events
-        println!("Processing event: {:?}", event);
-        ig.process_event_backfill_trades(&event).await;
+        // Process event
+        ig.process_ftx_forwardfill(&event, &mtd).await;
+        // Assert mtd is now archive
+        let mut mtd = ig.get_market_trade_detail(&market).await;
+        assert_eq!(mtd.next_status, Some(MarketDataStatus::Archive));
+        // Assert new mtd next date is not changed
+        assert_eq!(original_next_date, mtd.next_trade_day);
+        // Assert next event it correct
+        // Modify mt prev date to 11/29 (as 11/30 is our test day) - Same mods as prior
+        mtd.previous_trade_day = mtd.previous_trade_day - Duration::days(1);
+        mtd.previous_status = MarketDataStatus::Completed;
+        let event = ig.get_fill_event(&market, &mtd).await.unwrap();
+        assert_eq!(event.start_ts, Some(mtd.previous_trade_day + Duration::days(1)));
+        assert_eq!(event.notes.unwrap(), "archive".to_string());
+    }
+
+    #[tokio::test]
+    pub async fn forwardfill_ftx_validate_loc2_moves_and_creates_archive() {
+        // Setup
+        let ig = Inquisidor::new().await;
+        prep_ftx_market(&ig.ig_pool).await;
+        // Get mtd and modify for test
+        let market = ig
+            .markets
+            .iter()
+            .find(|m| m.market_name == "SOL-PERP")
+            .unwrap();
+        let mut mtd = ig.get_market_trade_detail(&market).await;
+        // Set up trade file in location 3
+        let path = format!("{}/csv/gdax/gdax", &ig.settings.application.archive_path,);
+        prep_ftx_file(&path);
+        // Modify mtd prev status to completed
+        mtd.previous_status = MarketDataStatus::Completed;
+        // Modify mt prev date to 11/29 (as 11/30 is our test day)
+        mtd.previous_trade_day = mtd.previous_trade_day - Duration::days(1);
+        let original_next_date = mtd.next_trade_day;
+        // Get event
+        let event = ig.get_fill_event(&market, &mtd).await.unwrap();
+        println!("{:?}", event);
+        // Process event
+        ig.process_ftx_forwardfill(&event, &mtd).await;
+        // Assert mtd is now archive
+        let mtd = ig.get_market_trade_detail(&market).await;
+        assert_eq!(mtd.next_status, Some(MarketDataStatus::Archive));
+        // Assert new mtd next date is not changed
+        assert_eq!(original_next_date, mtd.next_trade_day);
+    }
+
+    #[tokio::test]
+    pub async fn fowardfill_ftx_validate_loc1_creates_archive() {
+        // Setup
+        let ig = Inquisidor::new().await;
+        prep_ftx_market(&ig.ig_pool).await;
+        // Get mtd and modify for test
+        let market = ig
+            .markets
+            .iter()
+            .find(|m| m.market_name == "SOL-PERP")
+            .unwrap();
+        let mut mtd = ig.get_market_trade_detail(&market).await;
+        // Set up trade file in proper location
+        let path = format!(
+            "{}/csv/{}",
+            &ig.settings.application.archive_path,
+            &market.exchange_name.as_str(),
+        );
+        prep_ftx_file(&path);
+        // Modify mtd prev status to completed
+        mtd.previous_status = MarketDataStatus::Completed;
+        // Modify mt prev date to 11/29 (as 11/30 is our test day)
+        mtd.previous_trade_day = mtd.previous_trade_day - Duration::days(1);
+        let original_next_date = mtd.next_trade_day;
+        // Get event
+        let event = ig.get_fill_event(&market, &mtd).await.unwrap();
+        println!("{:?}", event);
+        // Process event
+        ig.process_ftx_forwardfill(&event, &mtd).await;
+        // Assert mtd is now archive
+        let mtd = ig.get_market_trade_detail(&market).await;
+        assert_eq!(mtd.next_status, Some(MarketDataStatus::Archive));
+        // Assert new mtd next date is not changed
+        assert_eq!(original_next_date, mtd.next_trade_day);
+    }
+
+    #[tokio::test]
+    pub async fn forwardfill_ftx_validate_noloc_creates_get() {
+        // Setup
+        let ig = Inquisidor::new().await;
+        prep_ftx_market(&ig.ig_pool).await;
+        // Get mtd and modify for test
+        let market = ig
+            .markets
+            .iter()
+            .find(|m| m.market_name == "SOL-PERP")
+            .unwrap();
+        let mut mtd = ig.get_market_trade_detail(&market).await;
+        // Modify mtd prev status to completed
+        mtd.previous_status = MarketDataStatus::Completed;
+        // Modify mt prev date to 11/29 (as 11/30 is our test day)
+        mtd.previous_trade_day = mtd.previous_trade_day - Duration::days(1);
+        let original_next_date = mtd.next_trade_day;
+        // Get event
+        let event = ig.get_fill_event(&market, &mtd).await.unwrap();
+        println!("{:?}", event);
+        // Process event
+        ig.process_ftx_forwardfill(&event, &mtd).await;
+        // Assert mtd is now archive
+        let mut mtd = ig.get_market_trade_detail(&market).await;
+        assert_eq!(mtd.next_status, Some(MarketDataStatus::Get));
+        // Assert new mtd next date is not changed
+        assert_eq!(original_next_date, mtd.next_trade_day);
+        // Assert next event it correct
+        // Modify mt prev date to 11/29 (as 11/30 is our test day) - Same mods as prior
+        mtd.previous_trade_day = mtd.previous_trade_day - Duration::days(1);
+        mtd.previous_status = MarketDataStatus::Completed;
+        let event = ig.get_fill_event(&market, &mtd).await.unwrap();
+        assert_eq!(event.start_ts, Some(mtd.previous_trade_day + Duration::days(1)));
+        assert_eq!(event.notes.unwrap(), "get".to_string());
+    }
+
+    #[tokio::test]
+    pub async fn forwardfill_ftx_archive_moves_file_creates_completed() {
+        // Setup
+        let ig = Inquisidor::new().await;
+        prep_ftx_market(&ig.ig_pool).await;
+        // Get mtd and modify for test
+        let market = ig
+            .markets
+            .iter()
+            .find(|m| m.market_name == "SOL-PERP")
+            .unwrap();
+        // Set up trade file in proper location
+        let path = format!(
+            "{}/csv/{}",
+            &ig.settings.application.archive_path,
+            &market.exchange_name.as_str(),
+        );
+        prep_ftx_file(&path);
+        let mut mtd = ig.get_market_trade_detail(&market).await;
+        // Modify mtd prev status to completed
+        mtd.previous_status = MarketDataStatus::Completed;
+        // Modify mtd next status to archive
+        mtd.next_status = Some(MarketDataStatus::Archive);
+        // Modify mt prev date to 11/29 (as 11/30 is our test day)
+        mtd.previous_trade_day = mtd.previous_trade_day - Duration::days(1);
+        let original_next_date = mtd.previous_trade_day + Duration::days(1);
+        // Get event
+        let event = ig.get_fill_event(&market, &mtd).await.unwrap();
+        // println!("{:?}", event);
+        // Process event
+        ig.process_ftx_forwardfill(&event, &mtd).await;
+        // Assert mtd is now archive
+        let mut mtd = ig.get_market_trade_detail(&market).await;
+        // println!("mtd: {:?}", mtd);
+        assert_eq!(mtd.next_status, Some(MarketDataStatus::Completed));
+        // Assert new mtd next date incremented
+        assert_eq!(Some(original_next_date + Duration::days(1)), mtd.next_trade_day);
+        // Assert next event it correct
+        // Modify mt prev date to 11/29 (as 11/30 is our test day) - Same mods as prior
+        mtd.previous_trade_day = mtd.previous_trade_day - Duration::days(1);
+        mtd.previous_status = MarketDataStatus::Completed;
+        // println!("{:?}", mtd);
+        let event = ig.get_fill_event(&market, &mtd).await;
+        assert!(event.is_none());
     }
 
     #[tokio::test]
@@ -2320,6 +2507,7 @@ mod tests {
 
     #[tokio::test]
     pub async fn backfill_gdax_get_validate_archive() {
+        // TODO: Refactor into get / validate / archive tests with assertions
         // Setup
         let ig = Inquisidor::new().await;
         let sql = r#"
