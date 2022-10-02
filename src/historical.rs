@@ -749,6 +749,10 @@ impl Inquisidor {
         match status {
             MarketDataStatus::Completed => {} // completed, nothing to do
             MarketDataStatus::Get => {
+                // TODO: Refactor into 3 sections - before input, input, after input
+                // self.get_trades_for_day()
+                // self.manual_evaluate_trades()
+                // self.process_evaluation()
                 // Only used to re-validate days processed via backfill, ongoing el-dorado days
                 // are validated via the manage / manual ig processes
                 // Re-download trades
@@ -2236,7 +2240,33 @@ mod tests {
         assert_eq!(event.notes, Some("validate".to_string()));
     }
 
-    // pub async fn forwardfill_ftx_get_accept_writes_file() {}
+    #[tokio::test]
+    pub async fn forwardfill_ftx_get_accept_writes_file() {
+        // Setup
+        let ig = Inquisidor::new().await;
+        prep_ftx_market(&ig.ig_pool).await;
+        // Get mtd and modify for test
+        let market = ig
+            .markets
+            .iter()
+            .find(|m| m.market_name == "SOL-PERP")
+            .unwrap();
+        let mut mtd = ig.get_market_trade_detail(&market).await;
+        // Add correct trade to trade table
+        prep_ftx_table_with_trade(&ig.ig_pool, market, dec!(1234021.83975), dec!(1)).await;
+        // Modify mtd prev status to completed
+        mtd.previous_status = MarketDataStatus::Completed;
+        // Modify mt prev date to 11/29 (as 11/30 is our test day)
+        mtd.previous_trade_day = mtd.previous_trade_day - Duration::days(1);
+        // Modify mtd next status to some(get)
+        mtd.next_status = Some(MarketDataStatus::Get);
+        // Process forwardfill event   
+        // Get event
+        let event = ig.get_fill_event(&market, &mtd).await.unwrap();
+        println!("{:?}", event);
+        // Process event
+        ig.process_ftx_forwardfill(&event, &mtd).await;     
+    }
 
     // pub async fn forwardfill_ftx_get_reject_does_nothing() {}
 
@@ -2275,7 +2305,10 @@ mod tests {
         mtd.previous_trade_day = mtd.previous_trade_day - Duration::days(1);
         mtd.previous_status = MarketDataStatus::Completed;
         let event = ig.get_fill_event(&market, &mtd).await.unwrap();
-        assert_eq!(event.start_ts, Some(mtd.previous_trade_day + Duration::days(1)));
+        assert_eq!(
+            event.start_ts,
+            Some(mtd.previous_trade_day + Duration::days(1))
+        );
         assert_eq!(event.notes.unwrap(), "archive".to_string());
     }
 
@@ -2379,7 +2412,10 @@ mod tests {
         mtd.previous_trade_day = mtd.previous_trade_day - Duration::days(1);
         mtd.previous_status = MarketDataStatus::Completed;
         let event = ig.get_fill_event(&market, &mtd).await.unwrap();
-        assert_eq!(event.start_ts, Some(mtd.previous_trade_day + Duration::days(1)));
+        assert_eq!(
+            event.start_ts,
+            Some(mtd.previous_trade_day + Duration::days(1))
+        );
         assert_eq!(event.notes.unwrap(), "get".to_string());
     }
 
@@ -2419,7 +2455,10 @@ mod tests {
         // println!("mtd: {:?}", mtd);
         assert_eq!(mtd.next_status, Some(MarketDataStatus::Completed));
         // Assert new mtd next date incremented
-        assert_eq!(Some(original_next_date + Duration::days(1)), mtd.next_trade_day);
+        assert_eq!(
+            Some(original_next_date + Duration::days(1)),
+            mtd.next_trade_day
+        );
         // Assert next event it correct
         // Modify mt prev date to 11/29 (as 11/30 is our test day) - Same mods as prior
         mtd.previous_trade_day = mtd.previous_trade_day - Duration::days(1);

@@ -153,11 +153,15 @@ impl Event {
                                         .duration_trunc(Duration::days(1))
                                         .unwrap()
                                 {
-                                    println!("{:?} < {:?}", mtd.next_trade_day.unwrap(),market
-                                    .last_candle
-                                    .unwrap()
-                                    .duration_trunc(Duration::days(1))
-                                    .unwrap());
+                                    println!(
+                                        "{:?} < {:?}",
+                                        mtd.next_trade_day.unwrap(),
+                                        market
+                                            .last_candle
+                                            .unwrap()
+                                            .duration_trunc(Duration::days(1))
+                                            .unwrap()
+                                    );
                                     return Some(Self {
                                         event_id: Uuid::new_v4(),
                                         droplet: "ig".to_string(),

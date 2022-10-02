@@ -1559,7 +1559,7 @@ impl Inquisidor {
             Some(ec) => {
                 let delta = new_trades_value - ec.volume;
                 let percent = delta / ec.volume * dec!(100.0);
-                println!("FTX Volume: \t{:?}", ec.volume);
+                println!("FTX Volume: \t\t\t{:?}", ec.volume);
                 println!(
                     "Delta: ${:?} & Percent: {:?}%",
                     delta.round_dp(2),
