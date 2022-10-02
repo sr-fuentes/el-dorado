@@ -722,8 +722,8 @@ impl Inquisidor {
             .await
             .expect("Failed to select market trade detail.");
         let mut current_event = Some(event.clone());
-        println!("Current Event: {:?}", current_event);
         while current_event.is_some() {
+            println!("Current Event: {:?}", current_event);
             match event.exchange_name {
                 ExchangeName::Ftx | ExchangeName::FtxUs => {
                     self.process_ftx_forwardfill(event, &mtd).await;
@@ -2374,10 +2374,16 @@ mod tests {
         // Process event
         ig.process_ftx_forwardfill(&event, &mtd).await;
         // Assert mtd is now archive
-        let mtd = ig.get_market_trade_detail(&market).await;
+        let mut mtd = ig.get_market_trade_detail(&market).await;
+        // Modify mtd prev status to completed
+        mtd.previous_status = MarketDataStatus::Completed;
+        // Modify mt prev date to 11/29 (as 11/30 is our test day)
+        mtd.previous_trade_day = mtd.previous_trade_day - Duration::days(1);
         assert_eq!(mtd.next_status, Some(MarketDataStatus::Archive));
         // Assert new mtd next date is not changed
         assert_eq!(original_next_date, mtd.next_trade_day);
+        let event = ig.get_fill_event(&market, &mtd).await.unwrap();
+        println!("New Event: {:?}", event);
     }
 
     #[tokio::test]
