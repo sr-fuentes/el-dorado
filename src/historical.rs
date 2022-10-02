@@ -2260,12 +2260,12 @@ mod tests {
         mtd.previous_trade_day = mtd.previous_trade_day - Duration::days(1);
         // Modify mtd next status to some(get)
         mtd.next_status = Some(MarketDataStatus::Get);
-        // Process forwardfill event   
+        // Process forwardfill event
         // Get event
         let event = ig.get_fill_event(&market, &mtd).await.unwrap();
         println!("{:?}", event);
         // Process event
-        ig.process_ftx_forwardfill(&event, &mtd).await;     
+        ig.process_ftx_forwardfill(&event, &mtd).await;
     }
 
     // pub async fn forwardfill_ftx_get_reject_does_nothing() {}
