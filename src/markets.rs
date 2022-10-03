@@ -1,4 +1,5 @@
 use crate::candles::select_first_01d_candle;
+use crate::exchanges::Exchange;
 use crate::exchanges::{client::RestClient, error::RestError, select_exchanges, ExchangeName};
 use crate::inquisidor::Inquisidor;
 use crate::utilities::{get_input, TimeFrame, Trade};
@@ -64,6 +65,18 @@ pub struct MarketTradeDetail {
     pub previous_status: MarketDataStatus,
     pub next_trade_day: Option<DateTime<Utc>>,
     pub next_status: Option<MarketDataStatus>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct MarketCandleDetail {
+    pub market_id: Uuid,
+    pub exchange_name: ExchangeName,
+    pub market_name: String,
+    pub time_frame: TimeFrame,
+    pub first_candle: DateTime<Utc>,
+    pub last_candle: DateTime<Utc>,
+    pub last_trade_ts: DateTime<Utc>,
+    pub last_trade_id: String,
 }
 
 impl MarketId {
@@ -441,6 +454,25 @@ impl MarketTradeDetail {
         .fetch_one(pool)
         .await?;
         Ok(row)
+    }
+}
+
+impl MarketCandleDetail {
+    pub async fn select_all(pool: &PgPool) -> Result<Vec<MarketCandleDetail>, sqlx::Error> {
+        let rows = sqlx::query_as!(
+            MarketCandleDetail,
+            r#"
+            SELECT market_id,
+                exchange_name as "exchange_name: ExchangeName",
+                market_name,
+                time_frame as "time_frame: TimeFrame",
+                first_candle, last_candle, last_trade_ts, last_trade_id
+            FROM market_candle_details
+            "#,
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(rows)
     }
 }
 
