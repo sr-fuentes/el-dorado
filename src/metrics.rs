@@ -16,6 +16,7 @@ impl TimeFrame {
             TimeFrame::H04 => [42, 180, 540],
             TimeFrame::H12 => [14, 60, 180],
             TimeFrame::D01 => [7, 30, 90],
+            _ => [0, 0, 0], // To be defined
         }
     }
 
@@ -26,6 +27,7 @@ impl TimeFrame {
             TimeFrame::H04 => 582,
             TimeFrame::H12 => 194,
             TimeFrame::D01 => 97,
+            _ => 1, // To be defined
         }
     }
 
@@ -36,6 +38,7 @@ impl TimeFrame {
             TimeFrame::H04 => TimeFrame::H01,
             TimeFrame::H12 => TimeFrame::H04,
             TimeFrame::D01 => TimeFrame::H12,
+            _ => TimeFrame::T15, // To be defined
         }
     }
 }

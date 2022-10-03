@@ -90,41 +90,85 @@ impl Twilio {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type)]
 #[sqlx(rename_all = "lowercase")]
 pub enum TimeFrame {
+    S15,
+    S30,
+    T01,
+    T03,
+    T05,
     T15,
+    T30,
     H01,
+    H02,
+    H03,
     H04,
+    H06,
     H12,
     D01,
+    D03,
+    W01,
 }
 
 impl TimeFrame {
     pub fn as_str(&self) -> &'static str {
         match self {
+            TimeFrame::S15 => "s15",
+            TimeFrame::S30 => "s30",
+            TimeFrame::T01 => "t01",
+            TimeFrame::T03 => "t03",
+            TimeFrame::T05 => "t05",
             TimeFrame::T15 => "t15",
+            TimeFrame::T30 => "t30",
             TimeFrame::H01 => "h01",
+            TimeFrame::H02 => "h01",
+            TimeFrame::H03 => "h03",
             TimeFrame::H04 => "h04",
+            TimeFrame::H06 => "h06",
             TimeFrame::H12 => "h12",
             TimeFrame::D01 => "d01",
+            TimeFrame::D03 => "d03",
+            TimeFrame::W01 => "w01",
         }
     }
 
     pub fn as_secs(&self) -> i64 {
         match self {
+            TimeFrame::S15 => 15,
+            TimeFrame::S30 => 30,
+            TimeFrame::T01 => 60,
+            TimeFrame::T03 => 180,
+            TimeFrame::T05 => 300,
             TimeFrame::T15 => 900,
+            TimeFrame::T30 => 1800,
             TimeFrame::H01 => 3600,
+            TimeFrame::H02 => 7200,
+            TimeFrame::H03 => 10800,
             TimeFrame::H04 => 14400,
+            TimeFrame::H06 => 21600,
             TimeFrame::H12 => 43200,
             TimeFrame::D01 => 86400,
+            TimeFrame::D03 => 259200,
+            TimeFrame::W01 => 604800,
         }
     }
 
     pub fn as_dur(&self) -> Duration {
         match self {
+            TimeFrame::S15 => Duration::seconds(15),
+            TimeFrame::S30 => Duration::seconds(30),
+            TimeFrame::T01 => Duration::minutes(1),
+            TimeFrame::T03 => Duration::minutes(3),
+            TimeFrame::T05 => Duration::minutes(5),
             TimeFrame::T15 => Duration::minutes(15),
+            TimeFrame::T30 => Duration::minutes(30),
             TimeFrame::H01 => Duration::hours(1),
+            TimeFrame::H02 => Duration::hours(2),
+            TimeFrame::H03 => Duration::hours(3),
             TimeFrame::H04 => Duration::hours(4),
+            TimeFrame::H06 => Duration::hours(6),
             TimeFrame::H12 => Duration::hours(12),
             TimeFrame::D01 => Duration::days(1),
+            TimeFrame::D03 => Duration::days(3),
+            TimeFrame::W01 => Duration::weeks(1),
         }
     }
 
