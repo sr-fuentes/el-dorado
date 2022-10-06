@@ -77,6 +77,7 @@ pub struct MarketCandleDetail {
     pub last_candle: DateTime<Utc>,
     pub last_trade_ts: DateTime<Utc>,
     pub last_trade_id: String,
+    pub last_trade_price: Decimal,
 }
 
 impl MarketId {
@@ -466,7 +467,7 @@ impl MarketCandleDetail {
                 exchange_name as "exchange_name: ExchangeName",
                 market_name,
                 time_frame as "time_frame: TimeFrame",
-                first_candle, last_candle, last_trade_ts, last_trade_id
+                first_candle, last_candle, last_trade_ts, last_trade_id, last_trade_price
             FROM market_candle_details
             "#,
         )

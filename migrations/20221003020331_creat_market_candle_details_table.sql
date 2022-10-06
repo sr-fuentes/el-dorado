@@ -10,6 +10,7 @@ CREATE TABLE market_candle_details (
     first_candle timestamptz NOT NULL,
     last_candle timestamptz NOT NULL,
     last_trade_ts timestamptz NOT NULL,
-    last_trade_id TEXT NOT NULL
+    last_trade_id TEXT NOT NULL,
+    last_trade_price NUMERIC NOT NULL
 )
 
