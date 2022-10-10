@@ -1774,6 +1774,26 @@
       ]
     }
   },
+  "e1729c52cb4e39766239fad6726a7b7c1dfaafa581445ecafd2b6a54ae5ad701": {
+    "query": "\n            INSERT INTO market_candle_details (\n                market_id, exchange_name, market_name, time_frame, first_candle, last_candle,\n                last_trade_ts, last_trade_id, last_trade_price)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)\n            ",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Text",
+          "Text",
+          "Text",
+          "Timestamptz",
+          "Timestamptz",
+          "Timestamptz",
+          "Text",
+          "Numeric"
+        ]
+      },
+      "nullable": []
+    }
+  },
   "e1c4d7694d8fede85ef09ecc6eecac4834e86829345d60381d92dc0848c4ca32": {
     "query": "\n            SELECT event_id, droplet,\n            event_type as \"event_type: EventType\",\n            exchange_name as \"exchange_name: ExchangeName\",\n            market_id, start_ts, end_ts, event_ts, created_ts, processed_ts,\n            event_status as \"event_status: EventStatus\", \n            notes\n        FROM events\n        ",
     "describe": {
