@@ -1,5 +1,4 @@
 use crate::candles::select_first_01d_candle;
-use crate::exchanges::Exchange;
 use crate::exchanges::{client::RestClient, error::RestError, select_exchanges, ExchangeName};
 use crate::inquisidor::Inquisidor;
 use crate::utilities::{get_input, TimeFrame, Trade};
@@ -459,6 +458,29 @@ impl MarketTradeDetail {
 }
 
 impl MarketCandleDetail {
+    pub async fn insert(&self, pool: &PgPool) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"
+            INSERT INTO market_candle_details (
+                market_id, exchange_name, market_name, time_frame, first_candle, last_candle,
+                last_trade_ts, last_trade_id, last_trade_price)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            "#,
+            self.market_id,
+            self.exchange_name.as_str(),
+            self.market_name,
+            self.time_frame.as_str(),
+            self.first_candle,
+            self.last_candle,
+            self.last_trade_ts,
+            self.last_trade_id,
+            self.last_trade_price,
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn select_all(pool: &PgPool) -> Result<Vec<MarketCandleDetail>, sqlx::Error> {
         let rows = sqlx::query_as!(
             MarketCandleDetail,

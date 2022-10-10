@@ -1,17 +1,19 @@
 use crate::exchanges::{client::RestClient, error::RestError, ExchangeName};
-use crate::markets::MarketDetail;
+use crate::inquisidor::Inquisidor;
+use crate::markets::{MarketCandleDetail, MarketDetail, MarketTradeDetail};
 use crate::mita::Mita;
 use crate::trades::*;
-use crate::utilities::{TimeFrame, Trade};
+use crate::utilities::{create_date_range, next_month_datetime, TimeFrame, Trade};
 use crate::validation::insert_candle_validation;
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
-use serde::de::DeserializeOwned;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
+use csv::Writer;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, sqlx::FromRow)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone, sqlx::FromRow)]
 pub struct Candle {
     pub datetime: DateTime<Utc>,
     pub open: Decimal,
@@ -329,6 +331,213 @@ impl Mita {
             .await
             .expect("Could not insert new candle.");
         }
+    }
+}
+
+impl Inquisidor {
+    pub async fn make_candles(&self) {
+        // Aggregate trades for a market into timeframe buckets. Track the latest trade details to
+        // determine if the month has been completed and can be aggregated
+        // Get market to aggregate trades
+        let market = match self.get_valid_market().await {
+            Some(m) => m,
+            None => return,
+        };
+        // Get the market candle detail
+        let mcd = self.get_market_candle_detail(&market).await;
+        match mcd {
+            Some(m) => {
+                // Start from last candle
+                self.make_candles_from_last_candle(&m).await;
+            }
+            None => {
+                // Create mcd and start from first trade month
+                let mcd = self.validate_and_make_mcd_and_first_candle(&market).await;
+                if mcd.is_some() {
+                    self.make_candles_from_last_candle(&mcd.unwrap()).await;
+                };
+            }
+        }
+    }
+
+    pub async fn validate_market_eligibility_for_candles(
+        &self,
+        market: &MarketDetail,
+        mtd: &Option<MarketTradeDetail>,
+    ) -> bool {
+        // Check there is a market trade detail
+        match mtd {
+            Some(mtd) => {
+                // Check there are trades validated and archived
+                if mtd.next_trade_day.is_none() {
+                    println!(
+                        "{:?} market has not completed backfill. Cannot make candles.",
+                        market.market_name
+                    );
+                    return false;
+                };
+                // Check that there are at least first month of trades to make into candles
+                if mtd.next_trade_day.unwrap() <= next_month_datetime(mtd.first_trade_ts) {
+                    println!(
+                        "Less than one full months of trades for {:?}. Cannot make candles.",
+                        market.market_name
+                    );
+                    return false;
+                } else {
+                    return true;
+                }
+            }
+            None => {
+                println!(
+                    "Market trade detail does not exist for {:?}. Cannot make candes.",
+                    market.market_name
+                );
+                return false;
+            }
+        };
+    }
+
+    pub async fn validate_and_make_mcd_and_first_candle(
+        &self,
+        market: &MarketDetail,
+    ) -> Option<MarketCandleDetail> {
+        // Get the market trade details and check if one exists for market
+        let market_trade_details = MarketTradeDetail::select_all(&self.ig_pool)
+            .await
+            .expect("Failed to select market trade details.");
+        let mtd = market_trade_details
+            .iter()
+            .find(|mtd| mtd.market_id == market.market_id)
+            .cloned();
+        // Validate that the market is in a state to make candles - ie trades have been
+        // archived, a market_trade_detail record exists, and that there are trades through
+        // the end of the first month
+        if !self
+            .validate_market_eligibility_for_candles(market, &mtd)
+            .await
+        {
+            return None;
+        };
+        // Safe to unwrap as None would fail eligibility
+        let mtd = mtd.unwrap();
+        Some(self.make_mcd_and_first_candle(market, &mtd).await)
+    }
+
+    pub async fn make_mcd_and_first_candle(
+        &self,
+        market: &MarketDetail,
+        mtd: &MarketTradeDetail,
+    ) -> MarketCandleDetail {
+        // Create candle daterange from first trade to end of first month
+        let candle_dr = create_date_range(
+            mtd.first_trade_ts
+                .duration_trunc(TimeFrame::S15.as_dur())
+                .unwrap(),
+            next_month_datetime(mtd.first_trade_ts),
+            TimeFrame::S15.as_dur(),
+        );
+        // Create trade file daterange
+        let trades_dr = create_date_range(
+            mtd.first_trade_ts
+                .duration_trunc(Duration::days(1))
+                .unwrap(),
+            next_month_datetime(mtd.first_trade_ts),
+            Duration::days(1),
+        );
+        // Load the trades
+        let trades = self.load_trades_for_dr(market, &trades_dr).await;
+        // Create the first months candles
+        let candles = self
+            .make_candles_for_dr(market, &None, &candle_dr, &trades)
+            .await;
+        // Write candles to file
+        let f = format!("{}_{}-{}.csv", market.as_strip(), candle_dr.first().unwrap().format("%Y"), candle_dr.first().unwrap().format("%m"));
+        let archive_path = format!(
+            "{}/candles/{}/{}/{}",
+            &self.settings.application.archive_path,
+            &market.exchange_name.as_str(),
+            &market.as_strip(),
+            candle_dr.first().unwrap().format("%Y"),
+        );
+        // Create directories if not exists
+        std::fs::create_dir_all(&archive_path).expect("Failed to create directories.");
+        let c_path = std::path::Path::new(&archive_path).join(f.clone());
+        // Write trades to file
+        let mut wtr = Writer::from_path(c_path).expect("Failed to open file.");
+        for candle in candles.iter() {
+            wtr.serialize(candle).expect("Failed to serialize trade.");
+        }
+        wtr.flush().expect("Failed to flush wtr.");
+        // Create the mcd
+        let mcd = MarketCandleDetail {
+            market_id: market.market_id,
+            exchange_name: market.exchange_name,
+            market_name: market.market_name.clone(),
+            time_frame: TimeFrame::S15,
+            first_candle: candles.first().unwrap().datetime,
+            last_candle: candles.last().unwrap().datetime,
+            last_trade_ts: candles.last().unwrap().last_trade_ts,
+            last_trade_id: candles.last().unwrap().last_trade_id.clone(),
+            last_trade_price: candles.last().unwrap().close,
+        };
+        // Insert the mcd
+        mcd.insert(&self.ig_pool)
+            .await
+            .expect("Failed to insert market candle detail.");
+        // Return the mcd
+        mcd
+    }
+
+    pub async fn make_candles_for_dr<T: Trade + std::clone::Clone>(
+        &self,
+        market: &MarketDetail,
+        mcd: &Option<MarketCandleDetail>,
+        dr: &Vec<DateTime<Utc>>,
+        trades: &[T],
+    ) -> Vec<Candle> {
+        let (mut last_price, mut last_id, mut last_ts) = match mcd {
+            Some(mcd) => (
+                mcd.last_trade_price,
+                mcd.last_trade_id.clone(),
+                mcd.last_trade_ts,
+            ),
+            None => (dec!(-1), String::new(), Utc::now()),
+        };
+        let candles = dr.iter().fold(Vec::new(), |mut v, d| {
+            let mut filtered_trades: Vec<T> = trades
+                .iter()
+                .filter(|t| t.time().duration_trunc(TimeFrame::S15.as_dur()).unwrap() == *d)
+                .cloned()
+                .collect();
+            let new_candle = match filtered_trades.len() {
+                0 => Candle::new_from_last(market.market_id, *d, last_price, last_ts, &last_id),
+                _ => {
+                    filtered_trades.sort_by_key(|t1| t1.trade_id());
+                    Candle::new_from_trades(market.market_id, *d, &filtered_trades)
+                }
+            };
+            last_price = new_candle.close;
+            last_ts = new_candle.last_trade_ts;
+            last_id = new_candle.last_trade_id.clone();
+            v.push(new_candle);
+            v
+        });
+        candles
+    }
+
+    pub async fn make_candles_from_last_candle(&self, _mcd: &MarketCandleDetail) {}
+
+    pub async fn get_market_candle_detail(
+        &self,
+        market: &MarketDetail,
+    ) -> Option<MarketCandleDetail> {
+        let market_candle_details = MarketCandleDetail::select_all(&self.ig_pool)
+            .await
+            .expect("Failed to select market candle details.");
+        market_candle_details
+            .iter()
+            .find(|m| m.market_id == market.market_id)
+            .cloned()
     }
 }
 
@@ -1499,17 +1708,20 @@ mod tests {
     };
     use crate::configuration::get_configuration;
     use crate::exchanges::select_exchanges;
-    use crate::exchanges::{client::RestClient, ftx::Trade};
-    use crate::markets::{select_market_detail, select_market_ids_by_exchange};
-    use chrono::{Duration, TimeZone, Utc};
+    use crate::exchanges::{client::RestClient, ftx::Trade as FtxTrade};
+    use crate::inquisidor::Inquisidor;
+    use crate::markets::{select_market_detail, select_market_ids_by_exchange, MarketDataStatus};
+    use crate::utilities::next_month_datetime;
+    use chrono::{DateTime, Datelike, Duration, TimeZone, Utc};
+    use csv::{Reader, Writer};
     use rust_decimal::prelude::*;
     use rust_decimal_macros::dec;
     use sqlx::PgPool;
     use uuid::Uuid;
 
-    pub fn sample_trades() -> Vec<Trade> {
-        let mut trades: Vec<Trade> = Vec::new();
-        trades.push(Trade {
+    pub fn sample_trades() -> Vec<FtxTrade> {
+        let mut trades: Vec<FtxTrade> = Vec::new();
+        trades.push(FtxTrade {
             id: 1,
             price: Decimal::new(702, 1),
             size: Decimal::new(23, 1),
@@ -1517,7 +1729,7 @@ mod tests {
             liquidation: false,
             time: Utc.timestamp(1524886322, 0),
         });
-        trades.push(Trade {
+        trades.push(FtxTrade {
             id: 2,
             price: Decimal::new(752, 1),
             size: Decimal::new(64, 1),
@@ -1525,7 +1737,7 @@ mod tests {
             liquidation: false,
             time: Utc.timestamp(1524887322, 0),
         });
-        trades.push(Trade {
+        trades.push(FtxTrade {
             id: 3,
             price: Decimal::new(810, 1),
             size: Decimal::new(4, 1),
@@ -1533,7 +1745,7 @@ mod tests {
             liquidation: true,
             time: Utc.timestamp(1524888322, 0),
         });
-        trades.push(Trade {
+        trades.push(FtxTrade {
             id: 4,
             price: Decimal::new(767, 1),
             size: Decimal::new(13, 1),
@@ -1542,6 +1754,49 @@ mod tests {
             time: Utc.timestamp(1524889322, 0),
         });
         trades
+    }
+
+    pub async fn prep_ftx_file(path: &str, seed: i64, date: DateTime<Utc>) {
+        // Create trades
+        let mut trades = Vec::new();
+        for i in seed..30 {
+            let trade = create_ftx_trade(i, date);
+            trades.push(trade)
+        }
+        // Get path to save file
+        let f = format!("SOLPERP_{}.csv", date.format("%F"));
+        // Set archive file path
+        let archive_path = format!(
+            "{}/trades/ftx/SOLPERP/{}/{}",
+            path,
+            date.format("%Y"),
+            date.format("%m")
+        );
+        // Check directory is created
+        std::fs::create_dir_all(&archive_path).expect("Failed to create directories.");
+        // Set filepath
+        let fp = std::path::Path::new(&archive_path).join(f);
+        // Write trades to file
+        let mut wtr = Writer::from_path(fp).expect("Failed to open file.");
+        for trade in trades.iter() {
+            wtr.serialize(trade).expect("Failed to serialize trade.");
+        }
+        wtr.flush().expect("Failed to flush wtr.");
+    }
+
+    pub fn create_ftx_trade(id: i64, date: DateTime<Utc>) -> FtxTrade {
+        let price = Decimal::new(id, 0) + dec!(100);
+        let size = Decimal::new(id, 0) * dec!(10);
+        FtxTrade {
+            id,
+            price,
+            size,
+            side: "buy".to_string(),
+            liquidation: false,
+            time: Utc
+                .ymd(date.year(), date.month(), date.day())
+                .and_hms(0, id as u32, 0),
+        }
     }
 
     #[test]
@@ -1797,4 +2052,132 @@ mod tests {
         }
         println!("All candles resampled: {:?}", Utc::now());
     }
+
+    #[tokio::test]
+    pub async fn make_candles_with_invalid_market_does_nothing_mtd() {
+        // Setup market with no mtd
+        let ig = Inquisidor::new().await;
+        // Update market to active with valid timestamp
+        let sql = r#"
+            UPDATE markets
+            SET (market_data_status, last_candle) = ('active', '2021-12-01 00:00:00+00')
+            WHERE market_name = 'SOL-PERP'
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        // Clear market trade details
+        let sql = r#"
+            DELETE FROM market_trade_details
+            WHERE 1=1
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        // New ig instance will pick up new data items
+        let ig = Inquisidor::new().await;
+        // Get test market
+        let market = ig
+            .markets
+            .iter()
+            .find(|m| m.market_name == "SOL-PERP")
+            .unwrap();
+        // Test no mtd returns false
+        assert!(
+            !ig.validate_market_eligibility_for_candles(market, &None)
+                .await
+        );
+        // Create mtd
+        let mtd = ig.get_market_trade_detail(&market).await;
+        // Test with mtd created but backfill not completed
+        assert!(
+            !ig.validate_market_eligibility_for_candles(market, &Some(mtd))
+                .await
+        );
+        // Modify mtd
+        let mut mtd = ig.get_market_trade_detail(&market).await;
+        mtd.previous_status = MarketDataStatus::Completed;
+        mtd.next_trade_day = Some(mtd.previous_trade_day);
+        println!("{:?}", mtd);
+        assert!(
+            !ig.validate_market_eligibility_for_candles(market, &Some(mtd))
+                .await
+        );
+        // Modify mtd valid scenario
+        let mut mtd = ig.get_market_trade_detail(&market).await;
+        mtd.first_trade_ts = mtd.first_trade_ts - Duration::days(2);
+        mtd.previous_status = MarketDataStatus::Completed;
+        mtd.next_trade_day = Some(mtd.previous_trade_day + Duration::days(2));
+        println!("{:?}", mtd);
+        assert!(
+            ig.validate_market_eligibility_for_candles(market, &Some(mtd))
+                .await
+        );
+    }
+
+    #[tokio::test]
+    pub async fn make_candles_with_no_mcd_creates_mcd_and_first_candle() {
+        // Set up market and mtd
+        let ig = Inquisidor::new().await;
+        // Update market to active with valid timestamp
+        let sql = r#"
+            UPDATE markets
+            SET (market_data_status, last_candle) = ('active', '2021-12-01 00:00:00+00')
+            WHERE market_name = 'SOL-PERP'
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        // Clear market trade details
+        let sql = r#"
+            DELETE FROM market_trade_details
+            WHERE 1=1
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        // Clear market candle details
+        let sql = r#"
+            DELETE FROM market_candle_details
+            WHERE 1=1
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        // New ig instance will pick up new data items
+        let ig = Inquisidor::new().await;
+        // Get test market
+        let market = ig
+            .markets
+            .iter()
+            .find(|m| m.market_name == "SOL-PERP")
+            .unwrap();
+        // Get mtd
+        let mut mtd = ig.get_market_trade_detail(&market).await;
+        // Modify mtd to for test - set next trade day - first trade ts
+        mtd.first_trade_ts = mtd.first_trade_ts - Duration::days(2);
+        mtd.previous_status = MarketDataStatus::Completed;
+        mtd.next_trade_day = Some(mtd.previous_trade_day + Duration::days(2));
+        println!("{:?}", mtd);
+        // Create trade files for 11/29 and 11/30
+        prep_ftx_file(&ig.settings.application.archive_path, 1, mtd.first_trade_ts).await;
+        prep_ftx_file(
+            &ig.settings.application.archive_path,
+            2,
+            mtd.first_trade_ts + Duration::days(1),
+        )
+        .await;
+        // Test
+        let mcd = ig.make_mcd_and_first_candle(market, &mtd).await;
+        println!("MCD: {:?}", mcd);
+        assert_eq!(mcd.first_candle, mtd.first_trade_ts);
+        assert_eq!(mcd.last_candle, next_month_datetime(mtd.first_trade_ts) - Duration::seconds(15));
+    }
+
+    pub async fn make_candles_with_mcd_makes_until_last_full_month() {}
 }
