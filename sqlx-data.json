@@ -1264,6 +1264,22 @@
       ]
     }
   },
+  "7e57b94d19cd9d9ff77236ac518749265bdb2070504e397ba8a01d99747e2c6e": {
+    "query": "\n            UPDATE market_candle_details\n            SET (last_candle, last_trade_ts, last_trade_id, last_trade_price) = ($1, $2, $3, $4)\n            WHERE market_id = $5\n            ",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Timestamptz",
+          "Timestamptz",
+          "Text",
+          "Numeric",
+          "Uuid"
+        ]
+      },
+      "nullable": []
+    }
+  },
   "8eda66124ff968382b106f45da0a57469f79c0c6e522c952b718faec0c869015": {
     "query": "\n            INSERT INTO market_trade_details (\n                market_id, market_start_ts, first_trade_ts, first_trade_id, last_trade_ts,\n                last_trade_id, previous_trade_day, previous_status, next_trade_day, next_status)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)\n            ",
     "describe": {

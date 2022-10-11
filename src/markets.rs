@@ -1,4 +1,4 @@
-use crate::candles::select_first_01d_candle;
+use crate::candles::{select_first_01d_candle, Candle};
 use crate::exchanges::{client::RestClient, error::RestError, select_exchanges, ExchangeName};
 use crate::inquisidor::Inquisidor;
 use crate::utilities::{get_input, TimeFrame, Trade};
@@ -479,6 +479,34 @@ impl MarketCandleDetail {
         .execute(pool)
         .await?;
         Ok(())
+    }
+
+    pub async fn update_last(&self, pool: &PgPool, candle: &Candle) -> Result<Self, sqlx::Error> {
+        sqlx::query!(
+            r#"
+            UPDATE market_candle_details
+            SET (last_candle, last_trade_ts, last_trade_id, last_trade_price) = ($1, $2, $3, $4)
+            WHERE market_id = $5
+            "#,
+            candle.datetime,
+            candle.last_trade_ts,
+            candle.last_trade_id,
+            candle.close,
+            self.market_id,
+        )
+        .execute(pool)
+        .await?;
+        Ok(Self {
+            market_id: self.market_id,
+            exchange_name: self.exchange_name,
+            market_name: self.market_name.clone(),
+            time_frame: self.time_frame,
+            first_candle: self.first_candle,
+            last_candle: candle.datetime,
+            last_trade_ts: candle.last_trade_ts,
+            last_trade_id: candle.last_trade_id.clone(),
+            last_trade_price: candle.close,
+        })
     }
 
     pub async fn select_all(pool: &PgPool) -> Result<Vec<MarketCandleDetail>, sqlx::Error> {

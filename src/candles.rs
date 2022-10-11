@@ -3,15 +3,17 @@ use crate::inquisidor::Inquisidor;
 use crate::markets::{MarketCandleDetail, MarketDetail, MarketTradeDetail};
 use crate::mita::Mita;
 use crate::trades::*;
-use crate::utilities::{create_date_range, next_month_datetime, TimeFrame, Trade};
+use crate::utilities::{
+    create_date_range, create_monthly_date_range, next_month_datetime, TimeFrame, Trade,
+};
 use crate::validation::insert_candle_validation;
 use chrono::{DateTime, Duration, DurationRound, Utc};
+use csv::Writer;
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
-use csv::Writer;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone, sqlx::FromRow)]
 pub struct Candle {
@@ -348,13 +350,14 @@ impl Inquisidor {
         match mcd {
             Some(m) => {
                 // Start from last candle
-                self.make_candles_from_last_candle(&m).await;
+                self.make_candles_from_last_candle(&market, &m).await;
             }
             None => {
                 // Create mcd and start from first trade month
                 let mcd = self.validate_and_make_mcd_and_first_candle(&market).await;
                 if mcd.is_some() {
-                    self.make_candles_from_last_candle(&mcd.unwrap()).await;
+                    self.make_candles_from_last_candle(&market, &mcd.unwrap())
+                        .await;
                 };
             }
         }
@@ -444,30 +447,10 @@ impl Inquisidor {
             next_month_datetime(mtd.first_trade_ts),
             Duration::days(1),
         );
-        // Load the trades
-        let trades = self.load_trades_for_dr(market, &trades_dr).await;
-        // Create the first months candles
+        // Make the candle and write to file
         let candles = self
-            .make_candles_for_dr(market, &None, &candle_dr, &trades)
+            .make_candle_for_month(market, &candle_dr, &trades_dr)
             .await;
-        // Write candles to file
-        let f = format!("{}_{}-{}.csv", market.as_strip(), candle_dr.first().unwrap().format("%Y"), candle_dr.first().unwrap().format("%m"));
-        let archive_path = format!(
-            "{}/candles/{}/{}/{}",
-            &self.settings.application.archive_path,
-            &market.exchange_name.as_str(),
-            &market.as_strip(),
-            candle_dr.first().unwrap().format("%Y"),
-        );
-        // Create directories if not exists
-        std::fs::create_dir_all(&archive_path).expect("Failed to create directories.");
-        let c_path = std::path::Path::new(&archive_path).join(f.clone());
-        // Write trades to file
-        let mut wtr = Writer::from_path(c_path).expect("Failed to open file.");
-        for candle in candles.iter() {
-            wtr.serialize(candle).expect("Failed to serialize trade.");
-        }
-        wtr.flush().expect("Failed to flush wtr.");
         // Create the mcd
         let mcd = MarketCandleDetail {
             market_id: market.market_id,
@@ -486,6 +469,44 @@ impl Inquisidor {
             .expect("Failed to insert market candle detail.");
         // Return the mcd
         mcd
+    }
+
+    pub async fn make_candle_for_month(
+        &self,
+        market: &MarketDetail,
+        candle_dr: &Vec<DateTime<Utc>>,
+        trades_dr: &Vec<DateTime<Utc>>,
+    ) -> Vec<Candle> {
+        // Load the trades
+        let trades = self.load_trades_for_dr(market, &trades_dr).await;
+        // Create the first months candles
+        let candles = self
+            .make_candles_for_dr(market, &None, &candle_dr, &trades)
+            .await;
+        // Write candles to file
+        let f = format!(
+            "{}_{}-{}.csv",
+            market.as_strip(),
+            candle_dr.first().unwrap().format("%Y"),
+            candle_dr.first().unwrap().format("%m")
+        );
+        let archive_path = format!(
+            "{}/candles/{}/{}/{}",
+            &self.settings.application.archive_path,
+            &market.exchange_name.as_str(),
+            &market.as_strip(),
+            candle_dr.first().unwrap().format("%Y"),
+        );
+        // Create directories if not exists
+        std::fs::create_dir_all(&archive_path).expect("Failed to create directories.");
+        let c_path = std::path::Path::new(&archive_path).join(f.clone());
+        // Write trades to file
+        let mut wtr = Writer::from_path(c_path).expect("Failed to open file.");
+        for candle in candles.iter() {
+            wtr.serialize(candle).expect("Failed to serialize trade.");
+        }
+        wtr.flush().expect("Failed to flush wtr.");
+        candles
     }
 
     pub async fn make_candles_for_dr<T: Trade + std::clone::Clone>(
@@ -525,7 +546,35 @@ impl Inquisidor {
         candles
     }
 
-    pub async fn make_candles_from_last_candle(&self, _mcd: &MarketCandleDetail) {}
+    pub async fn make_candles_from_last_candle(
+        &self,
+        market: &MarketDetail,
+        mcd: &MarketCandleDetail,
+    ) {
+        // Get mtd for the market - it must exist to have a mcd existing
+        let mtd = self.get_market_trade_detail(market).await;
+        // Get month date range for candle build
+        let months_dr = create_monthly_date_range(
+            mcd.last_candle + mcd.time_frame.as_dur(),
+            next_month_datetime(mtd.next_trade_day.unwrap()),
+        );
+        // For each month, make candles and update the mcd
+        for month in months_dr.iter() {
+            let candle_dr =
+                create_date_range(*month, next_month_datetime(*month), mcd.time_frame.as_dur());
+            let trades_dr =
+                create_date_range(*month, next_month_datetime(*month), Duration::days(1));
+            let candles = self
+                .make_candle_for_month(market, &candle_dr, &trades_dr)
+                .await;
+            // Update the mcd
+            if !candles.is_empty() {
+                mcd.update_last(&self.ig_pool, candles.last().unwrap())
+                    .await
+                    .expect("Failed to update last market candle detail.");
+            }
+        }
+    }
 
     pub async fn get_market_candle_detail(
         &self,
@@ -2176,7 +2225,10 @@ mod tests {
         let mcd = ig.make_mcd_and_first_candle(market, &mtd).await;
         println!("MCD: {:?}", mcd);
         assert_eq!(mcd.first_candle, mtd.first_trade_ts);
-        assert_eq!(mcd.last_candle, next_month_datetime(mtd.first_trade_ts) - Duration::seconds(15));
+        assert_eq!(
+            mcd.last_candle,
+            next_month_datetime(mtd.first_trade_ts) - Duration::seconds(15)
+        );
     }
 
     pub async fn make_candles_with_mcd_makes_until_last_full_month() {}

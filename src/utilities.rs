@@ -278,6 +278,16 @@ pub fn create_date_range(
     date_range
 }
 
+pub fn create_monthly_date_range(start: DateTime<Utc>, end: DateTime<Utc>) -> Vec<DateTime<Utc>> {
+    let mut dr_start = start;
+    let mut date_range = Vec::new();
+    while dr_start < end {
+        date_range.push(dr_start);
+        dr_start = next_month_datetime(dr_start);
+    }
+    date_range
+}
+
 pub fn next_month_datetime(dt: DateTime<Utc>) -> DateTime<Utc> {
     // Takes a datetime and returns the datetime of the next month
     // 11/23/2022 12:33:00 -> 12/01/2022
@@ -342,6 +352,8 @@ mod tests {
     use chrono::{Duration, DurationRound, TimeZone, Utc};
     use rust_decimal::prelude::*;
     use rust_decimal_macros::dec;
+
+    use super::create_monthly_date_range;
 
     #[test]
     pub fn build_range_from_vec_trades() {
@@ -464,5 +476,21 @@ mod tests {
             next_month_datetime(Utc.ymd(2020, 12, 12).and_hms(4, 4, 30)),
             Utc.ymd(2021, 1, 1).and_hms(0, 0, 0)
         );
+    }
+
+    #[test]
+    pub fn create_monthly_date_range_tests() {
+        // Test no months len = 0
+        let start = Utc.ymd(2020, 2, 1).and_hms(0, 0, 0);
+        let end = Utc.ymd(2020, 2, 1).and_hms(0, 0, 0);
+        let monthly_dr = create_monthly_date_range(start, end);
+        assert_eq!(monthly_dr.len(), 0);
+        println!("{:?}", monthly_dr);
+        // Test 3 months len = 3
+        let start = Utc.ymd(2020, 2, 1).and_hms(0, 0, 0);
+        let end = Utc.ymd(2020, 5, 1).and_hms(0, 0, 0);
+        let monthly_dr = create_monthly_date_range(start, end);
+        assert_eq!(monthly_dr.len(), 3);
+        println!("{:?}", monthly_dr);
     }
 }
