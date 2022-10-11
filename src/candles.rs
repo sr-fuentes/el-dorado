@@ -4,7 +4,8 @@ use crate::markets::{MarketCandleDetail, MarketDetail, MarketTradeDetail};
 use crate::mita::Mita;
 use crate::trades::*;
 use crate::utilities::{
-    create_date_range, create_monthly_date_range, next_month_datetime, TimeFrame, Trade,
+    create_date_range, create_monthly_date_range, next_month_datetime, trunc_month_datetime,
+    TimeFrame, Trade,
 };
 use crate::validation::insert_candle_validation;
 use chrono::{DateTime, Duration, DurationRound, Utc};
@@ -385,9 +386,9 @@ impl Inquisidor {
                         "Less than one full months of trades for {:?}. Cannot make candles.",
                         market.market_name
                     );
-                    return false;
+                    false
                 } else {
-                    return true;
+                    true
                 }
             }
             None => {
@@ -395,9 +396,9 @@ impl Inquisidor {
                     "Market trade detail does not exist for {:?}. Cannot make candes.",
                     market.market_name
                 );
-                return false;
+                false
             }
-        };
+        }
     }
 
     pub async fn validate_and_make_mcd_and_first_candle(
@@ -449,7 +450,7 @@ impl Inquisidor {
         );
         // Make the candle and write to file
         let candles = self
-            .make_candle_for_month(market, &candle_dr, &trades_dr)
+            .make_candle_for_month(market, &None, &candle_dr, &trades_dr)
             .await;
         // Create the mcd
         let mcd = MarketCandleDetail {
@@ -474,14 +475,15 @@ impl Inquisidor {
     pub async fn make_candle_for_month(
         &self,
         market: &MarketDetail,
-        candle_dr: &Vec<DateTime<Utc>>,
-        trades_dr: &Vec<DateTime<Utc>>,
+        mcd: &Option<MarketCandleDetail>,
+        candle_dr: &[DateTime<Utc>],
+        trades_dr: &[DateTime<Utc>],
     ) -> Vec<Candle> {
         // Load the trades
-        let trades = self.load_trades_for_dr(market, &trades_dr).await;
+        let trades = self.load_trades_for_dr(market, trades_dr).await;
         // Create the first months candles
         let candles = self
-            .make_candles_for_dr(market, &None, &candle_dr, &trades)
+            .make_candles_for_dr(market, mcd, candle_dr, &trades)
             .await;
         // Write candles to file
         let f = format!(
@@ -499,7 +501,7 @@ impl Inquisidor {
         );
         // Create directories if not exists
         std::fs::create_dir_all(&archive_path).expect("Failed to create directories.");
-        let c_path = std::path::Path::new(&archive_path).join(f.clone());
+        let c_path = std::path::Path::new(&archive_path).join(f);
         // Write trades to file
         let mut wtr = Writer::from_path(c_path).expect("Failed to open file.");
         for candle in candles.iter() {
@@ -513,7 +515,7 @@ impl Inquisidor {
         &self,
         market: &MarketDetail,
         mcd: &Option<MarketCandleDetail>,
-        dr: &Vec<DateTime<Utc>>,
+        dr: &[DateTime<Utc>],
         trades: &[T],
     ) -> Vec<Candle> {
         let (mut last_price, mut last_id, mut last_ts) = match mcd {
@@ -556,8 +558,11 @@ impl Inquisidor {
         // Get month date range for candle build
         let months_dr = create_monthly_date_range(
             mcd.last_candle + mcd.time_frame.as_dur(),
-            next_month_datetime(mtd.next_trade_day.unwrap()),
+            trunc_month_datetime(mtd.next_trade_day.unwrap() - Duration::days(1)),
         );
+        // Get mcd for modification
+        let mut mcd = mcd.clone();
+        println!("Months dr for candles: {:?}", months_dr);
         // For each month, make candles and update the mcd
         for month in months_dr.iter() {
             let candle_dr =
@@ -565,11 +570,12 @@ impl Inquisidor {
             let trades_dr =
                 create_date_range(*month, next_month_datetime(*month), Duration::days(1));
             let candles = self
-                .make_candle_for_month(market, &candle_dr, &trades_dr)
+                .make_candle_for_month(market, &Some(mcd.clone()), &candle_dr, &trades_dr)
                 .await;
             // Update the mcd
             if !candles.is_empty() {
-                mcd.update_last(&self.ig_pool, candles.last().unwrap())
+                mcd = mcd
+                    .update_last(&self.ig_pool, candles.last().unwrap())
                     .await
                     .expect("Failed to update last market candle detail.");
             }
@@ -1759,10 +1765,13 @@ mod tests {
     use crate::exchanges::select_exchanges;
     use crate::exchanges::{client::RestClient, ftx::Trade as FtxTrade};
     use crate::inquisidor::Inquisidor;
-    use crate::markets::{select_market_detail, select_market_ids_by_exchange, MarketDataStatus};
-    use crate::utilities::next_month_datetime;
+    use crate::markets::{
+        select_market_detail, select_market_ids_by_exchange, MarketCandleDetail, MarketDataStatus,
+        MarketTradeDetail,
+    };
+    use crate::utilities::{create_date_range, next_month_datetime};
     use chrono::{DateTime, Datelike, Duration, TimeZone, Utc};
-    use csv::{Reader, Writer};
+    use csv::Writer;
     use rust_decimal::prelude::*;
     use rust_decimal_macros::dec;
     use sqlx::PgPool;
@@ -2229,7 +2238,112 @@ mod tests {
             mcd.last_candle,
             next_month_datetime(mtd.first_trade_ts) - Duration::seconds(15)
         );
+        // Assert runnign mack candles from last_candle does nothing further
+        let sql = r#"
+            UPDATE market_trade_details
+            SET next_trade_day = '2021-12-02'
+            WHERE market_id = '19994c6a-fa3c-4b0b-96c4-c744c43a9514'
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        ig.make_candles_from_last_candle(&market, &mcd).await;
+        // Get the mcd now and assert it is the same as before
+        let new_mcds = MarketCandleDetail::select_all(&ig.ig_pool)
+            .await
+            .expect("Failed to select all mcd.");
+        let new_mcd = new_mcds
+            .iter()
+            .find(|m| m.market_name == "SOL-PERP")
+            .unwrap();
+        assert_eq!(mcd.last_candle, new_mcd.last_candle);
     }
 
-    pub async fn make_candles_with_mcd_makes_until_last_full_month() {}
+    #[tokio::test]
+    pub async fn make_candles_with_mcd_makes_until_last_full_month() {
+        // Set up market and mtd
+        let ig = Inquisidor::new().await;
+        // Update market to active with valid timestamp
+        let sql = r#"
+            UPDATE markets
+            SET (market_data_status, last_candle) = ('active', '2021-12-01 00:00:00+00')
+            WHERE market_name = 'SOL-PERP'
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        // Clear market trade details
+        let sql = r#"
+            DELETE FROM market_trade_details
+            WHERE 1=1
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        // Clear market candle details
+        let sql = r#"
+            DELETE FROM market_candle_details
+            WHERE 1=1
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        // New ig instance will pick up new data items
+        let ig = Inquisidor::new().await;
+        // Get test market
+        let market = ig
+            .markets
+            .iter()
+            .find(|m| m.market_name == "SOL-PERP")
+            .unwrap();
+        // Set up mtd details
+        let mut mtd = ig.get_market_trade_detail(&market).await;
+        let sql = r#"
+            UPDATE market_trade_details
+            SET next_trade_day = '2022-02-02'
+            WHERE market_id = '19994c6a-fa3c-4b0b-96c4-c744c43a9514'
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        let mtd = MarketTradeDetail::select(&ig.ig_pool, &market.market_id)
+            .await
+            .expect("Failed to select market trade detail.");
+        // Set up mcd details
+        let sql = r#"
+            INSERT INTO market_candle_details
+            VALUES ('19994c6a-fa3c-4b0b-96c4-c744c43a9514', 'ftx', 'SOL-PERP', 's15', '2021-11-29',
+                '2021-11-30 23:59:45', '2021-11-30 00:29:00', '29', 129);
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        // Now add trade files for the next 3 months
+        let months = [
+            Utc.ymd(2021, 12, 1).and_hms(0, 0, 0),
+            Utc.ymd(2022, 1, 1).and_hms(0, 0, 0),
+        ];
+        for month in months.iter() {
+            // Create date range for month
+            let dr = create_date_range(*month, next_month_datetime(*month), Duration::days(1));
+            for d in dr.iter() {
+                prep_ftx_file(&ig.settings.application.archive_path, d.day() as i64, *d).await;
+            }
+        }
+        // Get the mcd
+        let mcds = MarketCandleDetail::select_all(&ig.ig_pool)
+            .await
+            .expect("Failed to select all mcd.");
+        let mcd = mcds.iter().find(|m| m.market_name == "SOL-PERP").unwrap();
+        println!("{:?}", mcd);
+        // Run the function
+        ig.make_candles_from_last_candle(&market, &mcd).await;
+        // Assert
+    }
 }

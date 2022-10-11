@@ -279,6 +279,7 @@ pub fn create_date_range(
 }
 
 pub fn create_monthly_date_range(start: DateTime<Utc>, end: DateTime<Utc>) -> Vec<DateTime<Utc>> {
+    println!("Creating monthy dr from {:?} to {:?}", start, end);
     let mut dr_start = start;
     let mut date_range = Vec::new();
     while dr_start < end {
@@ -297,6 +298,11 @@ pub fn next_month_datetime(dt: DateTime<Utc>) -> DateTime<Utc> {
     } else {
         Utc.ymd(dt.year(), next_month, 1).and_hms(0, 0, 0)
     }
+}
+
+pub fn trunc_month_datetime(dt: DateTime<Utc>) -> DateTime<Utc> {
+    // Takes a datetime and returns the first of the month as a datetime
+    Utc.ymd(dt.year(), dt.month(), 1).and_hms(0, 0, 0)
 }
 
 pub fn min_to_dp(increment: Decimal) -> i32 {

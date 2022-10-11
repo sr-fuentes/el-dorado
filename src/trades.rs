@@ -174,7 +174,7 @@ impl Inquisidor {
     pub async fn load_trades_for_dr(
         &self,
         market: &MarketDetail,
-        dr: &Vec<DateTime<Utc>>,
+        dr: &[DateTime<Utc>],
     ) -> Vec<FtxTrade> {
         // For each date - load the trades and append to vec of trades
         let mut trades = Vec::new();
