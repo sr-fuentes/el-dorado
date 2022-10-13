@@ -1008,9 +1008,7 @@ impl Inquisidor {
         // Load the trades
         let trades = self.load_trades_for_dr(market, trades_dr).await;
         // Create the first months candles
-        let candles = self
-            .make_candles_for_dr(mcd, candle_dr, &trades)
-            .await;
+        let candles = self.make_candles_for_dr(mcd, candle_dr, &trades).await;
         // Write candles to file
         let f = format!(
             "{}_{}-{}.csv",

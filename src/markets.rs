@@ -481,7 +481,11 @@ impl MarketCandleDetail {
         Ok(())
     }
 
-    pub async fn update_last(&self, pool: &PgPool, candle: &ResearchCandle) -> Result<Self, sqlx::Error> {
+    pub async fn update_last(
+        &self,
+        pool: &PgPool,
+        candle: &ResearchCandle,
+    ) -> Result<Self, sqlx::Error> {
         sqlx::query!(
             r#"
             UPDATE market_candle_details
