@@ -268,10 +268,7 @@ impl ResearchCandle {
     // datetime passed as argument. Candle built from trades in the order they are in
     // the Vec, sort before calling this function otherwise Open / Close / Datetime may
     // be incorrect.
-    pub fn new_from_trades<T: Trade>(
-        datetime: DateTime<Utc>,
-        trades: &[T],
-    ) -> Self {
+    pub fn new_from_trades<T: Trade>(datetime: DateTime<Utc>, trades: &[T]) -> Self {
         let candle_tuple = trades.iter().fold(
             (
                 trades.first().expect("No first trade for candle.").price(), // open
@@ -436,10 +433,7 @@ impl ResearchCandle {
     }
 
     // Reduces the number of if statements in each iteration
-    pub fn new_from_trades_v2<T: Trade>(
-        datetime: DateTime<Utc>,
-        trades: &[T],
-    ) -> Self {
+    pub fn new_from_trades_v2<T: Trade>(datetime: DateTime<Utc>, trades: &[T]) -> Self {
         let candle_tuple = trades.iter().fold(
             (
                 trades.first().expect("No first trade for candle.").price(), // open
@@ -724,35 +718,44 @@ impl ResearchCandle {
     //     }
     // }
 
-    // // This function will build a placeholder trade with 0 volume and
-    // // will populate OHLC from the last trade provided.
-    // pub fn new_from_last(
-    //     market_id: Uuid,
-    //     datetime: DateTime<Utc>,
-    //     last_trade_price: Decimal,
-    //     last_trade_ts: DateTime<Utc>,
-    //     last_trade_id: &str,
-    // ) -> Self {
-    //     Self {
-    //         datetime,
-    //         open: last_trade_price, // All OHLC are = last trade price
-    //         high: last_trade_price,
-    //         low: last_trade_price,
-    //         close: last_trade_price,
-    //         volume: dec!(0),
-    //         volume_net: dec!(0),
-    //         volume_liquidation: dec!(0),
-    //         value: dec!(0),
-    //         trade_count: 0,
-    //         liquidation_count: 0,
-    //         last_trade_ts,
-    //         last_trade_id: last_trade_id.to_string(),
-    //         first_trade_ts: last_trade_ts,
-    //         first_trade_id: last_trade_id.to_string(),
-    //         is_validated: false,
-    //         market_id,
-    //     }
-    // }
+    // This function will build a placeholder trade with 0 volume and
+    // will populate OHLC from the last trade provided.
+    pub fn new_from_last(
+        datetime: DateTime<Utc>,
+        last_trade_price: Decimal,
+        last_trade_ts: DateTime<Utc>,
+        last_trade_id: &str,
+    ) -> Self {
+        Self {
+            datetime,
+            open: last_trade_price, // All OHLC are = last trade price
+            high: last_trade_price,
+            low: last_trade_price,
+            close: last_trade_price,
+            volume: dec!(0),
+            volume_buy: dec!(0),
+            volume_sell: dec!(0),
+            volume_liq: dec!(0),
+            volume_liq_buy: dec!(0),
+            volume_liq_sell: dec!(0),
+            value: dec!(0),
+            value_buy: dec!(0),
+            value_sell: dec!(0),
+            value_liq: dec!(0),
+            value_liq_buy: dec!(0),
+            value_liq_sell: dec!(0),
+            trade_count: 0,
+            trade_count_buy: 0,
+            trade_count_sell: 0,
+            liq_count: 0,
+            liq_count_buy: 0,
+            liq_count_sell: 0,
+            last_trade_ts,
+            last_trade_id: last_trade_id.to_string(),
+            first_trade_ts: last_trade_ts,
+            first_trade_id: last_trade_id.to_string(),
+        }
+    }
 }
 
 impl Mita {
@@ -1001,12 +1004,12 @@ impl Inquisidor {
         mcd: &Option<MarketCandleDetail>,
         candle_dr: &[DateTime<Utc>],
         trades_dr: &[DateTime<Utc>],
-    ) -> Vec<Candle> {
+    ) -> Vec<ResearchCandle> {
         // Load the trades
         let trades = self.load_trades_for_dr(market, trades_dr).await;
         // Create the first months candles
         let candles = self
-            .make_candles_for_dr(market, mcd, candle_dr, &trades)
+            .make_candles_for_dr(mcd, candle_dr, &trades)
             .await;
         // Write candles to file
         let f = format!(
@@ -1036,11 +1039,10 @@ impl Inquisidor {
 
     pub async fn make_candles_for_dr<T: Trade + std::clone::Clone>(
         &self,
-        market: &MarketDetail,
         mcd: &Option<MarketCandleDetail>,
         dr: &[DateTime<Utc>],
         trades: &[T],
-    ) -> Vec<Candle> {
+    ) -> Vec<ResearchCandle> {
         let (mut last_price, mut last_id, mut last_ts) = match mcd {
             Some(mcd) => (
                 mcd.last_trade_price,
@@ -1056,10 +1058,10 @@ impl Inquisidor {
                 .cloned()
                 .collect();
             let new_candle = match filtered_trades.len() {
-                0 => Candle::new_from_last(market.market_id, *d, last_price, last_ts, &last_id),
+                0 => ResearchCandle::new_from_last(*d, last_price, last_ts, &last_id),
                 _ => {
                     filtered_trades.sort_by_key(|t1| t1.trade_id());
-                    Candle::new_from_trades(market.market_id, *d, &filtered_trades)
+                    ResearchCandle::new_from_trades_v2(*d, &filtered_trades)
                 }
             };
             last_price = new_candle.close;
@@ -2299,6 +2301,8 @@ mod tests {
     use sqlx::PgPool;
     use uuid::Uuid;
 
+    use super::ResearchCandle;
+
     pub fn sample_trades() -> Vec<FtxTrade> {
         let mut trades: Vec<FtxTrade> = Vec::new();
         trades.push(FtxTrade {
@@ -2375,7 +2379,7 @@ mod tests {
             liquidation: false,
             time: Utc
                 .ymd(date.year(), date.month(), date.day())
-                .and_hms(0, id as u32, 0),
+                .and_hms(0, id as u32 % 30, 0),
         }
     }
 
@@ -2401,6 +2405,34 @@ mod tests {
         let first_trade = trades.first().unwrap();
         let candle = Candle::new_from_trades(market_id, first_trade.time, &trades);
         println!("Candle: {:?}", candle);
+    }
+
+    #[test]
+    pub fn new_from_trades_returns_research_candle() {
+        // Create trades
+        let dt = Utc.ymd(2022, 1, 1).and_hms(0, 0, 0);
+        let mut trades = Vec::new();
+        for i in 1..1000000 {
+            let trade = create_ftx_trade(i, dt);
+            trades.push(trade);
+        }
+        let mi = Uuid::new_v4();
+        // Start timer
+        let start_v1 = Utc::now();
+        let candle = ResearchCandle::new_from_trades(dt, &trades);
+        let end_v1 = Utc::now();
+        let start_v2 = Utc::now();
+        let candle_2 = ResearchCandle::new_from_trades_v2(dt, &trades);
+        let end_v2 = Utc::now();
+        let start_v3 = Utc::now();
+        let candle_3 = Candle::new_from_trades(mi, dt, &trades);
+        let end_v3 = Utc::now();
+        println!("Candle 1: {:?}", end_v1 - start_v1);
+        println!("Candle 2: {:?}", end_v2 - start_v2);
+        println!("Candle 2: {:?}", end_v3 - start_v3);
+        println!("Candle 1: {:?}", candle);
+        println!("Candle 2: {:?}", candle_2);
+        println!("Candle 3: {:?}", candle_3);
     }
 
     #[tokio::test]

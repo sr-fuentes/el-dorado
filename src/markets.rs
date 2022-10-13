@@ -1,4 +1,4 @@
-use crate::candles::{select_first_01d_candle, Candle};
+use crate::candles::{select_first_01d_candle, ResearchCandle};
 use crate::exchanges::{client::RestClient, error::RestError, select_exchanges, ExchangeName};
 use crate::inquisidor::Inquisidor;
 use crate::utilities::{get_input, TimeFrame, Trade};
@@ -481,7 +481,7 @@ impl MarketCandleDetail {
         Ok(())
     }
 
-    pub async fn update_last(&self, pool: &PgPool, candle: &Candle) -> Result<Self, sqlx::Error> {
+    pub async fn update_last(&self, pool: &PgPool, candle: &ResearchCandle) -> Result<Self, sqlx::Error> {
         sqlx::query!(
             r#"
             UPDATE market_candle_details
