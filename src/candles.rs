@@ -37,6 +37,37 @@ pub struct Candle {
     pub market_id: Uuid,
 }
 
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone, sqlx::FromRow)]
+pub struct ResearchCandle {
+    pub datetime: DateTime<Utc>,
+    pub open: Decimal,
+    pub high: Decimal,
+    pub low: Decimal,
+    pub close: Decimal,
+    pub volume: Decimal,
+    pub volume_buy: Decimal,
+    pub volume_sell: Decimal,
+    pub volume_liq: Decimal,
+    pub volume_liq_buy: Decimal,
+    pub volume_liq_sell: Decimal,
+    pub value: Decimal,
+    pub value_buy: Decimal,
+    pub value_sell: Decimal,
+    pub value_liq: Decimal,
+    pub value_liq_buy: Decimal,
+    pub value_liq_sell: Decimal,
+    pub trade_count: i64,
+    pub trade_count_buy: i64,
+    pub trade_count_sell: i64,
+    pub liq_count: i64,
+    pub liq_count_buy: i64,
+    pub liq_count_sell: i64,
+    pub last_trade_ts: DateTime<Utc>,
+    pub last_trade_id: String,
+    pub first_trade_ts: DateTime<Utc>,
+    pub first_trade_id: String,
+}
+
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, sqlx::FromRow)]
 pub struct DailyCandle {
     pub is_archived: bool,
@@ -230,6 +261,498 @@ impl Candle {
             market_id,
         }
     }
+}
+
+impl ResearchCandle {
+    // Takes a Vec of Trade and aggregates into a Candle with the Datetime = the
+    // datetime passed as argument. Candle built from trades in the order they are in
+    // the Vec, sort before calling this function otherwise Open / Close / Datetime may
+    // be incorrect.
+    pub fn new_from_trades<T: Trade>(
+        datetime: DateTime<Utc>,
+        trades: &[T],
+    ) -> Self {
+        let candle_tuple = trades.iter().fold(
+            (
+                trades.first().expect("No first trade for candle.").price(), // open
+                Decimal::MIN,                                                // high
+                Decimal::MAX,                                                // low
+                dec!(0),                                                     // close
+                dec!(0),                                                     // volume
+                dec!(0),                                                     // volume buy
+                dec!(0),                                                     // volume sell
+                dec!(0),                                                     // volume liq
+                dec!(0),                                                     // volume liq buy
+                dec!(0),                                                     // volume liq sell
+                dec!(0),                                                     // value
+                dec!(0),                                                     // value buy
+                dec!(0),                                                     // value sell
+                dec!(0),                                                     // value liq
+                dec!(0),                                                     // value liq buy
+                dec!(0),                                                     // value liq sell
+                0,                                                           // count
+                0,                                                           // count buy
+                0,                                                           // count sell
+                0,                                                           // liq count,
+                0,                                                           // liq count buy,
+                0,                                                           // liq count sell,
+                datetime,                                                    // last_trade_ts
+                "".to_string(),                                              // last_trade_id
+                trades.first().expect("No first trade.").time(),             // first_trade_ts
+                trades
+                    .first()
+                    .expect("No first trade.")
+                    .trade_id()
+                    .to_string(), // first_trade_id
+            ),
+            |(
+                o,
+                h,
+                l,
+                _c,
+                v,
+                vb,
+                vs,
+                vl,
+                vlb,
+                vls,
+                u,
+                ub,
+                us,
+                al,
+                alb,
+                als,
+                n,
+                nb,
+                ns,
+                ln,
+                lnb,
+                lns,
+                _ts,
+                _id,
+                fts,
+                fid,
+            ),
+             t| {
+                (
+                    o,                // open
+                    h.max(t.price()), // high
+                    l.min(t.price()), // low
+                    t.price(),        // close
+                    v + t.size(),     // volume
+                    if t.side() == "buy" { vb + t.size() } else { vb },
+                    if t.side() == "sell" {
+                        vs + t.size()
+                    } else {
+                        vs
+                    },
+                    if t.liquidation() { vl + t.size() } else { vl },
+                    if t.liquidation() && t.side() == "buy" {
+                        vlb + t.size()
+                    } else {
+                        vlb
+                    },
+                    if t.liquidation() && t.side() == "sell" {
+                        vls + t.size()
+                    } else {
+                        vls
+                    },
+                    u + (t.size() * t.price()),
+                    if t.side() == "buy" {
+                        ub + (t.size() * t.price())
+                    } else {
+                        ub
+                    },
+                    if t.side() == "sell" {
+                        us + (t.size() * t.price())
+                    } else {
+                        us
+                    },
+                    if t.liquidation() {
+                        al + (t.size() * t.price())
+                    } else {
+                        al
+                    },
+                    if t.liquidation() && t.side() == "buy" {
+                        alb + (t.size() * t.price())
+                    } else {
+                        alb
+                    },
+                    if t.liquidation() && t.side() == "sell" {
+                        als + (t.size() * t.price())
+                    } else {
+                        als
+                    },
+                    n + 1,
+                    if t.side() == "buy" { nb + 1 } else { nb },
+                    if t.side() == "sell" { ns + 1 } else { ns },
+                    if t.liquidation() { ln + 1 } else { ln },
+                    if t.liquidation() && t.side() == "buy" {
+                        lnb + 1
+                    } else {
+                        lnb
+                    },
+                    if t.liquidation() && t.side() == "sell" {
+                        lns + 1
+                    } else {
+                        lns
+                    },
+                    t.time(),
+                    t.trade_id().to_string(),
+                    fts,
+                    fid,
+                )
+            },
+        );
+        Self {
+            datetime,
+            open: candle_tuple.0,
+            high: candle_tuple.1,
+            low: candle_tuple.2,
+            close: candle_tuple.3,
+            volume: candle_tuple.4,
+            volume_buy: candle_tuple.5,
+            volume_sell: candle_tuple.6,
+            volume_liq: candle_tuple.7,
+            volume_liq_buy: candle_tuple.8,
+            volume_liq_sell: candle_tuple.9,
+            value: candle_tuple.10,
+            value_buy: candle_tuple.11,
+            value_sell: candle_tuple.12,
+            value_liq: candle_tuple.13,
+            value_liq_buy: candle_tuple.14,
+            value_liq_sell: candle_tuple.15,
+            trade_count: candle_tuple.16,
+            trade_count_buy: candle_tuple.17,
+            trade_count_sell: candle_tuple.18,
+            liq_count: candle_tuple.19,
+            liq_count_buy: candle_tuple.20,
+            liq_count_sell: candle_tuple.21,
+            last_trade_ts: candle_tuple.22,
+            last_trade_id: candle_tuple.23,
+            first_trade_ts: candle_tuple.24,
+            first_trade_id: candle_tuple.25,
+        }
+    }
+
+    // Reduces the number of if statements in each iteration
+    pub fn new_from_trades_v2<T: Trade>(
+        datetime: DateTime<Utc>,
+        trades: &[T],
+    ) -> Self {
+        let candle_tuple = trades.iter().fold(
+            (
+                trades.first().expect("No first trade for candle.").price(), // open
+                Decimal::MIN,                                                // high
+                Decimal::MAX,                                                // low
+                dec!(0),                                                     // close
+                dec!(0),                                                     // volume
+                dec!(0),                                                     // volume buy
+                dec!(0),                                                     // volume sell
+                dec!(0),                                                     // volume liq
+                dec!(0),                                                     // volume liq buy
+                dec!(0),                                                     // volume liq sell
+                dec!(0),                                                     // value
+                dec!(0),                                                     // value buy
+                dec!(0),                                                     // value sell
+                dec!(0),                                                     // value liq
+                dec!(0),                                                     // value liq buy
+                dec!(0),                                                     // value liq sell
+                0,                                                           // count
+                0,                                                           // count buy
+                0,                                                           // count sell
+                0,                                                           // liq count,
+                0,                                                           // liq count buy,
+                0,                                                           // liq count sell,
+                datetime,                                                    // last_trade_ts
+                "".to_string(),                                              // last_trade_id
+                trades.first().expect("No first trade.").time(),             // first_trade_ts
+                trades
+                    .first()
+                    .expect("No first trade.")
+                    .trade_id()
+                    .to_string(), // first_trade_id
+            ),
+            |(
+                o,
+                h,
+                l,
+                _c,
+                v,
+                vb,
+                vs,
+                vl,
+                vlb,
+                vls,
+                u,
+                ub,
+                us,
+                al,
+                alb,
+                als,
+                n,
+                nb,
+                ns,
+                ln,
+                lnb,
+                lns,
+                _ts,
+                _id,
+                fts,
+                fid,
+            ),
+             t| {
+                // Put side and liq if statements here
+                let value = t.size() * t.price();
+                let (
+                    volume_buy,
+                    volume_sell,
+                    volume_liq,
+                    volume_liq_buy,
+                    volume_liq_sell,
+                    value_buy,
+                    value_sell,
+                    value_liq,
+                    value_liq_buy,
+                    value_liq_sell,
+                    n_buy,
+                    n_sell,
+                    n_liq,
+                    n_liq_buy,
+                    n_liq_sell,
+                ) = if t.side() == "buy" {
+                    if t.liquidation() {
+                        (
+                            t.size(),
+                            dec!(0),
+                            t.size(),
+                            t.size(),
+                            dec!(0),
+                            value,
+                            dec!(0),
+                            value,
+                            value,
+                            dec!(0),
+                            1,
+                            0,
+                            1,
+                            1,
+                            0,
+                        )
+                    } else {
+                        (
+                            t.size(),
+                            dec!(0),
+                            dec!(0),
+                            dec!(0),
+                            dec!(0),
+                            value,
+                            dec!(0),
+                            dec!(0),
+                            dec!(0),
+                            dec!(0),
+                            1,
+                            0,
+                            0,
+                            0,
+                            0,
+                        )
+                    }
+                } else {
+                    if t.liquidation() {
+                        (
+                            dec!(0),
+                            t.size(),
+                            t.size(),
+                            dec!(0),
+                            t.size(),
+                            dec!(0),
+                            value,
+                            value,
+                            dec!(0),
+                            value,
+                            0,
+                            1,
+                            1,
+                            0,
+                            1,
+                        )
+                    } else {
+                        (
+                            dec!(0),
+                            t.size(),
+                            dec!(0),
+                            dec!(0),
+                            dec!(0),
+                            dec!(0),
+                            value,
+                            dec!(0),
+                            dec!(0),
+                            dec!(0),
+                            0,
+                            1,
+                            0,
+                            0,
+                            0,
+                        )
+                    }
+                };
+                (
+                    o,                // open
+                    h.max(t.price()), // high
+                    l.min(t.price()), // low
+                    t.price(),        // close
+                    v + t.size(),     // volume
+                    vb + volume_buy,
+                    vs + volume_sell,
+                    vl + volume_liq,
+                    vlb + volume_liq_buy,
+                    vls + volume_liq_sell,
+                    u + value,
+                    ub + value_buy,
+                    us + value_sell,
+                    al + value_liq,
+                    alb + value_liq_buy,
+                    als + value_liq_sell,
+                    n + 1,
+                    nb + n_buy,
+                    ns + n_sell,
+                    ln + n_liq,
+                    lnb + n_liq_buy,
+                    lns + n_liq_sell,
+                    t.time(),
+                    t.trade_id().to_string(),
+                    fts,
+                    fid,
+                )
+            },
+        );
+        Self {
+            datetime,
+            open: candle_tuple.0,
+            high: candle_tuple.1,
+            low: candle_tuple.2,
+            close: candle_tuple.3,
+            volume: candle_tuple.4,
+            volume_buy: candle_tuple.5,
+            volume_sell: candle_tuple.6,
+            volume_liq: candle_tuple.7,
+            volume_liq_buy: candle_tuple.8,
+            volume_liq_sell: candle_tuple.9,
+            value: candle_tuple.10,
+            value_buy: candle_tuple.11,
+            value_sell: candle_tuple.12,
+            value_liq: candle_tuple.13,
+            value_liq_buy: candle_tuple.14,
+            value_liq_sell: candle_tuple.15,
+            trade_count: candle_tuple.16,
+            trade_count_buy: candle_tuple.17,
+            trade_count_sell: candle_tuple.18,
+            liq_count: candle_tuple.19,
+            liq_count_buy: candle_tuple.20,
+            liq_count_sell: candle_tuple.21,
+            last_trade_ts: candle_tuple.22,
+            last_trade_id: candle_tuple.23,
+            first_trade_ts: candle_tuple.24,
+            first_trade_id: candle_tuple.25,
+        }
+    }
+
+    // // Takes a Vec of Candles and resamples into a Candle with the Datetime = the
+    // // datetime passed as argument. Candle built from candes in the order they are in
+    // // the Vec, sort before calling this function otherwise Open / Close may
+    // // be incorrect.
+    // pub fn new_from_candles(market_id: Uuid, datetime: DateTime<Utc>, candles: &[Candle]) -> Self {
+    //     let candle_tuple = candles.iter().fold(
+    //         (
+    //             candles.first().expect("No first trade for candle.").open, // open
+    //             Decimal::MIN,                                              // high
+    //             Decimal::MAX,                                              // low
+    //             dec!(0),                                                   // close
+    //             dec!(0),                                                   // volume
+    //             dec!(0),                                                   // volume_net
+    //             dec!(0),                                                   // volume_liquidation
+    //             dec!(0),                                                   // value
+    //             0,                                                         // count
+    //             0,                                                         // liquidation_count,
+    //             datetime,                                                  // last_trade_ts
+    //             "".to_string(),                                            // last_trade_id
+    //             candles.first().expect("No first trade.").first_trade_ts,  // first_trade_ts
+    //             candles
+    //                 .first()
+    //                 .expect("No first trade.")
+    //                 .first_trade_id
+    //                 .to_string(), // first_trade_id
+    //         ),
+    //         |(o, h, l, _c, v, vn, vl, a, n, ln, _ts, _id, fts, fid), c| {
+    //             (
+    //                 o,
+    //                 h.max(c.high),
+    //                 l.min(c.low),
+    //                 c.close,
+    //                 v + c.volume,
+    //                 vn + c.volume_net,
+    //                 vl + c.volume_liquidation,
+    //                 a + c.value,
+    //                 n + c.trade_count,
+    //                 ln + c.liquidation_count,
+    //                 c.last_trade_ts,
+    //                 c.last_trade_id.to_string(),
+    //                 fts,
+    //                 fid,
+    //             )
+    //         },
+    //     );
+    //     Self {
+    //         datetime,
+    //         open: candle_tuple.0,
+    //         high: candle_tuple.1,
+    //         low: candle_tuple.2,
+    //         close: candle_tuple.3,
+    //         volume: candle_tuple.4,
+    //         volume_net: candle_tuple.5,
+    //         volume_liquidation: candle_tuple.6,
+    //         value: candle_tuple.7,
+    //         trade_count: candle_tuple.8,
+    //         liquidation_count: candle_tuple.9,
+    //         last_trade_ts: candle_tuple.10,
+    //         last_trade_id: candle_tuple.11,
+    //         first_trade_ts: candle_tuple.12,
+    //         first_trade_id: candle_tuple.13,
+    //         is_validated: false,
+    //         market_id,
+    //     }
+    // }
+
+    // // This function will build a placeholder trade with 0 volume and
+    // // will populate OHLC from the last trade provided.
+    // pub fn new_from_last(
+    //     market_id: Uuid,
+    //     datetime: DateTime<Utc>,
+    //     last_trade_price: Decimal,
+    //     last_trade_ts: DateTime<Utc>,
+    //     last_trade_id: &str,
+    // ) -> Self {
+    //     Self {
+    //         datetime,
+    //         open: last_trade_price, // All OHLC are = last trade price
+    //         high: last_trade_price,
+    //         low: last_trade_price,
+    //         close: last_trade_price,
+    //         volume: dec!(0),
+    //         volume_net: dec!(0),
+    //         volume_liquidation: dec!(0),
+    //         value: dec!(0),
+    //         trade_count: 0,
+    //         liquidation_count: 0,
+    //         last_trade_ts,
+    //         last_trade_id: last_trade_id.to_string(),
+    //         first_trade_ts: last_trade_ts,
+    //         first_trade_id: last_trade_id.to_string(),
+    //         is_validated: false,
+    //         market_id,
+    //     }
+    // }
 }
 
 impl Mita {
@@ -1767,7 +2290,6 @@ mod tests {
     use crate::inquisidor::Inquisidor;
     use crate::markets::{
         select_market_detail, select_market_ids_by_exchange, MarketCandleDetail, MarketDataStatus,
-        MarketTradeDetail,
     };
     use crate::utilities::{create_date_range, next_month_datetime};
     use chrono::{DateTime, Datelike, Duration, TimeZone, Utc};
@@ -2301,7 +2823,7 @@ mod tests {
             .find(|m| m.market_name == "SOL-PERP")
             .unwrap();
         // Set up mtd details
-        let mut mtd = ig.get_market_trade_detail(&market).await;
+        let _mtd = ig.get_market_trade_detail(&market).await;
         let sql = r#"
             UPDATE market_trade_details
             SET next_trade_day = '2022-02-02'
@@ -2311,9 +2833,6 @@ mod tests {
             .execute(&ig.ig_pool)
             .await
             .expect("Failed to update last candle to null.");
-        let mtd = MarketTradeDetail::select(&ig.ig_pool, &market.market_id)
-            .await
-            .expect("Failed to select market trade detail.");
         // Set up mcd details
         let sql = r#"
             INSERT INTO market_candle_details
