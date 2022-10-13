@@ -7,7 +7,9 @@ use crate::markets::MarketDetail;
 use crate::mita::Mita;
 use crate::utilities::Trade;
 use chrono::{DateTime, Utc};
+use csv::Reader;
 use sqlx::PgPool;
+use std::fs::File;
 
 impl Mita {
     pub async fn reset_trade_tables(&self, tables: &[&str]) {
@@ -167,6 +169,36 @@ impl Inquisidor {
             .fetch_all(&self.ftx_pool)
             .await?;
         Ok(rows)
+    }
+
+    pub async fn load_trades_for_dr(
+        &self,
+        market: &MarketDetail,
+        dr: &[DateTime<Utc>],
+    ) -> Vec<FtxTrade> {
+        // For each date - load the trades and append to vec of trades
+        let mut trades = Vec::new();
+        for d in dr.iter() {
+            // Load trades for day
+            let archive_path = format!(
+                "{}/trades/{}/{}/{}/{}",
+                &self.settings.application.archive_path,
+                &market.exchange_name.as_str(),
+                &market.as_strip(),
+                d.format("%Y"),
+                d.format("%m")
+            );
+            let f = format!("{}_{}.csv", market.as_strip(), d.format("%F"));
+            let a_path = std::path::Path::new(&archive_path).join(f.clone());
+            // Set file
+            let file = File::open(a_path).expect("Failed to open file.");
+            let mut rdr = Reader::from_reader(file);
+            for result in rdr.deserialize() {
+                let record: FtxTrade = result.expect("Faile to deserialize record.");
+                trades.push(record)
+            }
+        }
+        trades
     }
 }
 

@@ -1,4 +1,4 @@
-use chrono::{DateTime, Duration, DurationRound, Utc};
+use chrono::{DateTime, Datelike, Duration, DurationRound, TimeZone, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use std::convert::TryFrom;
@@ -90,41 +90,85 @@ impl Twilio {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type)]
 #[sqlx(rename_all = "lowercase")]
 pub enum TimeFrame {
+    S15,
+    S30,
+    T01,
+    T03,
+    T05,
     T15,
+    T30,
     H01,
+    H02,
+    H03,
     H04,
+    H06,
     H12,
     D01,
+    D03,
+    W01,
 }
 
 impl TimeFrame {
     pub fn as_str(&self) -> &'static str {
         match self {
+            TimeFrame::S15 => "s15",
+            TimeFrame::S30 => "s30",
+            TimeFrame::T01 => "t01",
+            TimeFrame::T03 => "t03",
+            TimeFrame::T05 => "t05",
             TimeFrame::T15 => "t15",
+            TimeFrame::T30 => "t30",
             TimeFrame::H01 => "h01",
+            TimeFrame::H02 => "h01",
+            TimeFrame::H03 => "h03",
             TimeFrame::H04 => "h04",
+            TimeFrame::H06 => "h06",
             TimeFrame::H12 => "h12",
             TimeFrame::D01 => "d01",
+            TimeFrame::D03 => "d03",
+            TimeFrame::W01 => "w01",
         }
     }
 
     pub fn as_secs(&self) -> i64 {
         match self {
+            TimeFrame::S15 => 15,
+            TimeFrame::S30 => 30,
+            TimeFrame::T01 => 60,
+            TimeFrame::T03 => 180,
+            TimeFrame::T05 => 300,
             TimeFrame::T15 => 900,
+            TimeFrame::T30 => 1800,
             TimeFrame::H01 => 3600,
+            TimeFrame::H02 => 7200,
+            TimeFrame::H03 => 10800,
             TimeFrame::H04 => 14400,
+            TimeFrame::H06 => 21600,
             TimeFrame::H12 => 43200,
             TimeFrame::D01 => 86400,
+            TimeFrame::D03 => 259200,
+            TimeFrame::W01 => 604800,
         }
     }
 
     pub fn as_dur(&self) -> Duration {
         match self {
+            TimeFrame::S15 => Duration::seconds(15),
+            TimeFrame::S30 => Duration::seconds(30),
+            TimeFrame::T01 => Duration::minutes(1),
+            TimeFrame::T03 => Duration::minutes(3),
+            TimeFrame::T05 => Duration::minutes(5),
             TimeFrame::T15 => Duration::minutes(15),
+            TimeFrame::T30 => Duration::minutes(30),
             TimeFrame::H01 => Duration::hours(1),
+            TimeFrame::H02 => Duration::hours(2),
+            TimeFrame::H03 => Duration::hours(3),
             TimeFrame::H04 => Duration::hours(4),
+            TimeFrame::H06 => Duration::hours(6),
             TimeFrame::H12 => Duration::hours(12),
             TimeFrame::D01 => Duration::days(1),
+            TimeFrame::D03 => Duration::days(3),
+            TimeFrame::W01 => Duration::weeks(1),
         }
     }
 
@@ -135,6 +179,28 @@ impl TimeFrame {
             TimeFrame::H04,
             TimeFrame::H12,
             TimeFrame::D01,
+        ];
+        time_frames
+    }
+
+    pub fn all_time_frames() -> Vec<TimeFrame> {
+        let time_frames = vec![
+            TimeFrame::S15,
+            TimeFrame::S30,
+            TimeFrame::T01,
+            TimeFrame::T03,
+            TimeFrame::T05,
+            TimeFrame::T15,
+            TimeFrame::T30,
+            TimeFrame::H01,
+            TimeFrame::H02,
+            TimeFrame::H03,
+            TimeFrame::H04,
+            TimeFrame::H06,
+            TimeFrame::H12,
+            TimeFrame::D01,
+            TimeFrame::D03,
+            TimeFrame::W01,
         ];
         time_frames
     }
@@ -153,11 +219,22 @@ impl TryFrom<String> for TimeFrame {
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
         match s.to_lowercase().as_str() {
+            "s15" => Ok(Self::S15),
+            "s30" => Ok(Self::S30),
+            "t01" => Ok(Self::T01),
+            "t03" => Ok(Self::T03),
+            "t05" => Ok(Self::T05),
             "t15" => Ok(Self::T15),
+            "t30" => Ok(Self::T30),
             "h01" => Ok(Self::H01),
+            "h02" => Ok(Self::H02),
+            "h03" => Ok(Self::H03),
             "h04" => Ok(Self::H04),
+            "h06" => Ok(Self::H06),
             "h12" => Ok(Self::H12),
             "d01" => Ok(Self::D01),
+            "d03" => Ok(Self::D03),
+            "w01" => Ok(Self::W01),
             other => Err(format!("{} is not a supported TimeFrame.", other)),
         }
     }
@@ -184,6 +261,48 @@ pub fn get_input<U: std::str::FromStr>(prompt: &str) -> U {
         };
         return input;
     }
+}
+
+pub fn create_date_range(
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    duration: Duration,
+) -> Vec<DateTime<Utc>> {
+    // Takes a start and end time and creates a vec of dates
+    let mut dr_start = start;
+    let mut date_range = Vec::new();
+    while dr_start < end {
+        date_range.push(dr_start);
+        dr_start = dr_start + duration;
+    }
+    date_range
+}
+
+pub fn create_monthly_date_range(start: DateTime<Utc>, end: DateTime<Utc>) -> Vec<DateTime<Utc>> {
+    println!("Creating monthy dr from {:?} to {:?}", start, end);
+    let mut dr_start = start;
+    let mut date_range = Vec::new();
+    while dr_start < end {
+        date_range.push(dr_start);
+        dr_start = next_month_datetime(dr_start);
+    }
+    date_range
+}
+
+pub fn next_month_datetime(dt: DateTime<Utc>) -> DateTime<Utc> {
+    // Takes a datetime and returns the datetime of the next month
+    // 11/23/2022 12:33:00 -> 12/01/2022
+    let next_month = dt.month() + 1;
+    if next_month > 12 {
+        Utc.ymd(dt.year() + 1, 1, 1).and_hms(0, 0, 0)
+    } else {
+        Utc.ymd(dt.year(), next_month, 1).and_hms(0, 0, 0)
+    }
+}
+
+pub fn trunc_month_datetime(dt: DateTime<Utc>) -> DateTime<Utc> {
+    // Takes a datetime and returns the first of the month as a datetime
+    Utc.ymd(dt.year(), dt.month(), 1).and_hms(0, 0, 0)
 }
 
 pub fn min_to_dp(increment: Decimal) -> i32 {
@@ -235,10 +354,12 @@ pub trait Market {
 #[cfg(test)]
 mod tests {
     use crate::exchanges::ftx::Trade;
-    use crate::utilities::Twilio;
+    use crate::utilities::{next_month_datetime, Twilio};
     use chrono::{Duration, DurationRound, TimeZone, Utc};
     use rust_decimal::prelude::*;
     use rust_decimal_macros::dec;
+
+    use super::create_monthly_date_range;
 
     #[test]
     pub fn build_range_from_vec_trades() {
@@ -349,5 +470,33 @@ mod tests {
         let dt1 = Utc.ymd(2021, 6, 27).and_hms(2, 29, 59);
         let dt2 = Utc.ymd(2021, 6, 27).and_hms(2, 30, 01);
         assert!(super::TimeFrame::T15.is_gt_timeframe(dt1, dt2));
+    }
+
+    #[test]
+    pub fn next_month_datetime_tests() {
+        assert_eq!(
+            next_month_datetime(Utc.ymd(2020, 1, 12).and_hms(4, 4, 30)),
+            Utc.ymd(2020, 2, 1).and_hms(0, 0, 0)
+        );
+        assert_eq!(
+            next_month_datetime(Utc.ymd(2020, 12, 12).and_hms(4, 4, 30)),
+            Utc.ymd(2021, 1, 1).and_hms(0, 0, 0)
+        );
+    }
+
+    #[test]
+    pub fn create_monthly_date_range_tests() {
+        // Test no months len = 0
+        let start = Utc.ymd(2020, 2, 1).and_hms(0, 0, 0);
+        let end = Utc.ymd(2020, 2, 1).and_hms(0, 0, 0);
+        let monthly_dr = create_monthly_date_range(start, end);
+        assert_eq!(monthly_dr.len(), 0);
+        println!("{:?}", monthly_dr);
+        // Test 3 months len = 3
+        let start = Utc.ymd(2020, 2, 1).and_hms(0, 0, 0);
+        let end = Utc.ymd(2020, 5, 1).and_hms(0, 0, 0);
+        let monthly_dr = create_monthly_date_range(start, end);
+        assert_eq!(monthly_dr.len(), 3);
+        println!("{:?}", monthly_dr);
     }
 }

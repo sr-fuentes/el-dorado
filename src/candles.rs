@@ -1,17 +1,22 @@
 use crate::exchanges::{client::RestClient, error::RestError, ExchangeName};
-use crate::markets::MarketDetail;
+use crate::inquisidor::Inquisidor;
+use crate::markets::{MarketCandleDetail, MarketDetail, MarketTradeDetail};
 use crate::mita::Mita;
 use crate::trades::*;
-use crate::utilities::{TimeFrame, Trade};
+use crate::utilities::{
+    create_date_range, create_monthly_date_range, next_month_datetime, trunc_month_datetime,
+    TimeFrame, Trade,
+};
 use crate::validation::insert_candle_validation;
 use chrono::{DateTime, Duration, DurationRound, Utc};
+use csv::Writer;
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
-use serde::de::DeserializeOwned;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, sqlx::FromRow)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone, sqlx::FromRow)]
 pub struct Candle {
     pub datetime: DateTime<Utc>,
     pub open: Decimal,
@@ -30,6 +35,37 @@ pub struct Candle {
     pub first_trade_id: String,
     pub is_validated: bool,
     pub market_id: Uuid,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone, sqlx::FromRow)]
+pub struct ResearchCandle {
+    pub datetime: DateTime<Utc>,
+    pub open: Decimal,
+    pub high: Decimal,
+    pub low: Decimal,
+    pub close: Decimal,
+    pub volume: Decimal,
+    pub volume_buy: Decimal,
+    pub volume_sell: Decimal,
+    pub volume_liq: Decimal,
+    pub volume_liq_buy: Decimal,
+    pub volume_liq_sell: Decimal,
+    pub value: Decimal,
+    pub value_buy: Decimal,
+    pub value_sell: Decimal,
+    pub value_liq: Decimal,
+    pub value_liq_buy: Decimal,
+    pub value_liq_sell: Decimal,
+    pub trade_count: i64,
+    pub trade_count_buy: i64,
+    pub trade_count_sell: i64,
+    pub liq_count: i64,
+    pub liq_count_buy: i64,
+    pub liq_count_sell: i64,
+    pub last_trade_ts: DateTime<Utc>,
+    pub last_trade_id: String,
+    pub first_trade_ts: DateTime<Utc>,
+    pub first_trade_id: String,
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, sqlx::FromRow)]
@@ -227,6 +263,501 @@ impl Candle {
     }
 }
 
+impl ResearchCandle {
+    // Takes a Vec of Trade and aggregates into a Candle with the Datetime = the
+    // datetime passed as argument. Candle built from trades in the order they are in
+    // the Vec, sort before calling this function otherwise Open / Close / Datetime may
+    // be incorrect.
+    pub fn new_from_trades<T: Trade>(datetime: DateTime<Utc>, trades: &[T]) -> Self {
+        let candle_tuple = trades.iter().fold(
+            (
+                trades.first().expect("No first trade for candle.").price(), // open
+                Decimal::MIN,                                                // high
+                Decimal::MAX,                                                // low
+                dec!(0),                                                     // close
+                dec!(0),                                                     // volume
+                dec!(0),                                                     // volume buy
+                dec!(0),                                                     // volume sell
+                dec!(0),                                                     // volume liq
+                dec!(0),                                                     // volume liq buy
+                dec!(0),                                                     // volume liq sell
+                dec!(0),                                                     // value
+                dec!(0),                                                     // value buy
+                dec!(0),                                                     // value sell
+                dec!(0),                                                     // value liq
+                dec!(0),                                                     // value liq buy
+                dec!(0),                                                     // value liq sell
+                0,                                                           // count
+                0,                                                           // count buy
+                0,                                                           // count sell
+                0,                                                           // liq count,
+                0,                                                           // liq count buy,
+                0,                                                           // liq count sell,
+                datetime,                                                    // last_trade_ts
+                "".to_string(),                                              // last_trade_id
+                trades.first().expect("No first trade.").time(),             // first_trade_ts
+                trades
+                    .first()
+                    .expect("No first trade.")
+                    .trade_id()
+                    .to_string(), // first_trade_id
+            ),
+            |(
+                o,
+                h,
+                l,
+                _c,
+                v,
+                vb,
+                vs,
+                vl,
+                vlb,
+                vls,
+                u,
+                ub,
+                us,
+                al,
+                alb,
+                als,
+                n,
+                nb,
+                ns,
+                ln,
+                lnb,
+                lns,
+                _ts,
+                _id,
+                fts,
+                fid,
+            ),
+             t| {
+                (
+                    o,                // open
+                    h.max(t.price()), // high
+                    l.min(t.price()), // low
+                    t.price(),        // close
+                    v + t.size(),     // volume
+                    if t.side() == "buy" { vb + t.size() } else { vb },
+                    if t.side() == "sell" {
+                        vs + t.size()
+                    } else {
+                        vs
+                    },
+                    if t.liquidation() { vl + t.size() } else { vl },
+                    if t.liquidation() && t.side() == "buy" {
+                        vlb + t.size()
+                    } else {
+                        vlb
+                    },
+                    if t.liquidation() && t.side() == "sell" {
+                        vls + t.size()
+                    } else {
+                        vls
+                    },
+                    u + (t.size() * t.price()),
+                    if t.side() == "buy" {
+                        ub + (t.size() * t.price())
+                    } else {
+                        ub
+                    },
+                    if t.side() == "sell" {
+                        us + (t.size() * t.price())
+                    } else {
+                        us
+                    },
+                    if t.liquidation() {
+                        al + (t.size() * t.price())
+                    } else {
+                        al
+                    },
+                    if t.liquidation() && t.side() == "buy" {
+                        alb + (t.size() * t.price())
+                    } else {
+                        alb
+                    },
+                    if t.liquidation() && t.side() == "sell" {
+                        als + (t.size() * t.price())
+                    } else {
+                        als
+                    },
+                    n + 1,
+                    if t.side() == "buy" { nb + 1 } else { nb },
+                    if t.side() == "sell" { ns + 1 } else { ns },
+                    if t.liquidation() { ln + 1 } else { ln },
+                    if t.liquidation() && t.side() == "buy" {
+                        lnb + 1
+                    } else {
+                        lnb
+                    },
+                    if t.liquidation() && t.side() == "sell" {
+                        lns + 1
+                    } else {
+                        lns
+                    },
+                    t.time(),
+                    t.trade_id().to_string(),
+                    fts,
+                    fid,
+                )
+            },
+        );
+        Self {
+            datetime,
+            open: candle_tuple.0,
+            high: candle_tuple.1,
+            low: candle_tuple.2,
+            close: candle_tuple.3,
+            volume: candle_tuple.4,
+            volume_buy: candle_tuple.5,
+            volume_sell: candle_tuple.6,
+            volume_liq: candle_tuple.7,
+            volume_liq_buy: candle_tuple.8,
+            volume_liq_sell: candle_tuple.9,
+            value: candle_tuple.10,
+            value_buy: candle_tuple.11,
+            value_sell: candle_tuple.12,
+            value_liq: candle_tuple.13,
+            value_liq_buy: candle_tuple.14,
+            value_liq_sell: candle_tuple.15,
+            trade_count: candle_tuple.16,
+            trade_count_buy: candle_tuple.17,
+            trade_count_sell: candle_tuple.18,
+            liq_count: candle_tuple.19,
+            liq_count_buy: candle_tuple.20,
+            liq_count_sell: candle_tuple.21,
+            last_trade_ts: candle_tuple.22,
+            last_trade_id: candle_tuple.23,
+            first_trade_ts: candle_tuple.24,
+            first_trade_id: candle_tuple.25,
+        }
+    }
+
+    // Reduces the number of if statements in each iteration
+    pub fn new_from_trades_v2<T: Trade>(datetime: DateTime<Utc>, trades: &[T]) -> Self {
+        let candle_tuple = trades.iter().fold(
+            (
+                trades.first().expect("No first trade for candle.").price(), // open
+                Decimal::MIN,                                                // high
+                Decimal::MAX,                                                // low
+                dec!(0),                                                     // close
+                dec!(0),                                                     // volume
+                dec!(0),                                                     // volume buy
+                dec!(0),                                                     // volume sell
+                dec!(0),                                                     // volume liq
+                dec!(0),                                                     // volume liq buy
+                dec!(0),                                                     // volume liq sell
+                dec!(0),                                                     // value
+                dec!(0),                                                     // value buy
+                dec!(0),                                                     // value sell
+                dec!(0),                                                     // value liq
+                dec!(0),                                                     // value liq buy
+                dec!(0),                                                     // value liq sell
+                0,                                                           // count
+                0,                                                           // count buy
+                0,                                                           // count sell
+                0,                                                           // liq count,
+                0,                                                           // liq count buy,
+                0,                                                           // liq count sell,
+                datetime,                                                    // last_trade_ts
+                "".to_string(),                                              // last_trade_id
+                trades.first().expect("No first trade.").time(),             // first_trade_ts
+                trades
+                    .first()
+                    .expect("No first trade.")
+                    .trade_id()
+                    .to_string(), // first_trade_id
+            ),
+            |(
+                o,
+                h,
+                l,
+                _c,
+                v,
+                vb,
+                vs,
+                vl,
+                vlb,
+                vls,
+                u,
+                ub,
+                us,
+                al,
+                alb,
+                als,
+                n,
+                nb,
+                ns,
+                ln,
+                lnb,
+                lns,
+                _ts,
+                _id,
+                fts,
+                fid,
+            ),
+             t| {
+                // Put side and liq if statements here
+                let value = t.size() * t.price();
+                let (
+                    volume_buy,
+                    volume_sell,
+                    volume_liq,
+                    volume_liq_buy,
+                    volume_liq_sell,
+                    value_buy,
+                    value_sell,
+                    value_liq,
+                    value_liq_buy,
+                    value_liq_sell,
+                    n_buy,
+                    n_sell,
+                    n_liq,
+                    n_liq_buy,
+                    n_liq_sell,
+                ) = if t.side() == "buy" {
+                    if t.liquidation() {
+                        (
+                            t.size(),
+                            dec!(0),
+                            t.size(),
+                            t.size(),
+                            dec!(0),
+                            value,
+                            dec!(0),
+                            value,
+                            value,
+                            dec!(0),
+                            1,
+                            0,
+                            1,
+                            1,
+                            0,
+                        )
+                    } else {
+                        (
+                            t.size(),
+                            dec!(0),
+                            dec!(0),
+                            dec!(0),
+                            dec!(0),
+                            value,
+                            dec!(0),
+                            dec!(0),
+                            dec!(0),
+                            dec!(0),
+                            1,
+                            0,
+                            0,
+                            0,
+                            0,
+                        )
+                    }
+                } else {
+                    if t.liquidation() {
+                        (
+                            dec!(0),
+                            t.size(),
+                            t.size(),
+                            dec!(0),
+                            t.size(),
+                            dec!(0),
+                            value,
+                            value,
+                            dec!(0),
+                            value,
+                            0,
+                            1,
+                            1,
+                            0,
+                            1,
+                        )
+                    } else {
+                        (
+                            dec!(0),
+                            t.size(),
+                            dec!(0),
+                            dec!(0),
+                            dec!(0),
+                            dec!(0),
+                            value,
+                            dec!(0),
+                            dec!(0),
+                            dec!(0),
+                            0,
+                            1,
+                            0,
+                            0,
+                            0,
+                        )
+                    }
+                };
+                (
+                    o,                // open
+                    h.max(t.price()), // high
+                    l.min(t.price()), // low
+                    t.price(),        // close
+                    v + t.size(),     // volume
+                    vb + volume_buy,
+                    vs + volume_sell,
+                    vl + volume_liq,
+                    vlb + volume_liq_buy,
+                    vls + volume_liq_sell,
+                    u + value,
+                    ub + value_buy,
+                    us + value_sell,
+                    al + value_liq,
+                    alb + value_liq_buy,
+                    als + value_liq_sell,
+                    n + 1,
+                    nb + n_buy,
+                    ns + n_sell,
+                    ln + n_liq,
+                    lnb + n_liq_buy,
+                    lns + n_liq_sell,
+                    t.time(),
+                    t.trade_id().to_string(),
+                    fts,
+                    fid,
+                )
+            },
+        );
+        Self {
+            datetime,
+            open: candle_tuple.0,
+            high: candle_tuple.1,
+            low: candle_tuple.2,
+            close: candle_tuple.3,
+            volume: candle_tuple.4,
+            volume_buy: candle_tuple.5,
+            volume_sell: candle_tuple.6,
+            volume_liq: candle_tuple.7,
+            volume_liq_buy: candle_tuple.8,
+            volume_liq_sell: candle_tuple.9,
+            value: candle_tuple.10,
+            value_buy: candle_tuple.11,
+            value_sell: candle_tuple.12,
+            value_liq: candle_tuple.13,
+            value_liq_buy: candle_tuple.14,
+            value_liq_sell: candle_tuple.15,
+            trade_count: candle_tuple.16,
+            trade_count_buy: candle_tuple.17,
+            trade_count_sell: candle_tuple.18,
+            liq_count: candle_tuple.19,
+            liq_count_buy: candle_tuple.20,
+            liq_count_sell: candle_tuple.21,
+            last_trade_ts: candle_tuple.22,
+            last_trade_id: candle_tuple.23,
+            first_trade_ts: candle_tuple.24,
+            first_trade_id: candle_tuple.25,
+        }
+    }
+
+    // // Takes a Vec of Candles and resamples into a Candle with the Datetime = the
+    // // datetime passed as argument. Candle built from candes in the order they are in
+    // // the Vec, sort before calling this function otherwise Open / Close may
+    // // be incorrect.
+    // pub fn new_from_candles(market_id: Uuid, datetime: DateTime<Utc>, candles: &[Candle]) -> Self {
+    //     let candle_tuple = candles.iter().fold(
+    //         (
+    //             candles.first().expect("No first trade for candle.").open, // open
+    //             Decimal::MIN,                                              // high
+    //             Decimal::MAX,                                              // low
+    //             dec!(0),                                                   // close
+    //             dec!(0),                                                   // volume
+    //             dec!(0),                                                   // volume_net
+    //             dec!(0),                                                   // volume_liquidation
+    //             dec!(0),                                                   // value
+    //             0,                                                         // count
+    //             0,                                                         // liquidation_count,
+    //             datetime,                                                  // last_trade_ts
+    //             "".to_string(),                                            // last_trade_id
+    //             candles.first().expect("No first trade.").first_trade_ts,  // first_trade_ts
+    //             candles
+    //                 .first()
+    //                 .expect("No first trade.")
+    //                 .first_trade_id
+    //                 .to_string(), // first_trade_id
+    //         ),
+    //         |(o, h, l, _c, v, vn, vl, a, n, ln, _ts, _id, fts, fid), c| {
+    //             (
+    //                 o,
+    //                 h.max(c.high),
+    //                 l.min(c.low),
+    //                 c.close,
+    //                 v + c.volume,
+    //                 vn + c.volume_net,
+    //                 vl + c.volume_liquidation,
+    //                 a + c.value,
+    //                 n + c.trade_count,
+    //                 ln + c.liquidation_count,
+    //                 c.last_trade_ts,
+    //                 c.last_trade_id.to_string(),
+    //                 fts,
+    //                 fid,
+    //             )
+    //         },
+    //     );
+    //     Self {
+    //         datetime,
+    //         open: candle_tuple.0,
+    //         high: candle_tuple.1,
+    //         low: candle_tuple.2,
+    //         close: candle_tuple.3,
+    //         volume: candle_tuple.4,
+    //         volume_net: candle_tuple.5,
+    //         volume_liquidation: candle_tuple.6,
+    //         value: candle_tuple.7,
+    //         trade_count: candle_tuple.8,
+    //         liquidation_count: candle_tuple.9,
+    //         last_trade_ts: candle_tuple.10,
+    //         last_trade_id: candle_tuple.11,
+    //         first_trade_ts: candle_tuple.12,
+    //         first_trade_id: candle_tuple.13,
+    //         is_validated: false,
+    //         market_id,
+    //     }
+    // }
+
+    // This function will build a placeholder trade with 0 volume and
+    // will populate OHLC from the last trade provided.
+    pub fn new_from_last(
+        datetime: DateTime<Utc>,
+        last_trade_price: Decimal,
+        last_trade_ts: DateTime<Utc>,
+        last_trade_id: &str,
+    ) -> Self {
+        Self {
+            datetime,
+            open: last_trade_price, // All OHLC are = last trade price
+            high: last_trade_price,
+            low: last_trade_price,
+            close: last_trade_price,
+            volume: dec!(0),
+            volume_buy: dec!(0),
+            volume_sell: dec!(0),
+            volume_liq: dec!(0),
+            volume_liq_buy: dec!(0),
+            volume_liq_sell: dec!(0),
+            value: dec!(0),
+            value_buy: dec!(0),
+            value_sell: dec!(0),
+            value_liq: dec!(0),
+            value_liq_buy: dec!(0),
+            value_liq_sell: dec!(0),
+            trade_count: 0,
+            trade_count_buy: 0,
+            trade_count_sell: 0,
+            liq_count: 0,
+            liq_count_buy: 0,
+            liq_count_sell: 0,
+            last_trade_ts,
+            last_trade_id: last_trade_id.to_string(),
+            first_trade_ts: last_trade_ts,
+            first_trade_id: last_trade_id.to_string(),
+        }
+    }
+}
+
 impl Mita {
     pub async fn validate_candles<T: crate::utilities::Candle + DeserializeOwned>(
         &self,
@@ -329,6 +860,262 @@ impl Mita {
             .await
             .expect("Could not insert new candle.");
         }
+    }
+}
+
+impl Inquisidor {
+    pub async fn make_candles(&self) {
+        // Aggregate trades for a market into timeframe buckets. Track the latest trade details to
+        // determine if the month has been completed and can be aggregated
+        // Get market to aggregate trades
+        let market = match self.get_valid_market().await {
+            Some(m) => m,
+            None => return,
+        };
+        // Get the market candle detail
+        let mcd = self.get_market_candle_detail(&market).await;
+        match mcd {
+            Some(m) => {
+                // Start from last candle
+                self.make_candles_from_last_candle(&market, &m).await;
+            }
+            None => {
+                // Create mcd and start from first trade month
+                let mcd = self.validate_and_make_mcd_and_first_candle(&market).await;
+                if mcd.is_some() {
+                    self.make_candles_from_last_candle(&market, &mcd.unwrap())
+                        .await;
+                };
+            }
+        }
+    }
+
+    pub async fn validate_market_eligibility_for_candles(
+        &self,
+        market: &MarketDetail,
+        mtd: &Option<MarketTradeDetail>,
+    ) -> bool {
+        // Check there is a market trade detail
+        match mtd {
+            Some(mtd) => {
+                // Check there are trades validated and archived
+                if mtd.next_trade_day.is_none() {
+                    println!(
+                        "{:?} market has not completed backfill. Cannot make candles.",
+                        market.market_name
+                    );
+                    return false;
+                };
+                // Check that there are at least first month of trades to make into candles
+                if mtd.next_trade_day.unwrap() <= next_month_datetime(mtd.first_trade_ts) {
+                    println!(
+                        "Less than one full months of trades for {:?}. Cannot make candles.",
+                        market.market_name
+                    );
+                    false
+                } else {
+                    true
+                }
+            }
+            None => {
+                println!(
+                    "Market trade detail does not exist for {:?}. Cannot make candes.",
+                    market.market_name
+                );
+                false
+            }
+        }
+    }
+
+    pub async fn validate_and_make_mcd_and_first_candle(
+        &self,
+        market: &MarketDetail,
+    ) -> Option<MarketCandleDetail> {
+        // Get the market trade details and check if one exists for market
+        let market_trade_details = MarketTradeDetail::select_all(&self.ig_pool)
+            .await
+            .expect("Failed to select market trade details.");
+        let mtd = market_trade_details
+            .iter()
+            .find(|mtd| mtd.market_id == market.market_id)
+            .cloned();
+        // Validate that the market is in a state to make candles - ie trades have been
+        // archived, a market_trade_detail record exists, and that there are trades through
+        // the end of the first month
+        if !self
+            .validate_market_eligibility_for_candles(market, &mtd)
+            .await
+        {
+            return None;
+        };
+        // Safe to unwrap as None would fail eligibility
+        let mtd = mtd.unwrap();
+        Some(self.make_mcd_and_first_candle(market, &mtd).await)
+    }
+
+    pub async fn make_mcd_and_first_candle(
+        &self,
+        market: &MarketDetail,
+        mtd: &MarketTradeDetail,
+    ) -> MarketCandleDetail {
+        // Create candle daterange from first trade to end of first month
+        let candle_dr = create_date_range(
+            mtd.first_trade_ts
+                .duration_trunc(TimeFrame::S15.as_dur())
+                .unwrap(),
+            next_month_datetime(mtd.first_trade_ts),
+            TimeFrame::S15.as_dur(),
+        );
+        // Create trade file daterange
+        let trades_dr = create_date_range(
+            mtd.first_trade_ts
+                .duration_trunc(Duration::days(1))
+                .unwrap(),
+            next_month_datetime(mtd.first_trade_ts),
+            Duration::days(1),
+        );
+        // Make the candle and write to file
+        let candles = self
+            .make_candle_for_month(market, &None, &candle_dr, &trades_dr)
+            .await;
+        // Create the mcd
+        let mcd = MarketCandleDetail {
+            market_id: market.market_id,
+            exchange_name: market.exchange_name,
+            market_name: market.market_name.clone(),
+            time_frame: TimeFrame::S15,
+            first_candle: candles.first().unwrap().datetime,
+            last_candle: candles.last().unwrap().datetime,
+            last_trade_ts: candles.last().unwrap().last_trade_ts,
+            last_trade_id: candles.last().unwrap().last_trade_id.clone(),
+            last_trade_price: candles.last().unwrap().close,
+        };
+        // Insert the mcd
+        mcd.insert(&self.ig_pool)
+            .await
+            .expect("Failed to insert market candle detail.");
+        // Return the mcd
+        mcd
+    }
+
+    pub async fn make_candle_for_month(
+        &self,
+        market: &MarketDetail,
+        mcd: &Option<MarketCandleDetail>,
+        candle_dr: &[DateTime<Utc>],
+        trades_dr: &[DateTime<Utc>],
+    ) -> Vec<ResearchCandle> {
+        // Load the trades
+        let trades = self.load_trades_for_dr(market, trades_dr).await;
+        // Create the first months candles
+        let candles = self.make_candles_for_dr(mcd, candle_dr, &trades).await;
+        // Write candles to file
+        let f = format!(
+            "{}_{}-{}.csv",
+            market.as_strip(),
+            candle_dr.first().unwrap().format("%Y"),
+            candle_dr.first().unwrap().format("%m")
+        );
+        let archive_path = format!(
+            "{}/candles/{}/{}/{}",
+            &self.settings.application.archive_path,
+            &market.exchange_name.as_str(),
+            &market.as_strip(),
+            candle_dr.first().unwrap().format("%Y"),
+        );
+        // Create directories if not exists
+        std::fs::create_dir_all(&archive_path).expect("Failed to create directories.");
+        let c_path = std::path::Path::new(&archive_path).join(f);
+        // Write trades to file
+        let mut wtr = Writer::from_path(c_path).expect("Failed to open file.");
+        for candle in candles.iter() {
+            wtr.serialize(candle).expect("Failed to serialize trade.");
+        }
+        wtr.flush().expect("Failed to flush wtr.");
+        candles
+    }
+
+    pub async fn make_candles_for_dr<T: Trade + std::clone::Clone>(
+        &self,
+        mcd: &Option<MarketCandleDetail>,
+        dr: &[DateTime<Utc>],
+        trades: &[T],
+    ) -> Vec<ResearchCandle> {
+        let (mut last_price, mut last_id, mut last_ts) = match mcd {
+            Some(mcd) => (
+                mcd.last_trade_price,
+                mcd.last_trade_id.clone(),
+                mcd.last_trade_ts,
+            ),
+            None => (dec!(-1), String::new(), Utc::now()),
+        };
+        let candles = dr.iter().fold(Vec::new(), |mut v, d| {
+            let mut filtered_trades: Vec<T> = trades
+                .iter()
+                .filter(|t| t.time().duration_trunc(TimeFrame::S15.as_dur()).unwrap() == *d)
+                .cloned()
+                .collect();
+            let new_candle = match filtered_trades.len() {
+                0 => ResearchCandle::new_from_last(*d, last_price, last_ts, &last_id),
+                _ => {
+                    filtered_trades.sort_by_key(|t1| t1.trade_id());
+                    ResearchCandle::new_from_trades_v2(*d, &filtered_trades)
+                }
+            };
+            last_price = new_candle.close;
+            last_ts = new_candle.last_trade_ts;
+            last_id = new_candle.last_trade_id.clone();
+            v.push(new_candle);
+            v
+        });
+        candles
+    }
+
+    pub async fn make_candles_from_last_candle(
+        &self,
+        market: &MarketDetail,
+        mcd: &MarketCandleDetail,
+    ) {
+        // Get mtd for the market - it must exist to have a mcd existing
+        let mtd = self.get_market_trade_detail(market).await;
+        // Get month date range for candle build
+        let months_dr = create_monthly_date_range(
+            mcd.last_candle + mcd.time_frame.as_dur(),
+            trunc_month_datetime(mtd.next_trade_day.unwrap() - Duration::days(1)),
+        );
+        // Get mcd for modification
+        let mut mcd = mcd.clone();
+        println!("Months dr for candles: {:?}", months_dr);
+        // For each month, make candles and update the mcd
+        for month in months_dr.iter() {
+            let candle_dr =
+                create_date_range(*month, next_month_datetime(*month), mcd.time_frame.as_dur());
+            let trades_dr =
+                create_date_range(*month, next_month_datetime(*month), Duration::days(1));
+            let candles = self
+                .make_candle_for_month(market, &Some(mcd.clone()), &candle_dr, &trades_dr)
+                .await;
+            // Update the mcd
+            if !candles.is_empty() {
+                mcd = mcd
+                    .update_last(&self.ig_pool, candles.last().unwrap())
+                    .await
+                    .expect("Failed to update last market candle detail.");
+            }
+        }
+    }
+
+    pub async fn get_market_candle_detail(
+        &self,
+        market: &MarketDetail,
+    ) -> Option<MarketCandleDetail> {
+        let market_candle_details = MarketCandleDetail::select_all(&self.ig_pool)
+            .await
+            .expect("Failed to select market candle details.");
+        market_candle_details
+            .iter()
+            .find(|m| m.market_id == market.market_id)
+            .cloned()
     }
 }
 
@@ -1499,17 +2286,24 @@ mod tests {
     };
     use crate::configuration::get_configuration;
     use crate::exchanges::select_exchanges;
-    use crate::exchanges::{client::RestClient, ftx::Trade};
-    use crate::markets::{select_market_detail, select_market_ids_by_exchange};
-    use chrono::{Duration, TimeZone, Utc};
+    use crate::exchanges::{client::RestClient, ftx::Trade as FtxTrade};
+    use crate::inquisidor::Inquisidor;
+    use crate::markets::{
+        select_market_detail, select_market_ids_by_exchange, MarketCandleDetail, MarketDataStatus,
+    };
+    use crate::utilities::{create_date_range, next_month_datetime};
+    use chrono::{DateTime, Datelike, Duration, TimeZone, Utc};
+    use csv::Writer;
     use rust_decimal::prelude::*;
     use rust_decimal_macros::dec;
     use sqlx::PgPool;
     use uuid::Uuid;
 
-    pub fn sample_trades() -> Vec<Trade> {
-        let mut trades: Vec<Trade> = Vec::new();
-        trades.push(Trade {
+    use super::ResearchCandle;
+
+    pub fn sample_trades() -> Vec<FtxTrade> {
+        let mut trades: Vec<FtxTrade> = Vec::new();
+        trades.push(FtxTrade {
             id: 1,
             price: Decimal::new(702, 1),
             size: Decimal::new(23, 1),
@@ -1517,7 +2311,7 @@ mod tests {
             liquidation: false,
             time: Utc.timestamp(1524886322, 0),
         });
-        trades.push(Trade {
+        trades.push(FtxTrade {
             id: 2,
             price: Decimal::new(752, 1),
             size: Decimal::new(64, 1),
@@ -1525,7 +2319,7 @@ mod tests {
             liquidation: false,
             time: Utc.timestamp(1524887322, 0),
         });
-        trades.push(Trade {
+        trades.push(FtxTrade {
             id: 3,
             price: Decimal::new(810, 1),
             size: Decimal::new(4, 1),
@@ -1533,7 +2327,7 @@ mod tests {
             liquidation: true,
             time: Utc.timestamp(1524888322, 0),
         });
-        trades.push(Trade {
+        trades.push(FtxTrade {
             id: 4,
             price: Decimal::new(767, 1),
             size: Decimal::new(13, 1),
@@ -1542,6 +2336,49 @@ mod tests {
             time: Utc.timestamp(1524889322, 0),
         });
         trades
+    }
+
+    pub async fn prep_ftx_file(path: &str, seed: i64, date: DateTime<Utc>) {
+        // Create trades
+        let mut trades = Vec::new();
+        for i in seed..30 {
+            let trade = create_ftx_trade(i, date);
+            trades.push(trade)
+        }
+        // Get path to save file
+        let f = format!("SOLPERP_{}.csv", date.format("%F"));
+        // Set archive file path
+        let archive_path = format!(
+            "{}/trades/ftx/SOLPERP/{}/{}",
+            path,
+            date.format("%Y"),
+            date.format("%m")
+        );
+        // Check directory is created
+        std::fs::create_dir_all(&archive_path).expect("Failed to create directories.");
+        // Set filepath
+        let fp = std::path::Path::new(&archive_path).join(f);
+        // Write trades to file
+        let mut wtr = Writer::from_path(fp).expect("Failed to open file.");
+        for trade in trades.iter() {
+            wtr.serialize(trade).expect("Failed to serialize trade.");
+        }
+        wtr.flush().expect("Failed to flush wtr.");
+    }
+
+    pub fn create_ftx_trade(id: i64, date: DateTime<Utc>) -> FtxTrade {
+        let price = Decimal::new(id, 0) + dec!(100);
+        let size = Decimal::new(id, 0) * dec!(10);
+        FtxTrade {
+            id,
+            price,
+            size,
+            side: "buy".to_string(),
+            liquidation: false,
+            time: Utc
+                .ymd(date.year(), date.month(), date.day())
+                .and_hms(0, id as u32 % 30, 0),
+        }
     }
 
     #[test]
@@ -1566,6 +2403,34 @@ mod tests {
         let first_trade = trades.first().unwrap();
         let candle = Candle::new_from_trades(market_id, first_trade.time, &trades);
         println!("Candle: {:?}", candle);
+    }
+
+    #[test]
+    pub fn new_from_trades_returns_research_candle() {
+        // Create trades
+        let dt = Utc.ymd(2022, 1, 1).and_hms(0, 0, 0);
+        let mut trades = Vec::new();
+        for i in 1..1000000 {
+            let trade = create_ftx_trade(i, dt);
+            trades.push(trade);
+        }
+        let mi = Uuid::new_v4();
+        // Start timer
+        let start_v1 = Utc::now();
+        let candle = ResearchCandle::new_from_trades(dt, &trades);
+        let end_v1 = Utc::now();
+        let start_v2 = Utc::now();
+        let candle_2 = ResearchCandle::new_from_trades_v2(dt, &trades);
+        let end_v2 = Utc::now();
+        let start_v3 = Utc::now();
+        let candle_3 = Candle::new_from_trades(mi, dt, &trades);
+        let end_v3 = Utc::now();
+        println!("Candle 1: {:?}", end_v1 - start_v1);
+        println!("Candle 2: {:?}", end_v2 - start_v2);
+        println!("Candle 2: {:?}", end_v3 - start_v3);
+        println!("Candle 1: {:?}", candle);
+        println!("Candle 2: {:?}", candle_2);
+        println!("Candle 3: {:?}", candle_3);
     }
 
     #[tokio::test]
@@ -1796,5 +2661,238 @@ mod tests {
             let _resampled_candles = resample_candles(market.market_id, &candles, tf.as_dur());
         }
         println!("All candles resampled: {:?}", Utc::now());
+    }
+
+    #[tokio::test]
+    pub async fn make_candles_with_invalid_market_does_nothing_mtd() {
+        // Setup market with no mtd
+        let ig = Inquisidor::new().await;
+        // Update market to active with valid timestamp
+        let sql = r#"
+            UPDATE markets
+            SET (market_data_status, last_candle) = ('active', '2021-12-01 00:00:00+00')
+            WHERE market_name = 'SOL-PERP'
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        // Clear market trade details
+        let sql = r#"
+            DELETE FROM market_trade_details
+            WHERE 1=1
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        // New ig instance will pick up new data items
+        let ig = Inquisidor::new().await;
+        // Get test market
+        let market = ig
+            .markets
+            .iter()
+            .find(|m| m.market_name == "SOL-PERP")
+            .unwrap();
+        // Test no mtd returns false
+        assert!(
+            !ig.validate_market_eligibility_for_candles(market, &None)
+                .await
+        );
+        // Create mtd
+        let mtd = ig.get_market_trade_detail(&market).await;
+        // Test with mtd created but backfill not completed
+        assert!(
+            !ig.validate_market_eligibility_for_candles(market, &Some(mtd))
+                .await
+        );
+        // Modify mtd
+        let mut mtd = ig.get_market_trade_detail(&market).await;
+        mtd.previous_status = MarketDataStatus::Completed;
+        mtd.next_trade_day = Some(mtd.previous_trade_day);
+        println!("{:?}", mtd);
+        assert!(
+            !ig.validate_market_eligibility_for_candles(market, &Some(mtd))
+                .await
+        );
+        // Modify mtd valid scenario
+        let mut mtd = ig.get_market_trade_detail(&market).await;
+        mtd.first_trade_ts = mtd.first_trade_ts - Duration::days(2);
+        mtd.previous_status = MarketDataStatus::Completed;
+        mtd.next_trade_day = Some(mtd.previous_trade_day + Duration::days(2));
+        println!("{:?}", mtd);
+        assert!(
+            ig.validate_market_eligibility_for_candles(market, &Some(mtd))
+                .await
+        );
+    }
+
+    #[tokio::test]
+    pub async fn make_candles_with_no_mcd_creates_mcd_and_first_candle() {
+        // Set up market and mtd
+        let ig = Inquisidor::new().await;
+        // Update market to active with valid timestamp
+        let sql = r#"
+            UPDATE markets
+            SET (market_data_status, last_candle) = ('active', '2021-12-01 00:00:00+00')
+            WHERE market_name = 'SOL-PERP'
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        // Clear market trade details
+        let sql = r#"
+            DELETE FROM market_trade_details
+            WHERE 1=1
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        // Clear market candle details
+        let sql = r#"
+            DELETE FROM market_candle_details
+            WHERE 1=1
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        // New ig instance will pick up new data items
+        let ig = Inquisidor::new().await;
+        // Get test market
+        let market = ig
+            .markets
+            .iter()
+            .find(|m| m.market_name == "SOL-PERP")
+            .unwrap();
+        // Get mtd
+        let mut mtd = ig.get_market_trade_detail(&market).await;
+        // Modify mtd to for test - set next trade day - first trade ts
+        mtd.first_trade_ts = mtd.first_trade_ts - Duration::days(2);
+        mtd.previous_status = MarketDataStatus::Completed;
+        mtd.next_trade_day = Some(mtd.previous_trade_day + Duration::days(2));
+        println!("{:?}", mtd);
+        // Create trade files for 11/29 and 11/30
+        prep_ftx_file(&ig.settings.application.archive_path, 1, mtd.first_trade_ts).await;
+        prep_ftx_file(
+            &ig.settings.application.archive_path,
+            2,
+            mtd.first_trade_ts + Duration::days(1),
+        )
+        .await;
+        // Test
+        let mcd = ig.make_mcd_and_first_candle(market, &mtd).await;
+        println!("MCD: {:?}", mcd);
+        assert_eq!(mcd.first_candle, mtd.first_trade_ts);
+        assert_eq!(
+            mcd.last_candle,
+            next_month_datetime(mtd.first_trade_ts) - Duration::seconds(15)
+        );
+        // Assert runnign mack candles from last_candle does nothing further
+        let sql = r#"
+            UPDATE market_trade_details
+            SET next_trade_day = '2021-12-02'
+            WHERE market_id = '19994c6a-fa3c-4b0b-96c4-c744c43a9514'
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        ig.make_candles_from_last_candle(&market, &mcd).await;
+        // Get the mcd now and assert it is the same as before
+        let new_mcds = MarketCandleDetail::select_all(&ig.ig_pool)
+            .await
+            .expect("Failed to select all mcd.");
+        let new_mcd = new_mcds
+            .iter()
+            .find(|m| m.market_name == "SOL-PERP")
+            .unwrap();
+        assert_eq!(mcd.last_candle, new_mcd.last_candle);
+    }
+
+    #[tokio::test]
+    pub async fn make_candles_with_mcd_makes_until_last_full_month() {
+        // Set up market and mtd
+        let ig = Inquisidor::new().await;
+        // Update market to active with valid timestamp
+        let sql = r#"
+            UPDATE markets
+            SET (market_data_status, last_candle) = ('active', '2021-12-01 00:00:00+00')
+            WHERE market_name = 'SOL-PERP'
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        // Clear market trade details
+        let sql = r#"
+            DELETE FROM market_trade_details
+            WHERE 1=1
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        // Clear market candle details
+        let sql = r#"
+            DELETE FROM market_candle_details
+            WHERE 1=1
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        // New ig instance will pick up new data items
+        let ig = Inquisidor::new().await;
+        // Get test market
+        let market = ig
+            .markets
+            .iter()
+            .find(|m| m.market_name == "SOL-PERP")
+            .unwrap();
+        // Set up mtd details
+        let _mtd = ig.get_market_trade_detail(&market).await;
+        let sql = r#"
+            UPDATE market_trade_details
+            SET next_trade_day = '2022-02-02'
+            WHERE market_id = '19994c6a-fa3c-4b0b-96c4-c744c43a9514'
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        // Set up mcd details
+        let sql = r#"
+            INSERT INTO market_candle_details
+            VALUES ('19994c6a-fa3c-4b0b-96c4-c744c43a9514', 'ftx', 'SOL-PERP', 's15', '2021-11-29',
+                '2021-11-30 23:59:45', '2021-11-30 00:29:00', '29', 129);
+            "#;
+        sqlx::query(sql)
+            .execute(&ig.ig_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        // Now add trade files for the next 3 months
+        let months = [
+            Utc.ymd(2021, 12, 1).and_hms(0, 0, 0),
+            Utc.ymd(2022, 1, 1).and_hms(0, 0, 0),
+        ];
+        for month in months.iter() {
+            // Create date range for month
+            let dr = create_date_range(*month, next_month_datetime(*month), Duration::days(1));
+            for d in dr.iter() {
+                prep_ftx_file(&ig.settings.application.archive_path, d.day() as i64, *d).await;
+            }
+        }
+        // Get the mcd
+        let mcds = MarketCandleDetail::select_all(&ig.ig_pool)
+            .await
+            .expect("Failed to select all mcd.");
+        let mcd = mcds.iter().find(|m| m.market_name == "SOL-PERP").unwrap();
+        println!("{:?}", mcd);
+        // Run the function
+        ig.make_candles_from_last_candle(&market, &mcd).await;
+        // Assert
     }
 }

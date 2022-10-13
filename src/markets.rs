@@ -1,4 +1,4 @@
-use crate::candles::select_first_01d_candle;
+use crate::candles::{select_first_01d_candle, ResearchCandle};
 use crate::exchanges::{client::RestClient, error::RestError, select_exchanges, ExchangeName};
 use crate::inquisidor::Inquisidor;
 use crate::utilities::{get_input, TimeFrame, Trade};
@@ -64,6 +64,19 @@ pub struct MarketTradeDetail {
     pub previous_status: MarketDataStatus,
     pub next_trade_day: Option<DateTime<Utc>>,
     pub next_status: Option<MarketDataStatus>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct MarketCandleDetail {
+    pub market_id: Uuid,
+    pub exchange_name: ExchangeName,
+    pub market_name: String,
+    pub time_frame: TimeFrame,
+    pub first_candle: DateTime<Utc>,
+    pub last_candle: DateTime<Utc>,
+    pub last_trade_ts: DateTime<Utc>,
+    pub last_trade_id: String,
+    pub last_trade_price: Decimal,
 }
 
 impl MarketId {
@@ -441,6 +454,80 @@ impl MarketTradeDetail {
         .fetch_one(pool)
         .await?;
         Ok(row)
+    }
+}
+
+impl MarketCandleDetail {
+    pub async fn insert(&self, pool: &PgPool) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"
+            INSERT INTO market_candle_details (
+                market_id, exchange_name, market_name, time_frame, first_candle, last_candle,
+                last_trade_ts, last_trade_id, last_trade_price)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            "#,
+            self.market_id,
+            self.exchange_name.as_str(),
+            self.market_name,
+            self.time_frame.as_str(),
+            self.first_candle,
+            self.last_candle,
+            self.last_trade_ts,
+            self.last_trade_id,
+            self.last_trade_price,
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn update_last(
+        &self,
+        pool: &PgPool,
+        candle: &ResearchCandle,
+    ) -> Result<Self, sqlx::Error> {
+        sqlx::query!(
+            r#"
+            UPDATE market_candle_details
+            SET (last_candle, last_trade_ts, last_trade_id, last_trade_price) = ($1, $2, $3, $4)
+            WHERE market_id = $5
+            "#,
+            candle.datetime,
+            candle.last_trade_ts,
+            candle.last_trade_id,
+            candle.close,
+            self.market_id,
+        )
+        .execute(pool)
+        .await?;
+        Ok(Self {
+            market_id: self.market_id,
+            exchange_name: self.exchange_name,
+            market_name: self.market_name.clone(),
+            time_frame: self.time_frame,
+            first_candle: self.first_candle,
+            last_candle: candle.datetime,
+            last_trade_ts: candle.last_trade_ts,
+            last_trade_id: candle.last_trade_id.clone(),
+            last_trade_price: candle.close,
+        })
+    }
+
+    pub async fn select_all(pool: &PgPool) -> Result<Vec<MarketCandleDetail>, sqlx::Error> {
+        let rows = sqlx::query_as!(
+            MarketCandleDetail,
+            r#"
+            SELECT market_id,
+                exchange_name as "exchange_name: ExchangeName",
+                market_name,
+                time_frame as "time_frame: TimeFrame",
+                first_candle, last_candle, last_trade_ts, last_trade_id, last_trade_price
+            FROM market_candle_details
+            "#,
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(rows)
     }
 }
 

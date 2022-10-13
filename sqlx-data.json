@@ -208,6 +208,72 @@
       ]
     }
   },
+  "239035bebec684fdc32757a888b9d08839c31ac744e9d186f44ab5945078db0b": {
+    "query": "\n            SELECT market_id,\n                exchange_name as \"exchange_name: ExchangeName\",\n                market_name,\n                time_frame as \"time_frame: TimeFrame\",\n                first_candle, last_candle, last_trade_ts, last_trade_id, last_trade_price\n            FROM market_candle_details\n            ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "market_id",
+          "type_info": "Uuid"
+        },
+        {
+          "ordinal": 1,
+          "name": "exchange_name: ExchangeName",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 2,
+          "name": "market_name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 3,
+          "name": "time_frame: TimeFrame",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "first_candle",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 5,
+          "name": "last_candle",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 6,
+          "name": "last_trade_ts",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 7,
+          "name": "last_trade_id",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 8,
+          "name": "last_trade_price",
+          "type_info": "Numeric"
+        }
+      ],
+      "parameters": {
+        "Left": []
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ]
+    }
+  },
   "239fa6007697874b920fed3d80665a3a426035242ec41c2fee39be619f9b50ed": {
     "query": "\n        SELECT market_id, market_name\n        FROM markets\n        WHERE exchange_name = $1\n        ",
     "describe": {
@@ -1198,6 +1264,22 @@
       ]
     }
   },
+  "7e57b94d19cd9d9ff77236ac518749265bdb2070504e397ba8a01d99747e2c6e": {
+    "query": "\n            UPDATE market_candle_details\n            SET (last_candle, last_trade_ts, last_trade_id, last_trade_price) = ($1, $2, $3, $4)\n            WHERE market_id = $5\n            ",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Timestamptz",
+          "Timestamptz",
+          "Text",
+          "Numeric",
+          "Uuid"
+        ]
+      },
+      "nullable": []
+    }
+  },
   "8eda66124ff968382b106f45da0a57469f79c0c6e522c952b718faec0c869015": {
     "query": "\n            INSERT INTO market_trade_details (\n                market_id, market_start_ts, first_trade_ts, first_trade_id, last_trade_ts,\n                last_trade_id, previous_trade_day, previous_status, next_trade_day, next_status)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)\n            ",
     "describe": {
@@ -1706,6 +1788,26 @@
         true,
         true
       ]
+    }
+  },
+  "e1729c52cb4e39766239fad6726a7b7c1dfaafa581445ecafd2b6a54ae5ad701": {
+    "query": "\n            INSERT INTO market_candle_details (\n                market_id, exchange_name, market_name, time_frame, first_candle, last_candle,\n                last_trade_ts, last_trade_id, last_trade_price)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)\n            ",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Text",
+          "Text",
+          "Text",
+          "Timestamptz",
+          "Timestamptz",
+          "Timestamptz",
+          "Text",
+          "Numeric"
+        ]
+      },
+      "nullable": []
     }
   },
   "e1c4d7694d8fede85ef09ecc6eecac4834e86829345d60381d92dc0848c4ca32": {

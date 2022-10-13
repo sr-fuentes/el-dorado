@@ -570,12 +570,12 @@ impl Inquisidor {
         //          10) Validated next day, if validated - archive and move date forward
         //          11) If not validated, create manual validation event, send sms, exit
         // Get market to backfill
-        let market = match self.get_fill_market().await {
+        let market = match self.get_valid_market().await {
             Some(m) => m,
             None => return,
         };
         // Validate market eligibility
-        let market_eligible = self.validate_market_eligibility(&market);
+        let market_eligible = self.validate_market_eligibility_for_fill(&market);
         if !market_eligible {
             return;
         };
@@ -599,7 +599,7 @@ impl Inquisidor {
         self.process_fill_event(&event).await;
     }
 
-    pub async fn get_fill_market(&self) -> Option<MarketDetail> {
+    pub async fn get_valid_market(&self) -> Option<MarketDetail> {
         let exchange: String = get_input("Enter Exchange to Backfill: ");
         let exchange: ExchangeName = match exchange.try_into() {
             Ok(exchange) => exchange,
@@ -625,7 +625,7 @@ impl Inquisidor {
         Some(market.clone())
     }
 
-    pub fn validate_market_eligibility(&self, market: &MarketDetail) -> bool {
+    pub fn validate_market_eligibility_for_fill(&self, market: &MarketDetail) -> bool {
         // Validate market is eligible to fill:
         // Market detail contains a last candle - ie it has been live in El-Dorado
         if market.market_data_status != MarketStatus::Active || market.last_candle.is_none() {
@@ -726,10 +726,12 @@ impl Inquisidor {
         while current_event.is_some() {
             match event.exchange_name {
                 ExchangeName::Ftx | ExchangeName::FtxUs => {
-                    self.process_ftx_forwardfill(&current_event.unwrap(), &mtd).await;
+                    self.process_ftx_forwardfill(&current_event.unwrap(), &mtd)
+                        .await;
                 }
                 ExchangeName::Gdax => {
-                    self.process_gdax_forwardfill(&current_event.unwrap(), &mtd).await;
+                    self.process_gdax_forwardfill(&current_event.unwrap(), &mtd)
+                        .await;
                 }
             };
             mtd = MarketTradeDetail::select(&self.ig_pool, &event.market_id)
@@ -1928,7 +1930,7 @@ mod tests {
             .await
             .expect("Failed to select market detail.");
         // Test the eligibility fails
-        assert!(!ig.validate_market_eligibility(&market));
+        assert!(!ig.validate_market_eligibility_for_fill(&market));
     }
 
     #[tokio::test]
@@ -1949,7 +1951,7 @@ mod tests {
             .await
             .expect("Failed to select market detail.");
         // Test the eligibility fails
-        assert!(!ig.validate_market_eligibility(&market));
+        assert!(!ig.validate_market_eligibility_for_fill(&market));
     }
 
     #[tokio::test]
