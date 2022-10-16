@@ -1,4 +1,6 @@
-use crate::exchanges::{client::RestClient, error::RestError, ExchangeName};
+use crate::exchanges::{
+    client::RestClient, error::RestError, ftx::Trade as FtxTrade, ExchangeName,
+};
 use crate::inquisidor::Inquisidor;
 use crate::markets::{MarketCandleDetail, MarketDetail, MarketTradeDetail};
 use crate::mita::Mita;
@@ -14,6 +16,7 @@ use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::PgPool;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone, sqlx::FromRow)]
@@ -877,12 +880,21 @@ impl Inquisidor {
         match mcd {
             Some(m) => {
                 // Start from last candle
+                println!(
+                    "MCD found for {:?} starting to build from last candle {:?}",
+                    market.market_name, m.last_candle
+                );
                 self.make_candles_from_last_candle(&market, &m).await;
             }
             None => {
                 // Create mcd and start from first trade month
+                println!(
+                    "MCD not found for {:?}. Validating market and making mcd.",
+                    market.market_name
+                );
                 let mcd = self.validate_and_make_mcd_and_first_candle(&market).await;
                 if mcd.is_some() {
+                    println!("MCD created, making candles from last.");
                     self.make_candles_from_last_candle(&market, &mcd.unwrap())
                         .await;
                 };
@@ -949,6 +961,7 @@ impl Inquisidor {
             return None;
         };
         // Safe to unwrap as None would fail eligibility
+        println!("Market validated, making mcd and first candle.");
         let mtd = mtd.unwrap();
         Some(self.make_mcd_and_first_candle(market, &mtd).await)
     }
@@ -1006,8 +1019,11 @@ impl Inquisidor {
         trades_dr: &[DateTime<Utc>],
     ) -> Vec<ResearchCandle> {
         // Load the trades
-        let trades = self.load_trades_for_dr(market, trades_dr).await;
+        println!("Loading trades.");
+        let trades: HashMap<DateTime<Utc>, Vec<FtxTrade>> =
+            self.load_trades_for_dr(market, trades_dr).await;
         // Create the first months candles
+        println!("Making candles dr.");
         let candles = self.make_candles_for_dr(mcd, candle_dr, &trades).await;
         // Write candles to file
         let f = format!(
@@ -1027,6 +1043,7 @@ impl Inquisidor {
         std::fs::create_dir_all(&archive_path).expect("Failed to create directories.");
         let c_path = std::path::Path::new(&archive_path).join(f);
         // Write trades to file
+        println!("Writing candles for month.");
         let mut wtr = Writer::from_path(c_path).expect("Failed to open file.");
         for candle in candles.iter() {
             wtr.serialize(candle).expect("Failed to serialize trade.");
@@ -1039,8 +1056,9 @@ impl Inquisidor {
         &self,
         mcd: &Option<MarketCandleDetail>,
         dr: &[DateTime<Utc>],
-        trades: &[T],
+        trades: &HashMap<DateTime<Utc>, Vec<T>>,
     ) -> Vec<ResearchCandle> {
+        // TRADES MUST BE SORTED
         let (mut last_price, mut last_id, mut last_ts) = match mcd {
             Some(mcd) => (
                 mcd.last_trade_price,
@@ -1050,17 +1068,11 @@ impl Inquisidor {
             None => (dec!(-1), String::new(), Utc::now()),
         };
         let candles = dr.iter().fold(Vec::new(), |mut v, d| {
-            let mut filtered_trades: Vec<T> = trades
-                .iter()
-                .filter(|t| t.time().duration_trunc(TimeFrame::S15.as_dur()).unwrap() == *d)
-                .cloned()
-                .collect();
-            let new_candle = match filtered_trades.len() {
-                0 => ResearchCandle::new_from_last(*d, last_price, last_ts, &last_id),
-                _ => {
-                    filtered_trades.sort_by_key(|t1| t1.trade_id());
-                    ResearchCandle::new_from_trades_v2(*d, &filtered_trades)
-                }
+            println!("{:?} - Make candle for {:?}", Utc::now(), d);
+            let new_candle = if !trades.contains_key(d) {
+                ResearchCandle::new_from_last(*d, last_price, last_ts, &last_id)
+            } else {
+                ResearchCandle::new_from_trades_v2(*d, &trades[d])
             };
             last_price = new_candle.close;
             last_ts = new_candle.last_trade_ts;

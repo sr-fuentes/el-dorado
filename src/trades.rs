@@ -5,10 +5,11 @@ use crate::exchanges::{
 use crate::inquisidor::Inquisidor;
 use crate::markets::MarketDetail;
 use crate::mita::Mita;
-use crate::utilities::Trade;
-use chrono::{DateTime, Utc};
+use crate::utilities::{TimeFrame, Trade};
+use chrono::{DateTime, DurationRound, Utc};
 use csv::Reader;
 use sqlx::PgPool;
+use std::collections::HashMap;
 use std::fs::File;
 
 impl Mita {
@@ -175,11 +176,13 @@ impl Inquisidor {
         &self,
         market: &MarketDetail,
         dr: &[DateTime<Utc>],
-    ) -> Vec<FtxTrade> {
+    ) -> HashMap<DateTime<Utc>, Vec<FtxTrade>> {
         // For each date - load the trades and append to vec of trades
-        let mut trades = Vec::new();
+        // Create hashmap of candle datetimes to store trades
+        let mut candle_dr_map: HashMap<DateTime<Utc>, Vec<FtxTrade>> = HashMap::new();
         for d in dr.iter() {
             // Load trades for day
+            println!("{:?} - Loading trades for {:?}", Utc::now(), d);
             let archive_path = format!(
                 "{}/trades/{}/{}/{}/{}",
                 &self.settings.application.archive_path,
@@ -195,10 +198,13 @@ impl Inquisidor {
             let mut rdr = Reader::from_reader(file);
             for result in rdr.deserialize() {
                 let record: FtxTrade = result.expect("Faile to deserialize record.");
-                trades.push(record)
+                candle_dr_map
+                    .entry(record.time.duration_trunc(TimeFrame::S15.as_dur()).unwrap())
+                    .and_modify(|v| v.push(record.clone()))
+                    .or_insert_with(|| vec![record.clone()]);
             }
         }
-        trades
+        candle_dr_map
     }
 }
 
