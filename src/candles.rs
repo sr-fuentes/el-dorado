@@ -759,6 +759,74 @@ impl ResearchCandle {
             first_trade_id: last_trade_id.to_string(),
         }
     }
+
+    // This function will create the research candle table for the given market
+    pub async fn create_table(pool: &PgPool, schema: &str, table: &str) -> Result<(), sqlx::Error> {
+        // Cannot use query! macro for query validation as the table does not exist
+        let sql = format!(
+            r#"
+            CREATE TABLE IF NOT EXISTS {}.{} (
+                datetime timestamptz NOT NULL,
+                PRIMARY KEY (datetime),
+                open NUMERIC NOT NULL,
+                high NUMERIC NOT NULL,
+                low NUMERIC NOT NULL,
+                close NUMERIC NOT NULL,
+                volume NUMERIC NOT NULL,
+                volume_buy NUMERIC NOT NULL,
+                volume_sell NUMERIC NOT NULL,
+                volume_liq NUMERIC NOT NULL,
+                volume_liq_buy NUMERIC NOT NULL,
+                volume_liq_sell NUMERIC NOT NULL,
+                value NUMERIC NOT NULL,
+                value_buy NUMERIC NOT NULL,
+                value_sell NUMERIC NOT NULL,
+                value_liq NUMERIC NOT NULL,
+                value_liq_buy NUMERIC NOT NULL,
+                value_liq_sell NUMERIC NOT NULL,
+                trade_count BIGINT NOT NULL,
+                trade_count_buy BIGINT NOT NULL,
+                trade_count_sell BIGINT NOT NULL,
+                liq_count BIGINT NOT NULL,
+                liq_count_buy BIGINT NOT NULL,
+                liq_count_sell BIGINT NOT NULL,
+                last_trade_ts timestamptz NOT NULL,
+                last_trade_id TEXT NOT NULL,
+                first_trade_ts timestamptz NOT NULL,
+                first_trade_id TExT NOT NULL
+            )
+            "#,
+            schema, table,
+        );
+        sqlx::query(&sql).execute(pool).await?;
+        Ok(())
+    }
+
+    // This function will select the last (latest datetime) research candle from the given table
+    pub async fn select_last(
+        pool: &PgPool,
+        schema: &str,
+        table: &str,
+    ) -> Result<Self, sqlx::Error> {
+        // Cannot use query_as! macro to check for query validation as the table may or may not
+        // exist.
+        let sql = format!(
+            r#"
+            SELECT datetime, open, high, low, close, volume, volume_buy, volume_sell, volume_liq,
+                volume_liq_buy, volume_liq_sell, value, value_buy, value_sell, value_liq,
+                value_liq_buy, value_liq_sell, trade_count, trade_count_buy, trade_count_sell,
+                liq_count, liq_count_buy, liq_count_sell, last_trade_ts, last_trade_id,
+                first_trade_ts, first_trade_id
+            FROM {}.{}
+            ORDER BY datetime DESC LIMIT 1
+            "#,
+            schema, table
+        );
+        let row = sqlx::query_as::<_, ResearchCandle>(&sql)
+            .fetch_one(pool)
+            .await?;
+        Ok(row)
+    }
 }
 
 impl Mita {
@@ -867,6 +935,88 @@ impl Mita {
 }
 
 impl Inquisidor {
+    pub async fn load_candles(&self) {
+        // Load the market candle details table. For each entry check that the candles have been
+        // loaded in the archive db. Load any monthly candles that have not.
+
+        // Load market candle details
+        let mcds = MarketCandleDetail::select_all(&self.ig_pool)
+            .await
+            .expect("Failed to load market candle details.");
+        // Check each record
+        for mcd in mcds.iter() {
+            println!(
+                "Checking {:?} for candles to load to archive db.",
+                mcd.market_name
+            );
+            let months_to_load = self.check_mcd_for_months_to_load(mcd).await;
+            if !months_to_load.is_empty() {
+                println!("Loading {:?} for {:?}", months_to_load, mcd.market_name);
+                // self.load_candles_for_months(mcd, &months_to_load).await;
+            } else {
+                println!(
+                    "All candle files loaded into archive for {:?}",
+                    mcd.market_name
+                );
+            }
+        }
+    }
+
+    pub async fn check_mcd_for_months_to_load(
+        &self,
+        mcd: &MarketCandleDetail,
+    ) -> Vec<DateTime<Utc>> {
+        // Check if archive table exists
+        let market = self
+            .markets
+            .iter()
+            .find(|m| m.market_name == mcd.market_name)
+            .unwrap();
+        let schema = "archive";
+        let table = format!(
+            "candles_{}_{}_{}",
+            mcd.exchange_name.as_str(),
+            market.as_strip(),
+            mcd.time_frame.as_str()
+        );
+        let table_exists = self
+            .table_exists(&self.archive_pool, schema, &table)
+            .await
+            .expect("Failed to check if table exists.");
+        let first_month = match table_exists {
+            true => {
+                // Archive table exists, check last candle
+                println!(
+                    "Archive table exists for {:?}. Checking next month for dr.",
+                    mcd.market_name
+                );
+                let last_candle =
+                    ResearchCandle::select_last(&self.archive_pool, schema, &table).await;
+                match last_candle {
+                    Ok(lc) => next_month_datetime(lc.datetime),
+                    Err(sqlx::Error::RowNotFound) => trunc_month_datetime(mcd.first_candle),
+                    Err(e) => panic!("Sqlx Error: {:?}", e),
+                }
+            }
+            false => {
+                // Archive table does not exist, create archive table then check last candle
+                println!(
+                    "Archive table does not exist for {:?}. Creating table.",
+                    mcd.market_name
+                );
+                ResearchCandle::create_table(&self.archive_pool, schema, &table)
+                    .await
+                    .expect("Failed to create archive table.");
+                trunc_month_datetime(mcd.first_candle)
+            }
+        };
+        // Build daterange from first month to last month
+        create_monthly_date_range(
+            first_month,
+            trunc_month_datetime(mcd.last_candle + mcd.time_frame.as_dur()),
+        )
+    }
+
     pub async fn make_candles(&self) {
         // Aggregate trades for a market into timeframe buckets. Track the latest trade details to
         // determine if the month has been completed and can be aggregated
@@ -2294,11 +2444,12 @@ pub async fn update_candle_archived(
 #[cfg(test)]
 mod tests {
     use crate::candles::{
-        resample_candles, select_candles_gte_datetime, Candle, DailyCandle, TimeFrame,
+        resample_candles, select_candles_gte_datetime, Candle, DailyCandle, ResearchCandle,
+        TimeFrame,
     };
     use crate::configuration::get_configuration;
     use crate::exchanges::select_exchanges;
-    use crate::exchanges::{client::RestClient, ftx::Trade as FtxTrade};
+    use crate::exchanges::{client::RestClient, ftx::Trade as FtxTrade, ExchangeName};
     use crate::inquisidor::Inquisidor;
     use crate::markets::{
         select_market_detail, select_market_ids_by_exchange, MarketCandleDetail, MarketDataStatus,
@@ -2310,8 +2461,6 @@ mod tests {
     use rust_decimal_macros::dec;
     use sqlx::PgPool;
     use uuid::Uuid;
-
-    use super::ResearchCandle;
 
     pub fn sample_trades() -> Vec<FtxTrade> {
         let mut trades: Vec<FtxTrade> = Vec::new();
@@ -2906,5 +3055,120 @@ mod tests {
         // Run the function
         ig.make_candles_from_last_candle(&market, &mcd).await;
         // Assert
+    }
+
+    #[tokio::test]
+    pub async fn check_mcd_for_months_to_load_tests() {
+        // Setup
+        let ig = Inquisidor::new().await;
+        let mut mcd = MarketCandleDetail {
+            market_id: Uuid::new_v4(),
+            exchange_name: ExchangeName::Ftx,
+            market_name: "SOL-PERP".to_string(),
+            time_frame: TimeFrame::S15,
+            first_candle: Utc.ymd(2022, 3, 15).and_hms(4, 30, 15),
+            last_candle: Utc.ymd(2022, 9, 30).and_hms(23, 59, 45),
+            last_trade_ts: Utc.ymd(2022, 9, 30).and_hms(23, 59, 55),
+            last_trade_id: "1234".to_string(),
+            last_trade_price: dec!(123.0),
+        };
+        let table = "candles_ftx_solperp_s15";
+        let schema = "archive";
+        let drop_sql = r#"
+            DROP TABLE IF EXISTS archive.candles_ftx_solperp_s15
+        "#;
+        let insert_sql = r#"
+            INSERT INTO archive.candles_ftx_solperp_s15
+            VALUES ('2022-03-31 23:59:45', 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                1.0, 1.0, 1.0, 1.0, 1.0, 10, 10, 10, 10, 10, 10, '2022-03-31 23:59:59', '1234', 
+                '2022-03-31 23:59:46', '4321')
+        "#;
+
+        // Archive table exists with candles & no next month in mcd
+        sqlx::query(drop_sql)
+            .execute(&ig.archive_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        ResearchCandle::create_table(&ig.archive_pool, schema, table)
+            .await
+            .expect("Failed to create table.");
+        sqlx::query(insert_sql)
+            .execute(&ig.archive_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        mcd.last_candle = Utc.ymd(2022, 4, 10).and_hms(23, 59, 30);
+        let dr = ig.check_mcd_for_months_to_load(&mcd).await;
+        println!("{:?}", dr);
+        assert!(dr.is_empty());
+
+        // Archive table exists with candles & there are new months in mcd
+        sqlx::query(drop_sql)
+            .execute(&ig.archive_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        ResearchCandle::create_table(&ig.archive_pool, schema, table)
+            .await
+            .expect("Failed to create table.");
+        sqlx::query(insert_sql)
+            .execute(&ig.archive_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        mcd.last_candle = Utc.ymd(2022, 6, 10).and_hms(23, 59, 30);
+        let dr = ig.check_mcd_for_months_to_load(&mcd).await;
+        println!("{:?}", dr);
+        assert!(!dr.is_empty());
+        assert_eq!(dr.len(), 2);
+
+        // Archive table exists without candles & no new months in mcd
+        sqlx::query(drop_sql)
+            .execute(&ig.archive_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        ResearchCandle::create_table(&ig.archive_pool, schema, table)
+            .await
+            .expect("Failed to create table.");
+        mcd.first_candle = Utc.ymd(2022, 9, 15).and_hms(4, 30, 15);
+        mcd.last_candle = Utc.ymd(2022, 9, 30).and_hms(23, 59, 30);
+        let dr = ig.check_mcd_for_months_to_load(&mcd).await;
+        println!("{:?}", dr);
+        assert!(dr.is_empty());
+
+        // Archive table exists without candles & there are new months in mcd
+        sqlx::query(drop_sql)
+            .execute(&ig.archive_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        ResearchCandle::create_table(&ig.archive_pool, schema, table)
+            .await
+            .expect("Failed to create table.");
+        mcd.first_candle = Utc.ymd(2022, 9, 15).and_hms(4, 30, 15);
+        mcd.last_candle = Utc.ymd(2022, 11, 14).and_hms(23, 59, 45);
+        let dr = ig.check_mcd_for_months_to_load(&mcd).await;
+        println!("{:?}", dr);
+        assert!(!dr.is_empty());
+        assert_eq!(dr.len(), 2);
+
+        // Archive table does not exists & there are no months in mcd
+        sqlx::query(drop_sql)
+            .execute(&ig.archive_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        mcd.first_candle = Utc.ymd(2022, 9, 15).and_hms(4, 30, 15);
+        mcd.last_candle = Utc.ymd(2022, 9, 30).and_hms(23, 59, 30);
+        let dr = ig.check_mcd_for_months_to_load(&mcd).await;
+        println!("{:?}", dr);
+        assert!(dr.is_empty());
+
+        // Archive table does not exist & there are new months in mcd
+        sqlx::query(drop_sql)
+            .execute(&ig.archive_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        mcd.first_candle = Utc.ymd(2022, 9, 15).and_hms(4, 30, 15);
+        mcd.last_candle = Utc.ymd(2022, 9, 30).and_hms(23, 59, 45);
+        let dr = ig.check_mcd_for_months_to_load(&mcd).await;
+        println!("{:?}", dr);
+        assert!(!dr.is_empty());
+        assert_eq!(dr.len(), 1);
     }
 }

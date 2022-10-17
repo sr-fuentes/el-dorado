@@ -18,6 +18,7 @@ async fn main() {
         .subcommand(App::new("sync").about("fill to current start of day"))
         .subcommand(App::new("fill").about("fill from first candle to start"))
         .subcommand(App::new("candle").about("make candles from backfilled trades"))
+        .subcommand(App::new("candleload").about("load candles from file to db"))
         .subcommand(App::new("manage").about("run current cleanup script"))
         .subcommand(App::new("manual").about("manually validate bad candles"))
         .subcommand(App::new("archive").about("archive trade for valid candles"))
@@ -111,6 +112,11 @@ async fn main() {
             // Make candles for trades that have been backfilled
             let ig = Inquisidor::new().await;
             ig.make_candles().await;
+        }
+        Some("candleload") => {
+            // Make candles for trades that have been backfilled
+            let ig = Inquisidor::new().await;
+            ig.load_candles().await;
         }
         Some("manage") => {
             // Create new admin instance and refresh exchange
