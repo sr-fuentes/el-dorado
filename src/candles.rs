@@ -11,12 +11,13 @@ use crate::utilities::{
 };
 use crate::validation::insert_candle_validation;
 use chrono::{DateTime, Duration, DurationRound, Utc};
-use csv::Writer;
+use csv::{Reader, Writer};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::PgPool;
 use std::collections::HashMap;
+use std::fs::File;
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone, sqlx::FromRow)]
@@ -827,6 +828,55 @@ impl ResearchCandle {
             .await?;
         Ok(row)
     }
+
+    // This function will insert the candle into the database using the pool given
+    pub async fn insert(
+        &self,
+        pool: &PgPool,
+        schema: &str,
+        table: &str,
+    ) -> Result<(), sqlx::Error> {
+        // Cannot user query! macro as table may not exist as compile time.
+        let sql = format!(
+            r#"
+            INSERT INTO {}.{}
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+                $19, $20, $21, $22, $23, $24, $25, $26, $27)
+            "#,
+            schema, table,
+        );
+        sqlx::query(&sql)
+            .bind(self.datetime)
+            .bind(self.open)
+            .bind(self.high)
+            .bind(self.low)
+            .bind(self.close)
+            .bind(self.volume)
+            .bind(self.volume_buy)
+            .bind(self.volume_sell)
+            .bind(self.volume_liq)
+            .bind(self.volume_liq_buy)
+            .bind(self.volume_liq_sell)
+            .bind(self.value)
+            .bind(self.value_buy)
+            .bind(self.value_sell)
+            .bind(self.value_liq)
+            .bind(self.value_liq_buy)
+            .bind(self.value_liq_sell)
+            .bind(self.trade_count)
+            .bind(self.trade_count_buy)
+            .bind(self.trade_count_sell)
+            .bind(self.liq_count)
+            .bind(self.liq_count_buy)
+            .bind(self.liq_count_sell)
+            .bind(self.last_trade_ts)
+            .bind(&self.last_trade_id)
+            .bind(self.first_trade_ts)
+            .bind(&self.first_trade_id)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
 }
 
 impl Mita {
@@ -952,7 +1002,7 @@ impl Inquisidor {
             let months_to_load = self.check_mcd_for_months_to_load(mcd).await;
             if !months_to_load.is_empty() {
                 println!("Loading {:?} for {:?}", months_to_load, mcd.market_name);
-                // self.load_candles_for_months(mcd, &months_to_load).await;
+                self.load_candles_for_months(mcd, &months_to_load).await;
             } else {
                 println!(
                     "All candle files loaded into archive for {:?}",
@@ -1015,6 +1065,52 @@ impl Inquisidor {
             first_month,
             trunc_month_datetime(mcd.last_candle + mcd.time_frame.as_dur()),
         )
+    }
+
+    pub async fn load_candles_for_months(&self, mcd: &MarketCandleDetail, dr: &[DateTime<Utc>]) {
+        // Get market from mcd
+        let market = self
+            .markets
+            .iter()
+            .find(|m| m.market_name == mcd.market_name)
+            .unwrap();
+        let schema = "archive";
+        let table = format!(
+            "candles_{}_{}_{}",
+            mcd.exchange_name.as_str(),
+            market.as_strip(),
+            mcd.time_frame.as_str()
+        );
+        // For each month in the dr, read the csv file of candles and insert into the database
+        for month in dr.iter() {
+            // Create file path
+            let f = format!(
+                "{}_{}-{}.csv",
+                market.as_strip(),
+                month.format("%Y"),
+                month.format("%m")
+            );
+            let archive_path = format!(
+                "{}/candles/{}/{}/{}",
+                &self.settings.application.archive_path,
+                &market.exchange_name.as_str(),
+                &market.as_strip(),
+                month.format("%Y"),
+            );
+            let fp = std::path::Path::new(&archive_path).join(f);
+            println!("Opening file: {:?}", fp);
+            let file = File::open(fp).expect("Failed to open file.");
+            // Read file
+            let mut rdr = Reader::from_reader(file);
+            for result in rdr.deserialize() {
+                let candle: ResearchCandle = result.expect("Faile to deserialize candle record.");
+                // Write file to db
+                candle
+                    .insert(&self.archive_pool, schema, &table)
+                    .await
+                    .expect("Failed to insert candle.");
+            }
+        }
     }
 
     pub async fn make_candles(&self) {
@@ -3170,5 +3266,85 @@ mod tests {
         println!("{:?}", dr);
         assert!(!dr.is_empty());
         assert_eq!(dr.len(), 1);
+    }
+
+    #[tokio::test]
+    pub async fn read_candle_and_insert() {
+        // Setup
+        let ig = Inquisidor::new().await;
+        let mcd = MarketCandleDetail {
+            market_id: Uuid::new_v4(),
+            exchange_name: ExchangeName::Ftx,
+            market_name: "SOL-PERP".to_string(),
+            time_frame: TimeFrame::S15,
+            first_candle: Utc.ymd(2022, 3, 15).and_hms(4, 30, 15),
+            last_candle: Utc.ymd(2022, 9, 30).and_hms(23, 59, 45),
+            last_trade_ts: Utc.ymd(2022, 9, 30).and_hms(23, 59, 55),
+            last_trade_id: "1234".to_string(),
+            last_trade_price: dec!(123.0),
+        };
+        let table = "candles_ftx_solperp_s15";
+        let schema = "archive";
+        let drop_sql = r#"
+            DROP TABLE IF EXISTS archive.candles_ftx_solperp_s15
+        "#;
+        sqlx::query(drop_sql)
+            .execute(&ig.archive_pool)
+            .await
+            .expect("Failed to update last candle to null.");
+        ResearchCandle::create_table(&ig.archive_pool, schema, table)
+            .await
+            .expect("Failed to create table.");
+        let dr = vec![Utc.ymd(2022, 3, 1).and_hms(0, 0, 0)];
+        let mut candles = Vec::new();
+        for i in 1..30 {
+            let candle = ResearchCandle {
+                datetime: Utc.ymd(2022, 3, i).and_hms(0, 0, 0),
+                open: dec!(0),
+                high: dec!(0),
+                low: dec!(0),
+                close: dec!(0),
+                volume: dec!(0),
+                volume_buy: dec!(0),
+                volume_sell: dec!(0),
+                volume_liq: dec!(0),
+                volume_liq_buy: dec!(0),
+                volume_liq_sell: dec!(0),
+                value: dec!(0),
+                value_buy: dec!(0),
+                value_sell: dec!(0),
+                value_liq: dec!(0),
+                value_liq_buy: dec!(0),
+                value_liq_sell: dec!(0),
+                trade_count: 1,
+                trade_count_buy: 1,
+                trade_count_sell: 1,
+                liq_count: 1,
+                liq_count_buy: 1,
+                liq_count_sell: 1,
+                last_trade_ts: Utc.ymd(2022, 3, 1).and_hms(0, 0, 0),
+                last_trade_id: "1234".to_string(),
+                first_trade_ts: Utc.ymd(2022, 3, 1).and_hms(0, 0, 0),
+                first_trade_id: "1234".to_string(),
+            };
+            candles.push(candle);
+        }
+        let f = "SOLPERP_2022-03.csv";
+        let p = format!(
+            "{}/candles/ftx/SOLPERP/2022",
+            ig.settings.application.archive_path
+        );
+        std::fs::create_dir_all(&p).expect("Failed to create directories.");
+        let fp = std::path::Path::new(&p).join(f);
+        // Write trades to file
+        let mut wtr = Writer::from_path(fp).expect("Failed to open file.");
+        for candle in candles.iter() {
+            wtr.serialize(candle).expect("Failed to serialize trade.");
+        }
+        wtr.flush().expect("Failed to flush wtr.");
+        // Run
+        println!("Loading {:?} for {:?}", dr, mcd.market_name);
+        ig.load_candles_for_months(&mcd, &dr).await;
+        // Assert
     }
 }
