@@ -1,10 +1,40 @@
 use chrono::{DateTime, Datelike, Duration, DurationRound, TimeZone, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
+use sqlx::PgPool;
 use std::convert::TryFrom;
 use std::env;
 use std::io::{self, Write};
 use twilio::{OutboundMessage, TwilioClient};
+
+use crate::inquisidor::Inquisidor;
+
+impl Inquisidor {
+    pub async fn table_exists(
+        &self,
+        pool: &PgPool,
+        schema: &str,
+        table: &str,
+    ) -> Result<bool, sqlx::Error> {
+        println!("Checking table exists for {}.{}", schema, table);
+        let result = sqlx::query!(
+            r#"
+            SELECT EXISTS (
+                SELECT FROM
+                    pg_tables
+                WHERE
+                    schemaname = $1 AND
+                    tablename = $2
+            ) as "exists!";
+            "#,
+            schema,
+            table.to_lowercase()
+        )
+        .fetch_one(pool)
+        .await?;
+        Ok(result.exists)
+    }
+}
 
 #[derive(Debug)]
 pub struct Twilio {

@@ -16,6 +16,7 @@ pub struct Inquisidor {
     pub ig_pool: PgPool,
     pub ftx_pool: PgPool,
     pub gdax_pool: PgPool,
+    pub archive_pool: PgPool,
     pub clients: HashMap<ExchangeName, RestClient>,
     pub hbtf: TimeFrame,
     pub twilio: Twilio,
@@ -37,6 +38,9 @@ impl Inquisidor {
         let gdax_pool = PgPool::connect_with(settings.gdax_db.with_db())
             .await
             .expect("Failed to connect to postgres db.");
+        let archive_pool = PgPool::connect_with(settings.archive_db.with_db())
+            .await
+            .expect("Failed to connect to postgres db.");
         let mut clients = HashMap::new();
         clients.insert(ExchangeName::Ftx, RestClient::new(&ExchangeName::Ftx));
         clients.insert(ExchangeName::FtxUs, RestClient::new(&ExchangeName::FtxUs));
@@ -55,6 +59,7 @@ impl Inquisidor {
             ig_pool,
             ftx_pool,
             gdax_pool,
+            archive_pool,
             clients,
             hbtf: TimeFrame::time_frames()[0],
             twilio: client,

@@ -2001,6 +2001,27 @@
       "nullable": []
     }
   },
+  "f30c378d3edc34ea0abc5adc020fc5bc9b0cf6f0600d5b09d4360a15a863c4af": {
+    "query": "\n            SELECT EXISTS (\n                SELECT FROM\n                    pg_tables\n                WHERE\n                    schemaname = $1 AND\n                    tablename = $2\n            ) as \"exists!\";\n            ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "exists!",
+          "type_info": "Bool"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Name",
+          "Name"
+        ]
+      },
+      "nullable": [
+        null
+      ]
+    }
+  },
   "fc12e84f05cafaf41bf0722d349cbaf7eb9ac6a9d0fd76b4a38929a126aeff77": {
     "query": "\n        SELECT event_id, droplet,\n            event_type as \"event_type: EventType\",\n            exchange_name as \"exchange_name: ExchangeName\",\n            market_id, start_ts, end_ts, event_ts, created_ts, processed_ts,\n            event_status as \"event_status: EventStatus\", \n            notes\n        FROM events\n        WHERE droplet = $1\n        AND event_ts < $2\n        AND event_status != $3\n        AND exchange_name = $4\n        ",
     "describe": {
