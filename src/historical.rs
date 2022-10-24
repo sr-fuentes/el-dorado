@@ -870,8 +870,10 @@ impl Inquisidor {
                             .expect("Failed to update mtd status.");
                     } else {
                         // Not part of backfill process. Check that 01d candle exists, if so move
+                        println!("Creating new bf trades table.");
                         let new_trade_table = format!("bf_{}", start.format("%Y%m%d"));
                         // trades to 'bf_YYYYMMDD' table from _processed and _archived
+                        println!("Moving processed trades.");
                         self.migrate_ftx_trades_for_date(
                             event,
                             &new_trade_table,
@@ -879,6 +881,7 @@ impl Inquisidor {
                             start,
                         )
                         .await;
+                        println!("Moving validated trades.");
                         self.migrate_ftx_trades_for_date(
                             event,
                             &new_trade_table,
@@ -887,10 +890,12 @@ impl Inquisidor {
                         )
                         .await;
                         // Delete any validations for that market and date
+                        println!("Deleting validations for date.");
                         self.delete_validations_for_date(event, start)
                             .await
                             .expect("Failed to purge candle validations.");
                         // Update status to get to next event will reprocess
+                        println!("Updating newxt marketdatastatus to get.");
                         mtd.update_next_status(&self.ig_pool, &MarketDataStatus::Get)
                             .await
                             .expect("Failed to update mtd status.");
