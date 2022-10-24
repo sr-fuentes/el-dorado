@@ -579,7 +579,7 @@ impl Inquisidor {
         if !market_eligible {
             return;
         };
-        // Get the ;market trade detail
+        // Get the market trade detail
         let mtd = self.get_market_trade_detail(&market).await;
         // Get fill event
         let event = match self.get_fill_event(&market, &mtd).await {
@@ -759,7 +759,7 @@ impl Inquisidor {
                 // Only used to re-validate days processed via backfill, ongoing el-dorado days
                 // are validated via the manage / manual ig processes
                 // Re-download trades
-                let new_trade_table = format!("ff_{}", start.format("%Y%m%d"));
+                let new_trade_table = format!("{}_qc", start.format("%Y%m%d"));
                 self.get_ftx_trades_dr_into_table(
                     event,
                     &new_trade_table,
@@ -865,6 +865,32 @@ impl Inquisidor {
                     // Determine if file creation is part of backfill or el-dorado
                     if self.is_backfill(event).await {
                         // If part of backfill process - update mtd status to GET
+                        mtd.update_next_status(&self.ig_pool, &MarketDataStatus::Get)
+                            .await
+                            .expect("Failed to update mtd status.");
+                    } else {
+                        // Not part of backfill process. Check that 01d candle exists, if so move
+                        let new_trade_table = format!("bf_{}", start.format("%Y%m%d"));
+                        // trades to 'bf_YYYYMMDD' table from _processed and _archived
+                        self.migrate_ftx_trades_for_date(
+                            event,
+                            &new_trade_table,
+                            "processed",
+                            start,
+                        )
+                        .await;
+                        self.migrate_ftx_trades_for_date(
+                            event,
+                            &new_trade_table,
+                            "validated",
+                            start,
+                        )
+                        .await;
+                        // Delete any validations for that market and date
+                        self.delete_validations_for_date(event, start)
+                            .await
+                            .expect("Failed to purge candle validations.");
+                        // Update status to get to next event will reprocess
                         mtd.update_next_status(&self.ig_pool, &MarketDataStatus::Get)
                             .await
                             .expect("Failed to update mtd status.");

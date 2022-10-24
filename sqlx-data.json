@@ -569,6 +569,20 @@
       ]
     }
   },
+  "600a660a26a4eacc6c076747f848d7447d3466401e52e2334d50d9afd109c28f": {
+    "query": "\n            DELETE FROM candle_validations\n            WHERE market_id = $1\n            AND datetime >= $2\n            AND datetime < $3\n            ",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Timestamptz",
+          "Timestamptz"
+        ]
+      },
+      "nullable": []
+    }
+  },
   "62877fe9a19159ae96d2a4a169ff4f7ccca4fd306e80dca97559c6638f73e432": {
     "query": "\n        SELECT exchange_id as id, exchange_name as \"name: ExchangeName\"\n        FROM exchanges\n        WHERE exchange_status = $1\n        ",
     "describe": {

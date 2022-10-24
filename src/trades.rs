@@ -6,7 +6,7 @@ use crate::inquisidor::Inquisidor;
 use crate::markets::MarketDetail;
 use crate::mita::Mita;
 use crate::utilities::{TimeFrame, Trade};
-use chrono::{DateTime, DurationRound, Utc};
+use chrono::{DateTime, Duration, DurationRound, Utc};
 use csv::Reader;
 use sqlx::PgPool;
 use std::collections::HashMap;
@@ -67,7 +67,33 @@ impl Mita {
     }
 }
 
+// impl ElDorado {
+//     // Takes in a start and end time to get trades from FTX REST API and inserts those trades in
+//     // the trades table ftx.trades_{market_name}_{table_suf} one day at a time
+//     // This is used in trade fill and sync.
+//     // For trade sync, this function is called for each day in the daterange from the start
+//     // ie: ftx.trades_btcperp_20221020
+//     // For trade fill qc, this is used for one off trade day to qc with stored range
+//     // ie: ftx.trades_btc_perp_20221020_qc
+//     pub async fn get_ftx_trades_for_dr_into_tables() {}
+
+//     pub async fn get_ftx_trade_for_date_into_table(
+//         &self,
+//         market: &MarketDetail,
+//         datetime: &DateTime<Utc>,
+//         table_type: &
+//     ) {}
+
+// }
+
 impl Inquisidor {
+    // Takes in a start and end time to get trades from FTX REST API and inserts those trades in
+    // the trades table ftx.trades_{market_name}_{table_suf} one day at a time
+    // This is used in trade fill and sync.
+    // For trade sync, this function is called for each day in the daterange from the start
+    // ie: ftx.trades_btcperp_20221020
+    // For trade fill qc, this is used for one off trade day to qc with stored range
+    // ie: ftx.trades_btc_perp_20221020_qc
     pub async fn get_ftx_trades_dr_into_table(
         &self,
         event: &Event,
@@ -96,10 +122,7 @@ impl Inquisidor {
             {
                 Err(RestError::Reqwest(e)) => {
                     if e.is_timeout() || e.is_connect() || e.is_request() {
-                        println!(
-                            "Timeout/Connect/Request error. Waiting 30 seconds before retry. {:?}",
-                            e
-                        );
+                        println!("{:?} error. Waiting 30 seconds before retry.", e);
                         tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
                         continue;
                     } else if e.is_status() {
@@ -151,6 +174,53 @@ impl Inquisidor {
                 break;
             };
         }
+    }
+
+    pub async fn migrate_ftx_trades_for_date(
+        &self,
+        event: &Event,
+        to_table: &str,
+        from_table: &str,
+        date: DateTime<Utc>,
+    ) {
+        let market = self.market(&event.market_id);
+        // Select trades from the _processed and _validated tables and put in the new table
+        create_ftx_trade_table(&self.ftx_pool, &event.exchange_name, market, to_table)
+            .await
+            .expect("Failed to create trade table.");
+        let mut trades = Vec::new();
+        let mut from_trades = select_ftx_trades_by_time(
+            &self.ftx_pool,
+            &event.exchange_name,
+            market,
+            from_table,
+            date,
+            date + Duration::days(1),
+        )
+        .await
+        .expect("Failed to select ftx trades.");
+        trades.append(&mut from_trades);
+        trades.sort_by_key(|t| t.trade_id());
+        insert_ftx_trades(
+            &self.ftx_pool,
+            &event.exchange_name,
+            market,
+            to_table,
+            trades,
+        )
+        .await
+        .expect("Failed to insert trades.");
+        // Delete trades from processed and validated tables
+        delete_trades_by_time(
+            &self.ftx_pool,
+            &event.exchange_name,
+            market,
+            from_table,
+            date,
+            date + Duration::days(1),
+        )
+        .await
+        .expect("Failed to delete trades.");
     }
 
     pub async fn select_ftx_trades_by_table(

@@ -1510,7 +1510,7 @@ impl Inquisidor {
         let market = self.market(&event.market_id);
         let start = event.start_ts.unwrap();
         let new_trade_table = format!(
-            "trades_ftx_{}_ff_{}",
+            "trades_ftx_{}_{}_qc",
             market.as_strip(),
             start.format("%Y%m%d")
         );
@@ -1580,6 +1580,27 @@ impl Inquisidor {
                 false
             }
         }
+    }
+
+    pub async fn delete_validations_for_date(
+        &self,
+        event: &Event,
+        date: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"
+            DELETE FROM candle_validations
+            WHERE market_id = $1
+            AND datetime >= $2
+            AND datetime < $3
+            "#,
+            event.market_id,
+            date,
+            date + Duration::days(1),
+        )
+        .execute(&self.ig_pool)
+        .await?;
+        Ok(())
     }
 }
 
