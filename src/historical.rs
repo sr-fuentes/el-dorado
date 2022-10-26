@@ -15,9 +15,9 @@ use crate::trades::{
     create_ftx_trade_table, drop_create_trade_table, drop_table, drop_trade_table,
     insert_delete_ftx_trades, insert_delete_gdax_trades, insert_ftx_trades, insert_gdax_trades,
     select_ftx_trades_by_table, select_ftx_trades_by_time, select_gdax_trades_by_table,
-    select_gdax_trades_by_time, select_trade_first_stream,
+    select_gdax_trades_by_time, select_trade_first_stream, Trade,
 };
-use crate::utilities::{get_input, TimeFrame, Trade};
+use crate::utilities::{get_input, TimeFrame};
 use chrono::{DateTime, Datelike, Duration, DurationRound, TimeZone, Utc};
 use csv::{Reader, Writer};
 use rust_decimal_macros::dec;

@@ -79,7 +79,7 @@ pub struct Trade {
     pub time: DateTime<Utc>,
 }
 
-impl crate::utilities::Trade for Trade {
+impl crate::trades::Trade for Trade {
     fn trade_id(&self) -> i64 {
         self.id
     }

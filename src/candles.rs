@@ -7,7 +7,7 @@ use crate::mita::Mita;
 use crate::trades::*;
 use crate::utilities::{
     create_date_range, create_monthly_date_range, next_month_datetime, trunc_month_datetime,
-    TimeFrame, Trade,
+    TimeFrame,
 };
 use crate::validation::insert_candle_validation;
 use chrono::{DateTime, Duration, DurationRound, Utc};

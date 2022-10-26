@@ -355,15 +355,6 @@ pub fn min_to_dp(increment: Decimal) -> i32 {
     }
 }
 
-pub trait Trade {
-    fn trade_id(&self) -> i64;
-    fn price(&self) -> Decimal;
-    fn size(&self) -> Decimal;
-    fn side(&self) -> String;
-    fn liquidation(&self) -> bool;
-    fn time(&self) -> DateTime<Utc>;
-}
-
 pub trait Candle {
     fn datetime(&self) -> DateTime<Utc>;
     fn volume(&self) -> Decimal;

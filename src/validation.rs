@@ -12,9 +12,9 @@ use crate::markets::{select_market_details, MarketDetail};
 use crate::trades::{
     create_ftx_trade_table, create_gdax_trade_table, delete_trades_by_time, drop_table,
     drop_trade_table, insert_ftx_trades, insert_gdax_trades, select_ftx_trades_by_table,
-    select_ftx_trades_by_time, select_gdax_trades_by_table, select_gdax_trades_by_time,
+    select_ftx_trades_by_time, select_gdax_trades_by_table, select_gdax_trades_by_time, Trade,
 };
-use crate::utilities::{get_input, TimeFrame, Trade};
+use crate::utilities::{get_input, TimeFrame};
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal_macros::dec;
 use sqlx::PgPool;

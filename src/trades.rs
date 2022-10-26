@@ -5,9 +5,10 @@ use crate::exchanges::{
 use crate::inquisidor::Inquisidor;
 use crate::markets::MarketDetail;
 use crate::mita::Mita;
-use crate::utilities::{TimeFrame, Trade};
+use crate::utilities::TimeFrame;
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use csv::Reader;
+use rust_decimal::prelude::*;
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::fs::File;
@@ -276,6 +277,15 @@ impl Inquisidor {
         }
         candle_dr_map
     }
+}
+
+pub trait Trade {
+    fn trade_id(&self) -> i64;
+    fn price(&self) -> Decimal;
+    fn size(&self) -> Decimal;
+    fn side(&self) -> String;
+    fn liquidation(&self) -> bool;
+    fn time(&self) -> DateTime<Utc>;
 }
 
 // ALTER, DROP, MIGRATE actions are the same regardless of exchange
