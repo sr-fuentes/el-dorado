@@ -2,6 +2,7 @@ use crate::exchanges::{error::RestError, ExchangeName};
 use reqwest::{Client, Method, Response};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::{from_reader, Map, Value};
+use std::collections::HashMap;
 
 #[derive(Debug)]
 pub struct RestClient {
@@ -30,6 +31,14 @@ impl RestClient {
     pub const FTX_HEADER: &'static str = "FTX";
     pub const FTXUS_HEADER: &'static str = "FTXUS";
     pub const GDAX_HEADER: &'static str = "GDAX"; // Not needed for GDAX requests
+
+    pub fn initialize_client_map() -> HashMap<ExchangeName, Self> {
+        let mut clients = HashMap::new();
+        clients.insert(ExchangeName::Ftx, RestClient::new(&ExchangeName::Ftx));
+        clients.insert(ExchangeName::FtxUs, RestClient::new(&ExchangeName::FtxUs));
+        clients.insert(ExchangeName::Gdax, RestClient::new(&ExchangeName::Gdax));
+        clients
+    }
 
     pub fn new(exchange: &ExchangeName) -> Self {
         let client = match exchange {

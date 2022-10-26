@@ -3,6 +3,7 @@ pub mod archive;
 pub mod candles;
 pub mod cleanup;
 pub mod configuration;
+pub mod eldorado;
 pub mod events;
 pub mod exchanges;
 pub mod historical;

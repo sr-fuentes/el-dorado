@@ -1,10 +1,11 @@
+use crate::configuration::Settings;
 use crate::markets::{select_market_detail_by_exchange_mita, MarketDetail};
 use crate::metrics::select_metrics_ap_by_exchange_market;
 use crate::utilities::TimeFrame;
 use crate::{exchanges::ExchangeName, inquisidor::Inquisidor, mita::Mita};
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use sqlx::PgPool;
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 
 #[derive(Debug, Clone, PartialEq, sqlx::FromRow)]
 pub struct Instance {
@@ -21,6 +22,40 @@ pub struct Instance {
 }
 
 impl Instance {
+    pub fn initialize(settings: &Settings) -> Self {
+        let instance_type = settings
+            .application
+            .instance_type
+            .clone()
+            .try_into()
+            .expect("Failed to parse instance type.");
+        let droplet = settings.application.droplet.clone();
+        let exchange_name = match instance_type {
+            InstanceType::Ig => None,
+            InstanceType::Mita => Some(
+                settings
+                    .application
+                    .exchange
+                    .clone()
+                    .try_into()
+                    .expect("Failed to parse exchange from settings."),
+            ),
+        };
+
+        Self {
+            instance_type,
+            droplet,
+            exchange_name,
+            instance_status: InstanceStatus::New,
+            restart: true,
+            last_restart_ts: None,
+            restart_count: Some(0),
+            num_markets: 0,
+            last_update_ts: Utc::now(),
+            last_message_ts: None,
+        }
+    }
+
     pub fn time_since_last_update(&self) -> Duration {
         Utc::now() - self.last_update_ts
     }

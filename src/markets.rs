@@ -1,4 +1,5 @@
 use crate::candles::{select_first_01d_candle, ResearchCandle};
+use crate::eldorado::ElDorado;
 use crate::exchanges::{client::RestClient, error::RestError, select_exchanges, ExchangeName};
 use crate::inquisidor::Inquisidor;
 use crate::utilities::{get_input, TimeFrame, Trade};
@@ -176,6 +177,56 @@ impl TryFrom<String> for MarketDataStatus {
             "archive" => Ok(Self::Archive),
             other => Err(format!("{} isnot a supported market data status.", other)),
         }
+    }
+}
+
+impl MarketDetail {
+    pub async fn select_all(pool: &PgPool) -> Result<Vec<Self>, sqlx::Error> {
+        let rows = sqlx::query_as!(
+            MarketDetail,
+            r#"
+            SELECT market_id,
+                exchange_name as "exchange_name: ExchangeName",
+                market_name, market_type, base_currency, quote_currency, underlying,
+                market_status as "market_status: MarketStatus",
+                market_data_status as "market_data_status: MarketStatus",
+                mita,
+                candle_timeframe as "candle_timeframe: TimeFrame",
+                last_candle
+                FROM markets
+            "#,
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(rows)
+    }
+
+    pub async fn select_by_exchange_mita(
+        pool: &PgPool,
+        exchange: &ExchangeName,
+        mita: &str,
+    ) -> Result<Vec<MarketDetail>, sqlx::Error> {
+        let rows = sqlx::query_as!(
+            MarketDetail,
+            r#"
+            SELECT market_id,
+                exchange_name as "exchange_name: ExchangeName",
+                market_name, market_type, base_currency, quote_currency, underlying,
+                market_status as "market_status: MarketStatus",
+                market_data_status as "market_data_status: MarketStatus",
+                mita,
+                candle_timeframe as "candle_timeframe: TimeFrame",
+                last_candle
+                FROM markets
+            WHERE exchange_name = $1
+            AND mita = $2
+            "#,
+            exchange.as_str(),
+            mita
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(rows)
     }
 }
 
@@ -801,6 +852,30 @@ impl Inquisidor {
             }
         }
         proposal_map
+    }
+}
+
+impl ElDorado {
+    // Map a vec of market details to the two hashmaps needed for ElDorado instances so that lookups
+    // can be made on either market id or exchange/market_name
+    pub fn map_markets(
+        market_details: &[MarketDetail],
+    ) -> (
+        HashMap<ExchangeName, HashMap<String, MarketDetail>>,
+        HashMap<Uuid, MarketDetail>,
+    ) {
+        let mut markets = HashMap::new();
+        let mut market_ids = HashMap::new();
+        for md in market_details.iter() {
+            markets
+                .entry(md.exchange_name)
+                .and_modify(|hm: &mut HashMap<String, MarketDetail>| {
+                    hm.insert(md.market_name.clone(), md.clone());
+                })
+                .or_insert_with(|| HashMap::from([(md.market_name.clone(), md.clone())]));
+            market_ids.insert(md.market_id, md.clone());
+        }
+        (markets, market_ids)
     }
 }
 

@@ -74,6 +74,93 @@
       ]
     }
   },
+  "0663e13f6c32b43234414987df927eff8b3c9dec2686ec136c0fc8bd6b88710e": {
+    "query": "\n            SELECT market_id,\n                exchange_name as \"exchange_name: ExchangeName\",\n                market_name, market_type, base_currency, quote_currency, underlying,\n                market_status as \"market_status: MarketStatus\",\n                market_data_status as \"market_data_status: MarketStatus\",\n                mita,\n                candle_timeframe as \"candle_timeframe: TimeFrame\",\n                last_candle\n                FROM markets\n            WHERE exchange_name = $1\n            AND mita = $2\n            ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "market_id",
+          "type_info": "Uuid"
+        },
+        {
+          "ordinal": 1,
+          "name": "exchange_name: ExchangeName",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 2,
+          "name": "market_name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 3,
+          "name": "market_type",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "base_currency",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 5,
+          "name": "quote_currency",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 6,
+          "name": "underlying",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 7,
+          "name": "market_status: MarketStatus",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 8,
+          "name": "market_data_status: MarketStatus",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 9,
+          "name": "mita",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 10,
+          "name": "candle_timeframe: TimeFrame",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 11,
+          "name": "last_candle",
+          "type_info": "Timestamptz"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true
+      ]
+    }
+  },
   "06dd958f76cb47c47261464ee55b5e139b47feeff2143417e3ea5a41f7c5c94f": {
     "query": "\n        UPDATE markets\n        SET last_candle  = $1\n        WHERE market_id = $2\n        ",
     "describe": {
@@ -415,6 +502,90 @@
         ]
       },
       "nullable": []
+    }
+  },
+  "469a9985d95d5248d1f154096b6bca917bdb5bbf0560f7f223c3853b33864391": {
+    "query": "\n            SELECT market_id,\n                exchange_name as \"exchange_name: ExchangeName\",\n                market_name, market_type, base_currency, quote_currency, underlying,\n                market_status as \"market_status: MarketStatus\",\n                market_data_status as \"market_data_status: MarketStatus\",\n                mita,\n                candle_timeframe as \"candle_timeframe: TimeFrame\",\n                last_candle\n                FROM markets\n            ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "market_id",
+          "type_info": "Uuid"
+        },
+        {
+          "ordinal": 1,
+          "name": "exchange_name: ExchangeName",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 2,
+          "name": "market_name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 3,
+          "name": "market_type",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "base_currency",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 5,
+          "name": "quote_currency",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 6,
+          "name": "underlying",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 7,
+          "name": "market_status: MarketStatus",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 8,
+          "name": "market_data_status: MarketStatus",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 9,
+          "name": "mita",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 10,
+          "name": "candle_timeframe: TimeFrame",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 11,
+          "name": "last_candle",
+          "type_info": "Timestamptz"
+        }
+      ],
+      "parameters": {
+        "Left": []
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true
+      ]
     }
   },
   "59ef69e6108e4541971f9ac5be26c0ed0e02a0eb59d6b41fab93e28918b51c65": {
