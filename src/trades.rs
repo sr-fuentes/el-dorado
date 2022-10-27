@@ -1,3 +1,5 @@
+use crate::configuration::Database;
+use crate::eldorado::ElDorado;
 use crate::events::Event;
 use crate::exchanges::{
     error::RestError, ftx::Trade as FtxTrade, gdax::Trade as GdaxTrade, ExchangeName,
@@ -6,12 +8,36 @@ use crate::inquisidor::Inquisidor;
 use crate::markets::MarketDetail;
 use crate::mita::Mita;
 use crate::utilities::TimeFrame;
-use chrono::{DateTime, Duration, DurationRound, Utc};
+use async_trait::async_trait;
+use chrono::{DateTime, Datelike, Duration, DurationRound, Utc};
 use csv::Reader;
 use rust_decimal::prelude::*;
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::fs::File;
+
+#[async_trait]
+pub trait Trade {
+    fn trade_id(&self) -> i64;
+    fn price(&self) -> Decimal;
+    fn size(&self) -> Decimal;
+    fn side(&self) -> String;
+    fn liquidation(&self) -> bool;
+    fn time(&self) -> DateTime<Utc>;
+    async fn create_table(
+        pool: &PgPool,
+        market: &MarketDetail,
+        dt: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error>
+    where
+        Self: Sized;
+    async fn insert(
+        &self,
+        pool: &PgPool,
+        exchange: &ExchangeName,
+        dt: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error>;
+}
 
 impl Mita {
     pub async fn reset_trade_tables(&self, tables: &[&str]) {
@@ -68,24 +94,59 @@ impl Mita {
     }
 }
 
-// impl ElDorado {
-//     // Takes in a start and end time to get trades from FTX REST API and inserts those trades in
-//     // the trades table ftx.trades_{market_name}_{table_suf} one day at a time
-//     // This is used in trade fill and sync.
-//     // For trade sync, this function is called for each day in the daterange from the start
-//     // ie: ftx.trades_btcperp_20221020
-//     // For trade fill qc, this is used for one off trade day to qc with stored range
-//     // ie: ftx.trades_btc_perp_20221020_qc
-//     pub async fn get_ftx_trades_for_dr_into_tables() {}
+impl ElDorado {
+    pub async fn initialize_trade_schema_and_tables(&self) -> DateTime<Utc> {
+        match self.instance.exchange_name.unwrap() {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                self.create_trades_schema(&self.pools[&Database::Ftx])
+                .await
+                .expect("Failed to create ftx/ftxus trade schema.");
+            }
+            ExchangeName::Gdax => {
+                self.create_trades_schema(&self.pools[&Database::Gdax])
+                    .await
+                    .expect("Failed to create gdax trade schema.");
+            }
+        }
+        // Create trade tables for each market for today if they don't exist
+        let today = Utc::now().duration_trunc(Duration::days(1)).unwrap();
+        self.create_trade_tables(today).await;
+        today
+    }
 
-//     pub async fn get_ftx_trade_for_date_into_table(
-//         &self,
-//         market: &MarketDetail,
-//         datetime: &DateTime<Utc>,
-//         table_type: &
-//     ) {}
+    pub async fn create_trades_schema(&self, pool: &PgPool) -> Result<(), sqlx::Error> {
+        let sql = r#"
+            CREATE SCHEMA IF NOT EXISTS trades
+            "#;
+        sqlx::query(sql).execute(pool).await?;
+        Ok(())
+    }
 
-// }
+    pub async fn create_trade_tables(&self, dt: DateTime<Utc>) {
+        for market in self.markets.iter() {
+            match self.instance.exchange_name.unwrap() {
+                ExchangeName::Ftx | ExchangeName::FtxUs => {
+                    FtxTrade::create_table(
+                        &self.pools[&Database::Ftx],
+                        market,
+                        dt,
+                    )
+                    .await
+                    .expect("Failed to create ftx/ftxus trade table.");   
+                 }
+                 ExchangeName::Gdax => {
+                    GdaxTrade::create_table(
+                        &self.pools[&Database::Gdax],
+                        market,
+                        dt,
+                    )
+                    .await
+                    .expect("Failed to create gdax trade table.");
+                 }
+            }
+        }
+    }
+}
 
 impl Inquisidor {
     // Takes in a start and end time to get trades from FTX REST API and inserts those trades in
@@ -277,15 +338,6 @@ impl Inquisidor {
         }
         candle_dr_map
     }
-}
-
-pub trait Trade {
-    fn trade_id(&self) -> i64;
-    fn price(&self) -> Decimal;
-    fn size(&self) -> Decimal;
-    fn side(&self) -> String;
-    fn liquidation(&self) -> bool;
-    fn time(&self) -> DateTime<Utc>;
 }
 
 // ALTER, DROP, MIGRATE actions are the same regardless of exchange

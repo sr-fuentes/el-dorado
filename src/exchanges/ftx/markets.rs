@@ -1,8 +1,12 @@
-use crate::exchanges::{client::RestClient, error::RestError};
+use crate::exchanges::{ExchangeName, client::RestClient, error::RestError};
+use crate::instances::Instance;
+use crate::markets::MarketDetail;
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
+use sqlx::PgPool;
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -79,6 +83,7 @@ pub struct Trade {
     pub time: DateTime<Utc>,
 }
 
+#[async_trait]
 impl crate::trades::Trade for Trade {
     fn trade_id(&self) -> i64 {
         self.id
@@ -102,6 +107,40 @@ impl crate::trades::Trade for Trade {
 
     fn time(&self) -> DateTime<Utc> {
         self.time
+    }
+
+    async fn create_table(
+        pool: &PgPool,
+        market: &MarketDetail,
+        dt: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        let sql = format!(
+            r#"
+            CREATE TABLE IF NOT EXISTS {}_{}_{} (
+                market_id uuid NOT NULL,
+                trade_id BIGINT NOT NULL,
+                PRIMARY KEY (trade_id),
+                price NUMERIC NOT NULL,
+                size NUMERIC NOT NULL,
+                side TEXT NOT NULL,
+                liquidation BOOLEAN NOT NULL,
+                time timestamptz NOT NULL
+            )
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            dt
+        );
+        Ok(())
+    }
+
+    async fn insert(
+        &self,
+        pool: &PgPool,
+        exchange: &ExchangeName,
+        dt: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        Ok(())
     }
 }
 
