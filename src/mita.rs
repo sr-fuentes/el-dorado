@@ -1,5 +1,6 @@
 use crate::candles::{resample_candles, select_candles_gte_datetime, select_last_candle, Candle};
 use crate::configuration::{get_configuration, Settings};
+use crate::eldorado::ElDorado;
 use crate::events::insert_event_process_trades;
 use crate::exchanges::{select_exchanges, Exchange, ExchangeName};
 use crate::markets::{
@@ -517,6 +518,16 @@ impl Mita {
             dr_start = dr_start + duration;
         }
         date_range
+    }
+}
+
+impl ElDorado {
+    // Run Mita instance.
+    // Stream trades from websocket to trade tables.
+    // Fill trades from start to current websocket stream
+    // On candle interval, create candle and metrics
+    pub async fn mita(&self) -> bool {
+        false
     }
 }
 

@@ -5,6 +5,7 @@ use crate::{
     markets::{MarketDetail, MarketStatus},
     utilities::Twilio,
 };
+use chrono::{DateTime, Duration, Utc};
 use sqlx::PgPool;
 use std::{collections::HashMap, convert::TryInto};
 use uuid::Uuid;
@@ -22,6 +23,7 @@ pub struct ElDorado {
 }
 
 impl ElDorado {
+    // Initialize new instance of ElDorado based on the configuration settings
     pub async fn new() -> Self {
         // Load configuration settings
         let settings = Settings::from_configuration().expect("Failed to read configuration.");
@@ -32,7 +34,7 @@ impl ElDorado {
         // Create Twilio client
         let twilio = Twilio::new();
         // Initialize Instance
-        let mut instance = Instance::initialize(&settings);
+        let mut instance = Instance::initialize(&pools[&Database::ElDorado], &settings);
         // Load markets and insert into market maps
         let market_details = MarketDetail::select_all(&pools[&Database::ElDorado])
             .await
@@ -69,6 +71,60 @@ impl ElDorado {
             market_ids,
             instance,
             storage_path,
+        }
+    }
+
+    // Run the default function based on InstanceType and continue restarting until explict exit.
+    // IG - manage the events and state
+    // Mita - manage the trades / candles and metrics for the give exchange and markets
+    pub async fn run(&mut self) {
+        // let mut restart = self.instance.restart;
+        while self.instance.restart {
+            let restart = match self.instance.instance_type {
+                InstanceType::Ig => false, //todo!(),
+                InstanceType::Mita => self.mita().await,
+            };
+            (
+                self.instance.restart,
+                self.instance.restart_count,
+                self.instance.last_restart_ts,
+            ) = self.process_restart(restart).await;
+            match self.instance.restart {
+                true => todo!(),  // self.update_instance_status(&InstanceStatus::Restart).await,
+                false => todo!(), // self.update_instance_status(&InstanceStatus::Shutdown).await,
+            }
+        }
+    }
+
+    // Review the restart parameter that was returned from the instance run. If instructed to
+    // restart, sleep for the scheduled time and update restart atttributes on the instance
+    pub async fn process_restart(
+        &self,
+        restart: bool,
+    ) -> (bool, Option<i32>, Option<DateTime<Utc>>) {
+        // If time from last restart is more than 24 hours - sleep 5 seconds before restart, else
+        // follow pattern to increase time as restarts increase
+        let (sleep_duration, restart_count) =
+            if Utc::now() - self.instance.last_restart_ts.unwrap() > Duration::days(1) {
+                (5, 1)
+            } else {
+                match self.instance.restart_count.unwrap() {
+                    0 => (5, self.instance.restart_count.unwrap() + 1),
+                    1 => (30, self.instance.restart_count.unwrap() + 1),
+                    _ => (60, self.instance.restart_count.unwrap() + 1),
+                }
+            };
+        if restart {
+            println!("Sleeping for {:?} before restarting.", sleep_duration);
+            tokio::time::sleep(tokio::time::Duration::from_secs(sleep_duration)).await;
+            (restart, Some(restart_count), Some(Utc::now()))
+        } else {
+            println!("No restart. Shutdown.");
+            (
+                restart,
+                self.instance.restart_count,
+                self.instance.last_restart_ts,
+            )
         }
     }
 

@@ -1,8 +1,8 @@
 use chrono::Utc;
 use clap::App;
 use el_dorado::{
-    exchanges::ExchangeName, inquisidor::Inquisidor, instances::InstanceStatus, mita::Mita,
-    utilities::get_input, eldorado::ElDorado,
+    eldorado::ElDorado, exchanges::ExchangeName, inquisidor::Inquisidor, instances::InstanceStatus,
+    mita::Mita, utilities::get_input,
 };
 
 #[tokio::main]
@@ -15,6 +15,7 @@ async fn main() {
         .subcommand(App::new("rank").about("rank exchange markets"))
         .subcommand(App::new("set").about("update ranks from proposed to current"))
         .subcommand(App::new("run").about("run el-dorado for a market"))
+        .subcommand(App::new("eldorado").about("run el-dorado instance"))
         .subcommand(App::new("sync").about("fill to current start of day"))
         .subcommand(App::new("fill").about("fill from first candle to start"))
         .subcommand(App::new("candle").about("make candles from backfilled trades"))
@@ -47,6 +48,13 @@ async fn main() {
             // Create new admin instance and refresh exchange
             let ig = Inquisidor::new().await;
             ig.update_market_mitas_from_ranks().await;
+        }
+        Some("eldorado") => {
+            // Create new eldorado instance and run the default fn for the instance type
+            // For IG => manage the system
+            // For MITA => run trade/candle/metrics engine for give markets
+            let mut eld = ElDorado::new().await;
+            eld.run().await;
         }
         Some("run") => {
             // Create new mita instance and run stream and backfill until no restart

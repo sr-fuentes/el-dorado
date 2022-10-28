@@ -22,7 +22,7 @@ pub struct Instance {
 }
 
 impl Instance {
-    pub fn initialize(settings: &Settings) -> Self {
+    pub fn initialize(pool: &PgPool, settings: &Settings) -> Self {
         let instance_type = settings
             .application
             .instance_type
@@ -41,7 +41,8 @@ impl Instance {
                     .expect("Failed to parse exchange from settings."),
             ),
         };
-
+        // Check the database for an entry for the instance to get the last restart and message info
+        // let instance = Instance::select(pool, exchange)
         Self {
             instance_type,
             droplet,
