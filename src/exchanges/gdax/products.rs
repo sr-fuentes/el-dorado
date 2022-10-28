@@ -1,8 +1,7 @@
-use crate::exchanges::{ExchangeName, client::RestClient, error::RestError};
+use crate::exchanges::{client::RestClient, error::RestError};
 use crate::markets::MarketDetail;
-use crate::instances::Instance;
 use async_trait::async_trait;
-use chrono::{serde::ts_seconds, DateTime, Utc};
+use chrono::{serde::ts_seconds, DateTime, Duration, DurationRound, Utc};
 use rust_decimal::prelude::*;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
@@ -105,15 +104,60 @@ impl crate::trades::Trade for Trade {
         market: &MarketDetail,
         dt: DateTime<Utc>,
     ) -> Result<(), sqlx::Error> {
+        let table_sql = format!(
+            r#"
+            CREATE TABLE IF NOT EXISTS trades.{}_{}_{} (
+                market_id uuid NOT NULL,
+                trade_id BIGINT NOT NULL,
+                PRIMARY KEY (trade_id),
+                price NUMERIC NOT NULL,
+                size NUMERIC NOT NULL,
+                side TEXT NOT NULL,
+                time timestamptz NOT NULL
+            )
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            dt.format("%Y%m%d")
+        );
+        let index_sql = format!(
+            r#"
+            CREATE INDEX IF NOT EXISTS {e}_{m}_{t}_time_asc
+            ON trades.{e}_{m}_{t} (time)
+            "#,
+            e = market.exchange_name.as_str(),
+            m = market.as_strip(),
+            t = dt.format("%Y%m%d")
+        );
+        sqlx::query(&table_sql).execute(pool).await?;
+        sqlx::query(&index_sql).execute(pool).await?;
         Ok(())
     }
 
-    async fn insert(
-        &self,
-        pool: &PgPool,
-        exchange: &ExchangeName,
-        dt: DateTime<Utc>,
-    ) -> Result<(), sqlx::Error> {
+    async fn insert(&self, pool: &PgPool, market: &MarketDetail) -> Result<(), sqlx::Error> {
+        let insert_sql = format!(
+            r#"
+            INSERT INTO trades.{}_{}_{} (
+                market_id, trade_id, price, size, side, time)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (trade_id) DO NOTHING
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            self.time()
+                .duration_trunc(Duration::days(1))
+                .unwrap()
+                .format("%Y%m%d")
+        );
+        sqlx::query(&insert_sql)
+            .bind(market.market_id)
+            .bind(self.trade_id)
+            .bind(self.price)
+            .bind(self.size)
+            .bind(self.side.clone())
+            .bind(self.time)
+            .execute(pool)
+            .await?;
         Ok(())
     }
 }

@@ -152,3 +152,14 @@ impl ElDorado {
         pools
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[tokio::test]
+    async fn create_new_eldorado() {
+        let eld = ElDorado::new().await;
+        println!("ElDorado: {:?}", eld);
+    }
+}

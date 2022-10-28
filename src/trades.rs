@@ -9,7 +9,7 @@ use crate::markets::MarketDetail;
 use crate::mita::Mita;
 use crate::utilities::TimeFrame;
 use async_trait::async_trait;
-use chrono::{DateTime, Datelike, Duration, DurationRound, Utc};
+use chrono::{DateTime, Duration, DurationRound, Utc};
 use csv::Reader;
 use rust_decimal::prelude::*;
 use sqlx::PgPool;
@@ -31,12 +31,7 @@ pub trait Trade {
     ) -> Result<(), sqlx::Error>
     where
         Self: Sized;
-    async fn insert(
-        &self,
-        pool: &PgPool,
-        exchange: &ExchangeName,
-        dt: DateTime<Utc>,
-    ) -> Result<(), sqlx::Error>;
+    async fn insert(&self, pool: &PgPool, market: &MarketDetail) -> Result<(), sqlx::Error>;
 }
 
 impl Mita {
@@ -99,8 +94,8 @@ impl ElDorado {
         match self.instance.exchange_name.unwrap() {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
                 self.create_trades_schema(&self.pools[&Database::Ftx])
-                .await
-                .expect("Failed to create ftx/ftxus trade schema.");
+                    .await
+                    .expect("Failed to create ftx/ftxus trade schema.");
             }
             ExchangeName::Gdax => {
                 self.create_trades_schema(&self.pools[&Database::Gdax])
@@ -126,24 +121,28 @@ impl ElDorado {
         for market in self.markets.iter() {
             match self.instance.exchange_name.unwrap() {
                 ExchangeName::Ftx | ExchangeName::FtxUs => {
-                    FtxTrade::create_table(
-                        &self.pools[&Database::Ftx],
-                        market,
-                        dt,
-                    )
-                    .await
-                    .expect("Failed to create ftx/ftxus trade table.");   
-                 }
-                 ExchangeName::Gdax => {
-                    GdaxTrade::create_table(
-                        &self.pools[&Database::Gdax],
-                        market,
-                        dt,
-                    )
-                    .await
-                    .expect("Failed to create gdax trade table.");
-                 }
+                    FtxTrade::create_table(&self.pools[&Database::Ftx], market, dt)
+                        .await
+                        .expect("Failed to create ftx/ftxus trade table.");
+                }
+                ExchangeName::Gdax => {
+                    GdaxTrade::create_table(&self.pools[&Database::Gdax], market, dt)
+                        .await
+                        .expect("Failed to create gdax trade table.");
+                }
             }
+        }
+    }
+
+    pub async fn create_future_trade_tables(&self, mut dt: DateTime<Utc>) -> DateTime<Utc> {
+        // If the date given is less than 2 days in the future, increment the date and
+        // create tables for the date before returning it
+        if dt < Utc::now().duration_trunc(Duration::days(1)).unwrap() + Duration::days(2) {
+            dt = dt + Duration::days(1);
+            self.create_trade_tables(dt).await;
+            dt
+        } else {
+            dt
         }
     }
 }

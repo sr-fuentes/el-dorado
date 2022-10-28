@@ -10,4 +10,5 @@ application:
   exchange: "ftx"
   market: "SOL-PERP"
   droplet: "localdev"
+  instance_type: "mita"
   archive_path: "../ed"

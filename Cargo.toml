@@ -30,3 +30,4 @@ tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = {version = "0.16.0", features = ["rustls-tls-native-roots"]}
 uuid = { version = "0.8.2", features = ["v4", "serde"] }
 twilio = { git = "https://github.com/sr-fuentes/twilio-rs" }
+async-trait = "0.1.58"

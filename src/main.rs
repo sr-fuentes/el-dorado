@@ -2,7 +2,7 @@ use chrono::Utc;
 use clap::App;
 use el_dorado::{
     exchanges::ExchangeName, inquisidor::Inquisidor, instances::InstanceStatus, mita::Mita,
-    utilities::get_input,
+    utilities::get_input, eldorado::ElDorado,
 };
 
 #[tokio::main]
@@ -136,10 +136,8 @@ async fn main() {
         }
         Some("stream") => {
             // Create new mita instance and run stream until no restart
-            let mita = Mita::new().await;
-            mita.reset_trade_tables(&["ws"]).await;
-            mita.create_trade_tables(&["processed", "validated"]).await;
-            mita.stream().await;
+            let eld = ElDorado::new().await;
+            eld.stream().await;
         }
         Some("monitor") => {
             // Create ig instance and review all existing active processes
