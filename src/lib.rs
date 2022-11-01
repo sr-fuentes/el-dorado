@@ -1,7 +1,6 @@
 pub mod alerts;
 pub mod archive;
 pub mod candles;
-pub mod cleanup;
 pub mod configuration;
 pub mod eldorado;
 pub mod events;
