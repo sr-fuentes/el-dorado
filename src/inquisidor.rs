@@ -94,8 +94,11 @@ impl Inquisidor {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
+    use crate::{
+        inquisidor::Inquisidor,
+        exchanges::ExchangeName,
+    };
+    
     #[tokio::test]
     async fn create_new_inquisidor() {
         let ig = Inquisidor::new().await;

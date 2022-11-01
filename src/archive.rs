@@ -1,9 +1,9 @@
-use crate::candles::*;
 use crate::exchanges::ExchangeName;
 use crate::inquisidor::Inquisidor;
 use crate::markets::{select_markets_by_market_data_status, MarketDetail, MarketStatus};
-use crate::trades::*;
 use crate::validation::insert_candle_count_validation;
+use crate::candles::{DailyCandle, select_candles_valid_not_archived, update_candle_archived};
+use crate::trades::{delete_trades_by_time, select_ftx_trades_by_time, select_gdax_trades_by_time};
 use chrono::Duration;
 use csv::Writer;
 
@@ -179,18 +179,19 @@ impl Inquisidor {
 
 #[cfg(test)]
 mod test {
-    use crate::candles::*;
-    use crate::configuration::get_configuration;
-    use crate::exchanges::{client::RestClient, ftx::Trade, select_exchanges};
-    use crate::markets::{select_market_detail, select_market_ids_by_exchange};
-    use crate::trades::select_ftx_trades_by_time;
-    use crate::utilities::TimeFrame;
+    use crate::{
+        configuration::get_configuration,
+        exchanges::{client::RestClient, ftx::Trade, select_exchanges},
+        markets::{select_market_detail, select_market_ids_by_exchange},
+        trades::select_ftx_trades_by_time,
+        utilities::TimeFrame,
+        candles::{select_last_01d_candle, select_candles_gte_datetime, select_candles, resample_candles,
+        insert_candles_01d, get_ftx_candles_daterange, validate_ftx_candle, update_candle_validation,
+        select_candles_valid_not_archived, ProductionCandle}
+    };
     use chrono::{Duration, DurationRound};
     use csv::Writer;
-    use flate2::{write::GzEncoder, write::ZlibEncoder, Compression};
     use sqlx::PgPool;
-    use std::fs::File;
-    use std::io::{copy, BufReader};
 
     #[tokio::test]
     async fn fetch_trades_and_write_to_csv() {
@@ -256,7 +257,7 @@ mod test {
         // Filter candles for last full day
         let next_candle = candles.last().unwrap().datetime + Duration::seconds(900);
         let last_full_day = next_candle.duration_trunc(Duration::days(1)).unwrap();
-        let filtered_candles: Vec<Candle> = candles
+        let filtered_candles: Vec<ProductionCandle> = candles
             .iter()
             .filter(|c| c.datetime < last_full_day)
             .cloned()
@@ -291,7 +292,7 @@ mod test {
         // Validate 01d candles - if all 15T candles are validated (trades archived)
         for candle in resampled_candles.iter() {
             // get 15t candles that make up candle
-            let hb_candles: Vec<Candle> = filtered_candles
+            let hb_candles: Vec<ProductionCandle> = filtered_candles
                 .iter()
                 .filter(|c| {
                     c.datetime.duration_trunc(Duration::days(1)).unwrap() == candle.datetime
@@ -368,51 +369,5 @@ mod test {
             wtr.serialize(trade).expect("could not serialize trade.");
         }
         wtr.flush().expect("could not flush wtr.");
-
-        // Take csv file and compress
-        let mut input = BufReader::new(File::open("trades.csv").unwrap());
-        let output = File::create("trades.csv.zlib  ").unwrap();
-        let mut encoder = ZlibEncoder::new(output, Compression::default());
-        copy(&mut input, &mut encoder).unwrap();
-        let _output = encoder.finish().unwrap();
-    }
-
-    #[tokio::test]
-    async fn write_to_compressed_csv() {
-        // Load configuration
-        let configuration = get_configuration().expect("Failed to read configuration.");
-        println!("Configuration: {:?}", configuration);
-
-        // Create db connection
-        let pool = PgPool::connect_with(configuration.ftx_db.with_db())
-            .await
-            .expect("Failed to connect to Postgres.");
-
-        // Get all trades from processed table
-        let sql = r#"
-            SELECT trade_id as id, price, size, side, liquidation, time
-            FROM trades_ftxus_processed
-            "#;
-        let trades = sqlx::query_as::<_, Trade>(&sql)
-            .fetch_all(&pool)
-            .await
-            .expect("Could not fetch trades.");
-
-        // Write trades to compressed csv file
-        let mut wtr = Writer::from_writer(vec![]);
-        for trade in trades.iter() {
-            wtr.serialize(trade).expect("could not serialize trade.");
-        }
-
-        let f = File::create("test2.csv.gz").expect("could not create file.");
-        // let mut gz = GzBuilder::new()
-        //     .filename("test.csv")
-        //     .comment("test file, please delete")
-        //     .write(f, Compression::default());
-        //let data = String::from_utf8(wtr.into_inner().unwrap()).unwrap();
-        let mut _gz = GzEncoder::new(f, Compression::default());
-        let _test = wtr.into_inner().unwrap();
-        // gz.write_all(&test).expect("could not write to file.");
-        // gz.finish().expect("could not close file.");
     }
 }
