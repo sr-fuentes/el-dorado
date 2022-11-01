@@ -1,5 +1,7 @@
 use crate::exchanges::{client::RestClient, error::RestError};
 use crate::markets::MarketDetail;
+use crate::trades::{TimeId, Trade as ElDTrade};
+use crate::candles::CandleType;
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal::prelude::*;
@@ -108,6 +110,13 @@ impl crate::trades::Trade for Trade {
         self.time
     }
 
+    fn as_timeid(&self) -> TimeId {
+        TimeId {
+            id: Some(self.id),
+            dt: self.time,
+        }
+    }
+
     async fn create_table(
         pool: &PgPool,
         market: &MarketDetail,
@@ -171,6 +180,40 @@ impl crate::trades::Trade for Trade {
             .await?;
         Ok(())
     }
+
+    // Select the first trade greater than the given date time. Assume and check that the first
+    // trade will occur on the same day as the datetime. If there is no trade, try checking the next
+    // day. This can occur in edge cases where the given datetime is near the end of the day and
+    // there are no further trades for the day and the next trade occurs the next day.
+    async fn select_one_gt_dt(
+        pool: &PgPool,
+        market: &MarketDetail,
+        dt: DateTime<Utc>,
+    ) -> Result<Box<dyn ElDTrade>, sqlx::Error> {
+        let d1 = dt.duration_trunc(Duration::days(1)).unwrap();
+        let d2 = d1 + Duration::days(1);
+        let sql = format!(
+            r#"
+            SELECT trade_id as id, price, size, side, liquidation, time
+            FROM trades.{e}_{m}_{d1}
+            WHERE time > $1
+            UNION
+            SELECT trade_id as id, price, size, side, liquidation, time
+            FROM trades.{e}_{m}_{d2}
+            ORDER BY id ASC
+            "#,
+            e = market.exchange_name.as_str(),
+            m = market.as_strip(),
+            d1 = d1.format("%Y%m%d"),
+            d2 = d2.format("%Y%m%d"),
+        );
+        // Try current day table for trade
+        let row = sqlx::query_as::<_, Trade>(&sql)
+            .bind(dt)
+            .fetch_one(pool)
+            .await?;
+        Ok(Box::new(row))
+    }
 }
 
 #[derive(Clone, Deserialize, Debug)]
@@ -186,13 +229,17 @@ pub struct Candle {
     pub volume: Decimal,
 }
 
-impl crate::utilities::Candle for Candle {
+impl crate::candles::Candle for Candle {
     fn datetime(&self) -> DateTime<Utc> {
         self.start_time
     }
 
     fn volume(&self) -> Decimal {
         self.volume
+    }
+
+    fn as_type(&self) -> CandleType {
+        CandleType::Ftx
     }
 }
 
@@ -273,8 +320,10 @@ impl RestClient {
 
 #[cfg(test)]
 mod tests {
-    use crate::exchanges::{client::*, ftx::*, ExchangeName};
     use chrono::{TimeZone, Utc};
+    use crate::{
+        exchanges::{client::RestClient, ExchangeName, ftx::Market, ftx::Orderbook, ftx::Trade, ftx::Candle},
+    };
 
     #[test]
     fn serde_deserializes_the_market_struct() {
