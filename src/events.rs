@@ -1,7 +1,4 @@
-use crate::candles::{
-    create_01d_candles, select_candles_unvalidated_lt_datetime, validate_01d_candles,
-    validate_hb_candles,
-};
+use crate::candles::create_01d_candles;
 use crate::exchanges::{select_exchanges_by_status, ExchangeName, ExchangeStatus};
 use crate::inquisidor::Inquisidor;
 use crate::markets::{
@@ -408,17 +405,16 @@ impl Inquisidor {
             match event.event_type {
                 EventType::ProcessTrades => continue, // All trade processing done by mita
                 EventType::ValidateCandle => {
-                    self.process_event_validate_candle(event, market.unwrap())
-                        .await
+                    todo!() // self.process_event_validate_candle(event, market.unwrap()).await
                 }
                 EventType::CreateDailyCandles => {
                     self.process_event_create_daily_candles(event).await
                 }
                 EventType::ValidateDailyCandles => {
-                    self.process_event_validate_daily_candles(event).await
+                    todo!() // self.process_event_validate_daily_candles(event).await
                 }
                 EventType::ArchiveDailyCandles => {
-                    self.process_event_archive_daily_candles(event).await
+                    todo!() // self.process_event_archive_daily_candles(event).await
                 }
                 EventType::BackfillTrades => self.process_event_backfill_trades(event).await,
                 EventType::ForwardFillTrades => self.process_event_forwardfill_trades(event).await,
@@ -426,49 +422,49 @@ impl Inquisidor {
         }
     }
 
-    pub async fn process_event_validate_candle(&self, event: &Event, market: &MarketDetail) {
-        // Get candles to validate based on event end date
-        let unvalidated_candles = select_candles_unvalidated_lt_datetime(
-            &self.ig_pool,
-            &event.exchange_name,
-            &event.market_id,
-            event.end_ts.unwrap(),
-            TimeFrame::T15,
-        )
-        .await
-        .expect("Failed to select candles.");
-        if !unvalidated_candles.is_empty() {
-            // Validate
-            match event.exchange_name {
-                ExchangeName::Ftx | ExchangeName::FtxUs => {
-                    validate_hb_candles::<crate::exchanges::ftx::Candle>(
-                        &self.ig_pool,
-                        &self.ftx_pool,
-                        &self.clients[&event.exchange_name],
-                        &event.exchange_name,
-                        market,
-                        &unvalidated_candles,
-                    )
-                    .await;
-                }
-                ExchangeName::Gdax => {
-                    validate_hb_candles::<crate::exchanges::gdax::Candle>(
-                        &self.ig_pool,
-                        &self.gdax_pool,
-                        &self.clients[&event.exchange_name],
-                        &event.exchange_name,
-                        market,
-                        &unvalidated_candles,
-                    )
-                    .await;
-                }
-            };
-        };
-        // Close event
-        update_event_status_processed(&self.ig_pool, event)
-            .await
-            .expect("Failed to update event status to done.");
-    }
+    // pub async fn process_event_validate_candle(&self, event: &Event, market: &MarketDetail) {
+    //     // Get candles to validate based on event end date
+    //     let unvalidated_candles = select_candles_unvalidated_lt_datetime(
+    //         &self.ig_pool,
+    //         &event.exchange_name,
+    //         &event.market_id,
+    //         event.end_ts.unwrap(),
+    //         TimeFrame::T15,
+    //     )
+    //     .await
+    //     .expect("Failed to select candles.");
+    //     if !unvalidated_candles.is_empty() {
+    //         // Validate
+    //         match event.exchange_name {
+    //             ExchangeName::Ftx | ExchangeName::FtxUs => {
+    //                 validate_hb_candles::<crate::exchanges::ftx::Candle>(
+    //                     &self.ig_pool,
+    //                     &self.ftx_pool,
+    //                     &self.clients[&event.exchange_name],
+    //                     &event.exchange_name,
+    //                     market,
+    //                     &unvalidated_candles,
+    //                 )
+    //                 .await;
+    //             }
+    //             ExchangeName::Gdax => {
+    //                 validate_hb_candles::<crate::exchanges::gdax::Candle>(
+    //                     &self.ig_pool,
+    //                     &self.gdax_pool,
+    //                     &self.clients[&event.exchange_name],
+    //                     &event.exchange_name,
+    //                     market,
+    //                     &unvalidated_candles,
+    //                 )
+    //                 .await;
+    //             }
+    //         };
+    //     };
+    //     // Close event
+    //     update_event_status_processed(&self.ig_pool, event)
+    //         .await
+    //         .expect("Failed to update event status to done.");
+    // }
 
     pub async fn process_event_create_daily_candles(&self, event: &Event) {
         // Select active market from each exchange
@@ -500,70 +496,70 @@ impl Inquisidor {
             .expect("Failed to update event status to done.");
     }
 
-    pub async fn process_event_validate_daily_candles(&self, event: &Event) {
-        // Select active market from each exchange
-        let markets = select_market_details_by_status_exchange(
-            &self.ig_pool,
-            &event.exchange_name,
-            &MarketStatus::Active,
-        )
-        .await
-        .expect("Failed to select markets.");
-        for market in markets.iter() {
-            // Create 01d candles if needed
-            match event.exchange_name {
-                ExchangeName::Ftx | ExchangeName::FtxUs => {
-                    validate_01d_candles::<crate::exchanges::ftx::Candle>(
-                        &self.ig_pool,
-                        &self.ftx_pool,
-                        &self.clients[&event.exchange_name],
-                        &event.exchange_name,
-                        market,
-                    )
-                    .await;
-                }
-                ExchangeName::Gdax => {
-                    validate_01d_candles::<crate::exchanges::gdax::Candle>(
-                        &self.ig_pool,
-                        &self.gdax_pool,
-                        &self.clients[&event.exchange_name],
-                        &event.exchange_name,
-                        market,
-                    )
-                    .await;
-                }
-            };
-        }
-        // Close event
-        update_event_status_processed(&self.ig_pool, event)
-            .await
-            .expect("Failed to update event status to done.");
-        // Create archive event
-        insert_event_archive_daily_candles(&self.ig_pool, &event.exchange_name)
-            .await
-            .expect("Failed to insert archive daily candles event.");
-    }
+    // pub async fn process_event_validate_daily_candles(&self, event: &Event) {
+    //     // Select active market from each exchange
+    //     let markets = select_market_details_by_status_exchange(
+    //         &self.ig_pool,
+    //         &event.exchange_name,
+    //         &MarketStatus::Active,
+    //     )
+    //     .await
+    //     .expect("Failed to select markets.");
+    //     for market in markets.iter() {
+    //         // Create 01d candles if needed
+    //         match event.exchange_name {
+    //             ExchangeName::Ftx | ExchangeName::FtxUs => {
+    //                 validate_01d_candles::<crate::exchanges::ftx::Candle>(
+    //                     &self.ig_pool,
+    //                     &self.ftx_pool,
+    //                     &self.clients[&event.exchange_name],
+    //                     &event.exchange_name,
+    //                     market,
+    //                 )
+    //                 .await;
+    //             }
+    //             ExchangeName::Gdax => {
+    //                 validate_01d_candles::<crate::exchanges::gdax::Candle>(
+    //                     &self.ig_pool,
+    //                     &self.gdax_pool,
+    //                     &self.clients[&event.exchange_name],
+    //                     &event.exchange_name,
+    //                     market,
+    //                 )
+    //                 .await;
+    //             }
+    //         };
+    //     }
+    //     // Close event
+    //     update_event_status_processed(&self.ig_pool, event)
+    //         .await
+    //         .expect("Failed to update event status to done.");
+    //     // Create archive event
+    //     insert_event_archive_daily_candles(&self.ig_pool, &event.exchange_name)
+    //         .await
+    //         .expect("Failed to insert archive daily candles event.");
+    // }
 
-    pub async fn process_event_archive_daily_candles(&self, event: &Event) {
-        // Select active market from each exchange
-        let markets = select_market_details_by_status_exchange(
-            &self.ig_pool,
-            &event.exchange_name,
-            &MarketStatus::Active,
-        )
-        .await
-        .expect("Failed to select markets.");
-        for market in markets.iter() {
-            // Temporarily remove GDAX from archiving
-            if market.exchange_name != ExchangeName::Gdax {
-                self.archive_validated_trades_for_market(market).await;
-            };
-        }
-        // Close event
-        update_event_status_processed(&self.ig_pool, event)
-            .await
-            .expect("Failed to update event status to done.");
-    }
+    // pub async fn process_event_archive_daily_candles(&self, event: &Event) {
+    //     // Select active market from each exchange
+    //     let markets = select_market_details_by_status_exchange(
+    //         &self.ig_pool,
+    //         &event.exchange_name,
+    //         &MarketStatus::Active,
+    //     )
+    //     .await
+    //     .expect("Failed to select markets.");
+    //     for market in markets.iter() {
+    //         // Temporarily remove GDAX from archiving
+    //         if market.exchange_name != ExchangeName::Gdax {
+    //             self.archive_validated_trades_for_market(market).await;
+    //         };
+    //     }
+    //     // Close event
+    //     update_event_status_processed(&self.ig_pool, event)
+    //         .await
+    //         .expect("Failed to update event status to done.");
+    // }
 }
 
 impl Mita {

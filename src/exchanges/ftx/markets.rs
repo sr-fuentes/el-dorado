@@ -1,7 +1,6 @@
 use crate::exchanges::{client::RestClient, error::RestError};
 use crate::markets::MarketDetail;
 use crate::trades::{TimeId, Trade as ElDTrade};
-use crate::candles::CandleType;
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal::prelude::*;
@@ -237,10 +236,6 @@ impl crate::candles::Candle for Candle {
     fn volume(&self) -> Decimal {
         self.volume
     }
-
-    fn as_type(&self) -> CandleType {
-        CandleType::Ftx
-    }
 }
 
 mod ts_micro_fractions {
@@ -320,10 +315,10 @@ impl RestClient {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{TimeZone, Utc};
-    use crate::{
-        exchanges::{client::RestClient, ExchangeName, ftx::Market, ftx::Orderbook, ftx::Trade, ftx::Candle},
+    use crate::exchanges::{
+        client::RestClient, ftx::Candle, ftx::Market, ftx::Orderbook, ftx::Trade, ExchangeName,
     };
+    use chrono::{TimeZone, Utc};
 
     #[test]
     fn serde_deserializes_the_market_struct() {

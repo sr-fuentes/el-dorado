@@ -21,8 +21,8 @@ async fn main() {
         .subcommand(App::new("candle").about("make candles from backfilled trades"))
         .subcommand(App::new("candleload").about("load candles from file to db"))
         .subcommand(App::new("manage").about("run current cleanup script"))
-        .subcommand(App::new("manual").about("manually validate bad candles"))
-        .subcommand(App::new("archive").about("archive trade for valid candles"))
+        // .subcommand(App::new("manual").about("manually validate bad candles"))
+        // .subcommand(App::new("archive").about("archive trade for valid candles"))
         .subcommand(App::new("stream").about("stream trades to db"))
         .subcommand(App::new("monitor").about("monitor active processes"))
         .get_matches();
@@ -131,17 +131,17 @@ async fn main() {
             let ig = Inquisidor::new().await;
             ig.run().await;
         }
-        Some("manual") => {
-            // Create new admin instance and run all manual validations
-            let ig = Inquisidor::new().await;
-            ig.process_candle_validations(el_dorado::validation::ValidationStatus::Open)
-                .await;
-        }
-        Some("archive") => {
-            // Create new admin instance and add new exchange
-            let ig = Inquisidor::new().await;
-            ig.archive_validated_trades().await;
-        }
+        // Some("manual") => {
+        //     // Create new admin instance and run all manual validations
+        //     let ig = Inquisidor::new().await;
+        //     ig.process_candle_validations(el_dorado::validation::ValidationStatus::Open)
+        //         .await;
+        // }
+        // Some("archive") => {
+        //     // Create new admin instance and add new exchange
+        //     let ig = Inquisidor::new().await;
+        //     ig.archive_validated_trades().await;
+        // }
         Some("stream") => {
             // Create new mita instance and run stream until no restart
             let eld = ElDorado::new().await;

@@ -4,7 +4,6 @@ use crate::{
     markets::{select_market_details, MarketDetail},
     utilities::TimeFrame,
     utilities::Twilio,
-    validation::ValidationStatus,
 };
 use sqlx::PgPool;
 use std::collections::HashMap;
@@ -77,7 +76,7 @@ impl Inquisidor {
             // Process any events for ig
             self.process_events().await;
             // Process any validation events
-            self.process_candle_validations(ValidationStatus::New).await;
+            // self.process_candle_validations(ValidationStatus::New).await;
             // Sleep for 200 ms to give control back to tokio scheduler
             tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
         }
@@ -94,11 +93,8 @@ impl Inquisidor {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        inquisidor::Inquisidor,
-        exchanges::ExchangeName,
-    };
-    
+    use crate::{exchanges::ExchangeName, inquisidor::Inquisidor};
+
     #[tokio::test]
     async fn create_new_inquisidor() {
         let ig = Inquisidor::new().await;

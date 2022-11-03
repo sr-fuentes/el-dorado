@@ -1,7 +1,6 @@
 use crate::exchanges::{client::RestClient, error::RestError};
 use crate::markets::MarketDetail;
 use crate::trades::{TimeId, Trade as ElDTrade};
-use crate::candles::CandleType;
 use async_trait::async_trait;
 use chrono::{serde::ts_seconds, DateTime, Duration, DurationRound, Utc};
 use rust_decimal::prelude::*;
@@ -224,10 +223,6 @@ impl crate::candles::Candle for Candle {
 
     fn volume(&self) -> Decimal {
         self.volume
-    }
-
-    fn as_type(&self) -> CandleType {
-        CandleType::Gdax
     }
 }
 

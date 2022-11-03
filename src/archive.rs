@@ -1,87 +1,86 @@
-use crate::exchanges::ExchangeName;
+use crate::candles::DailyCandle;
 use crate::inquisidor::Inquisidor;
-use crate::markets::{select_markets_by_market_data_status, MarketDetail, MarketStatus};
-use crate::validation::insert_candle_count_validation;
-use crate::candles::{DailyCandle, select_candles_valid_not_archived, update_candle_archived};
-use crate::trades::{delete_trades_by_time, select_ftx_trades_by_time, select_gdax_trades_by_time};
+use crate::markets::MarketDetail;
+use crate::trades::{select_ftx_trades_by_time, select_gdax_trades_by_time};
+// use crate::validation::insert_candle_count_validation;
 use chrono::Duration;
 use csv::Writer;
 
 impl Inquisidor {
-    pub async fn archive_validated_trades(&self) {
-        // Get Active markets
-        let markets = select_markets_by_market_data_status(&self.ig_pool, &MarketStatus::Active)
-            .await
-            .expect("Failed to fetch active markets.");
-        // Check for trades to archive in each active market
-        for market in markets.iter() {
-            self.archive_validated_trades_for_market(market).await;
-        }
-    }
+    // pub async fn archive_validated_trades(&self) {
+    //     // Get Active markets
+    //     let markets = select_markets_by_market_data_status(&self.ig_pool, &MarketStatus::Active)
+    //         .await
+    //         .expect("Failed to fetch active markets.");
+    //     // Check for trades to archive in each active market
+    //     for market in markets.iter() {
+    //         self.archive_validated_trades_for_market(market).await;
+    //     }
+    // }
 
-    pub async fn archive_validated_trades_for_market(&self, market: &MarketDetail) {
-        // Get mark{et table for table and file
-        // let market_table_name = market.strip_name();
-        // Check directory for exchange csv is created
-        let p = format!(
-            "{}/csv/{}",
-            &self.settings.application.archive_path,
-            &market.exchange_name.as_str()
-        );
-        std::fs::create_dir_all(&p).expect("Failed to create directories.");
-        // Get validated but not archived 01d candles
-        let candles_to_archive =
-            select_candles_valid_not_archived(&self.ig_pool, &market.market_id)
-                .await
-                .expect("Failed to fetch candles to archive.");
-        // Archive trades
-        for candle in candles_to_archive.iter() {
-            println!(
-                "Archiving {:?} - {} {:?} daily trades.",
-                &market.exchange_name, &market.market_name, &candle.datetime
-            );
-            // Select trades associated with candle since we are working with trades
-            // separate by exchange
-            let archive_success = match market.exchange_name {
-                ExchangeName::Ftx | ExchangeName::FtxUs => {
-                    self.archive_ftx_trades(market, candle, &p).await
-                }
-                ExchangeName::Gdax => self.archive_gdax_trades(market, candle, &p).await,
-            };
-            if archive_success {
-                // Delete trades from validate table
-                match market.exchange_name {
-                    ExchangeName::Ftx | ExchangeName::FtxUs => {
-                        delete_trades_by_time(
-                            &self.ftx_pool,
-                            &market.exchange_name,
-                            market,
-                            "validated",
-                            candle.datetime,
-                            candle.datetime + Duration::days(1),
-                        )
-                        .await
-                        .expect("Failed to delete archived trades.");
-                    }
-                    ExchangeName::Gdax => {
-                        delete_trades_by_time(
-                            &self.gdax_pool,
-                            &market.exchange_name,
-                            market,
-                            "validated",
-                            candle.datetime,
-                            candle.datetime + Duration::days(1),
-                        )
-                        .await
-                        .expect("Failed to delete archived trades.");
-                    }
-                }
-                update_candle_archived(&self.ig_pool, &market.market_id, candle)
-                    .await
-                    .expect("Failed to update candle archive status.");
-            }
-        }
-    }
+    // pub async fn archive_validated_trades_for_market(&self, market: &MarketDetail) {
+    //     // Get mark{et table for table and file
+    //     // let market_table_name = market.strip_name();
+    //     // Check directory for exchange csv is created
+    //     let p = format!(
+    //         "{}/csv/{}",
+    //         &self.settings.application.archive_path,
+    //         &market.exchange_name.as_str()
+    //     );
+    //     std::fs::create_dir_all(&p).expect("Failed to create directories.");
+    //     // Get validated but not archived 01d candles
+    //     let candles_to_archive =
+    //         select_candles_valid_not_archived(&self.ig_pool, &market.market_id)
+    //             .await
+    //             .expect("Failed to fetch candles to archive.");
+    //     // Archive trades
+    //     for candle in candles_to_archive.iter() {
+    //         println!(
+    //             "Archiving {:?} - {} {:?} daily trades.",
+    //             &market.exchange_name, &market.market_name, &candle.datetime
+    //         );
+    //         // Select trades associated with candle since we are working with trades
+    //         // separate by exchange
+    //         let archive_success = match market.exchange_name {
+    //             ExchangeName::Ftx | ExchangeName::FtxUs => {
+    //                 self.archive_ftx_trades(market, candle, &p).await
+    //             }
+    //             ExchangeName::Gdax => self.archive_gdax_trades(market, candle, &p).await,
+    //         };
+    //         if archive_success {
+    //             // Delete trades from validate table
+    //             match market.exchange_name {
+    //                 ExchangeName::Ftx | ExchangeName::FtxUs => {
+    //                     delete_trades_by_time(
+    //                         &self.ftx_pool,
+    //                         &market.exchange_name,
+    //                         market,
+    //                         "validated",
+    //                         candle.datetime,
+    //                         candle.datetime + Duration::days(1),
+    //                     )
+    //                     .await
+    //                     .expect("Failed to delete archived trades.");
+    //                 }
+    //                 ExchangeName::Gdax => {
+    //                     delete_trades_by_time(
+    //                         &self.gdax_pool,
+    //                         &market.exchange_name,
+    //                         market,
+    //                         "validated",
+    //                         candle.datetime,
+    //                         candle.datetime + Duration::days(1),
+    //                     )
+    //                     .await
+    //                     .expect("Failed to delete archived trades.");
+    //                 }
+    //             }
+    //             update_candle_archived(&self.ig_pool, &market.market_id, candle)
+    //                 .await
+    //                 .expect("Failed to update candle archive status.");
+    //         }
+    //     }
+    // }
 
     pub async fn archive_ftx_trades(
         &self,
@@ -106,15 +105,15 @@ impl Inquisidor {
                 candle.trade_count,
                 trades_to_archive.len()
             );
-            // Insert count validation
-            insert_candle_count_validation(
-                &self.ig_pool,
-                &market.exchange_name,
-                &market.market_id,
-                &candle.datetime,
-            )
-            .await
-            .expect("Failed to create count validation.");
+            // // Insert count validation
+            // insert_candle_count_validation(
+            //     &self.ig_pool,
+            //     &market.exchange_name,
+            //     &market.market_id,
+            //     &candle.datetime,
+            // )
+            // .await
+            // .expect("Failed to create count validation.");
             return false;
         }
         // Define filename = TICKER_YYYYMMDD.csv
@@ -153,14 +152,14 @@ impl Inquisidor {
                 trades_to_archive.len()
             );
             // Insert count validation
-            insert_candle_count_validation(
-                &self.ig_pool,
-                &market.exchange_name,
-                &market.market_id,
-                &candle.datetime,
-            )
-            .await
-            .expect("Failed to create count validation.");
+            // insert_candle_count_validation(
+            //     &self.ig_pool,
+            //     &market.exchange_name,
+            //     &market.market_id,
+            //     &candle.datetime,
+            // )
+            // .await
+            // .expect("Failed to create count validation.");
             return false;
         }
         // Define filename = TICKER_YYYYMMDD.csv
@@ -180,14 +179,13 @@ impl Inquisidor {
 #[cfg(test)]
 mod test {
     use crate::{
+        candles::{
+            get_ftx_candles_daterange, insert_candles_01d, resample_candles, select_candles,
+            select_candles_gte_datetime, select_last_01d_candle, ProductionCandle,
+        },
         configuration::get_configuration,
         exchanges::{client::RestClient, ftx::Trade, select_exchanges},
         markets::{select_market_detail, select_market_ids_by_exchange},
-        trades::select_ftx_trades_by_time,
-        utilities::TimeFrame,
-        candles::{select_last_01d_candle, select_candles_gte_datetime, select_candles, resample_candles,
-        insert_candles_01d, get_ftx_candles_daterange, validate_ftx_candle, update_candle_validation,
-        select_candles_valid_not_archived, ProductionCandle}
     };
     use chrono::{Duration, DurationRound};
     use csv::Writer;
@@ -301,43 +299,43 @@ mod test {
                 .collect();
             println!("Validating {:?} with {:?}", candle, hb_candles);
             // Check if all hb candles are valid
-            let hb_is_validated = hb_candles.iter().all(|c| c.is_validated == true);
-            // Check if volume matches value
-            let vol_is_validated = validate_ftx_candle(&candle, &mut exchange_candles);
-            // Update candle validation status
-            if hb_is_validated && vol_is_validated {
-                update_candle_validation(
-                    &pool,
-                    &exchange.name,
-                    &market.market_id,
-                    &candle,
-                    TimeFrame::D01,
-                )
-                .await
-                .expect("Could not update candle validation status.");
-            }
+            let hb_is_validated = true; // hb_candles.iter().all(|c| c.is_validated == true);
+                                        // Check if volume matches value
+            let vol_is_validated = true; // validate_ftx_candle(&candle, &mut exchange_candles);
+                                         // Update candle validation status
+                                         // if hb_is_validated && vol_is_validated {
+                                         //     update_candle_validation(
+                                         //         &pool,
+                                         //         &exchange.name,
+                                         //         &market.market_id,
+                                         //         &candle,
+                                         //         TimeFrame::D01,
+                                         //     )
+                                         //     .await
+                                         //     .expect("Could not update candle validation status.");
+                                         // }
         }
 
         // Get validated but not archived 01d candles
-        let candles_to_archive = select_candles_valid_not_archived(&pool, &market.market_id)
-            .await
-            .expect("Could not fetch valid not archived candles.");
+        // let candles_to_archive = select_candles_valid_not_archived(&pool, &market.market_id)
+        //     .await
+        //     .expect("Could not fetch valid not archived candles.");
 
         // Archive trades
-        for candle in candles_to_archive.iter() {
-            // Select trades associated w/ candle
-            let _trades_to_archive = select_ftx_trades_by_time(
-                &pool,
-                &exchange.name,
-                &market_detail,
-                "validated",
-                candle.datetime,
-                candle.datetime + Duration::days(1),
-            )
-            .await
-            .expect("Could not fetch validated trades.");
-            // Write trades to file
-        }
+        // for candle in candles_to_archive.iter() {
+        //     // Select trades associated w/ candle
+        //     let _trades_to_archive = select_ftx_trades_by_time(
+        //         &pool,
+        //         &exchange.name,
+        //         &market_detail,
+        //         "validated",
+        //         candle.datetime,
+        //         candle.datetime + Duration::days(1),
+        //     )
+        //     .await
+        //     .expect("Could not fetch validated trades.");
+        //     // Write trades to file
+        // }
 
         // Update 01d candles to is_archived
     }
