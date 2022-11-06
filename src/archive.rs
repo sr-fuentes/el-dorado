@@ -278,7 +278,7 @@ mod test {
         // Get exchange candles for validation
         let first_candle = resampled_candles.first().unwrap().datetime;
         let last_candle = resampled_candles.last().unwrap().datetime;
-        let mut exchange_candles = get_ftx_candles_daterange::<crate::exchanges::ftx::Candle>(
+        let mut _exchange_candles = get_ftx_candles_daterange::<crate::exchanges::ftx::Candle>(
             &client,
             &market_detail,
             first_candle,
@@ -299,21 +299,21 @@ mod test {
                 .collect();
             println!("Validating {:?} with {:?}", candle, hb_candles);
             // Check if all hb candles are valid
-            let hb_is_validated = true; // hb_candles.iter().all(|c| c.is_validated == true);
-                                        // Check if volume matches value
-            let vol_is_validated = true; // validate_ftx_candle(&candle, &mut exchange_candles);
-                                         // Update candle validation status
-                                         // if hb_is_validated && vol_is_validated {
-                                         //     update_candle_validation(
-                                         //         &pool,
-                                         //         &exchange.name,
-                                         //         &market.market_id,
-                                         //         &candle,
-                                         //         TimeFrame::D01,
-                                         //     )
-                                         //     .await
-                                         //     .expect("Could not update candle validation status.");
-                                         // }
+            let _hb_is_validated = true; // hb_candles.iter().all(|c| c.is_validated == true);
+                                         // Check if volume matches value
+            let _vol_is_validated = true; // validate_ftx_candle(&candle, &mut exchange_candles);
+                                          // Update candle validation status
+                                          // if hb_is_validated && vol_is_validated {
+                                          //     update_candle_validation(
+                                          //         &pool,
+                                          //         &exchange.name,
+                                          //         &market.market_id,
+                                          //         &candle,
+                                          //         TimeFrame::D01,
+                                          //     )
+                                          //     .await
+                                          //     .expect("Could not update candle validation status.");
+                                          // }
         }
 
         // Get validated but not archived 01d candles

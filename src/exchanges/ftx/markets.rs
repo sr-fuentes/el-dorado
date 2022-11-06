@@ -1,6 +1,6 @@
 use crate::exchanges::{client::RestClient, error::RestError};
 use crate::markets::MarketDetail;
-use crate::trades::{TimeId, Trade as ElDTrade};
+use crate::trades::{PrIdTi, Trade as ElDTrade};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal::prelude::*;
@@ -109,10 +109,11 @@ impl crate::trades::Trade for Trade {
         self.time
     }
 
-    fn as_timeid(&self) -> TimeId {
-        TimeId {
+    fn as_pridti(&self) -> PrIdTi {
+        PrIdTi {
             id: Some(self.id),
             dt: self.time,
+            price: Some(self.price),
         }
     }
 
@@ -212,6 +213,29 @@ impl crate::trades::Trade for Trade {
             .fetch_one(pool)
             .await?;
         Ok(Box::new(row))
+    }
+
+    async fn select_all(
+        pool: &PgPool,
+        market: &MarketDetail,
+        dt: &DateTime<Utc>,
+    ) -> Result<Vec<Box<dyn ElDTrade>>, sqlx::Error> {
+        let sql = format!(
+            r#"
+            SELECT trade_id as id, price, size, side, liquidation, time
+            FROM trades.{}_{}_{}
+            ORDER BY id ASC
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            dt.format("%Y%m%d")
+        );
+        let rows = sqlx::query_as::<_, Trade>(&sql).fetch_all(pool).await?;
+        let trades = rows
+            .into_iter()
+            .map(|t| Box::new(t) as Box<dyn ElDTrade>)
+            .collect();
+        Ok(trades)
     }
 }
 

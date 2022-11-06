@@ -22,7 +22,7 @@ pub struct Instance {
 }
 
 impl Instance {
-    pub fn initialize(pool: &PgPool, settings: &Settings) -> Self {
+    pub async fn initialize(pool: &PgPool, settings: &Settings) -> Self {
         let instance_type = settings
             .application
             .instance_type
@@ -30,7 +30,7 @@ impl Instance {
             .try_into()
             .expect("Failed to parse instance type.");
         let droplet = settings.application.droplet.clone();
-        let exchange_name = match instance_type {
+        let exchange_name: Option<ExchangeName> = match instance_type {
             InstanceType::Ig => None,
             InstanceType::Mita => Some(
                 settings
@@ -42,19 +42,75 @@ impl Instance {
             ),
         };
         // Check the database for an entry for the instance to get the last restart and message info
-        // let instance = Instance::select(pool, exchange)
+        let instance = match instance_type {
+            InstanceType::Ig => Self::select_ig(pool).await,
+            InstanceType::Mita => Self::select_mita(pool, &exchange_name.unwrap(), &droplet).await,
+        };
+        let (last_restart_ts, restart_count, last_message_ts) = match instance {
+            Ok(i) => (i.last_restart_ts, i.restart_count, i.last_message_ts),
+            Err(sqlx::Error::RowNotFound) => (None, Some(0), None),
+            Err(e) => panic!("Sqlx Error: {:?}", e),
+        };
         Self {
             instance_type,
             droplet,
             exchange_name,
             instance_status: InstanceStatus::New,
             restart: true,
-            last_restart_ts: None,
-            restart_count: Some(0),
+            last_restart_ts,
+            restart_count,
             num_markets: 0,
             last_update_ts: Utc::now(),
-            last_message_ts: None,
+            last_message_ts,
         }
+    }
+
+    async fn select_ig(pool: &PgPool) -> Result<Self, sqlx::Error> {
+        let row = sqlx::query_as!(
+            Instance,
+            r#"
+            SELECT instance_type as "instance_type: InstanceType",
+                droplet,
+                exchange_name as "exchange_name: Option<ExchangeName>",
+                instance_status as "instance_status: InstanceStatus",
+                restart, last_restart_ts, restart_count, num_markets, last_update_ts,
+                last_message_ts
+            FROM instances
+            WHERE instance_type = $1
+            "#,
+            InstanceType::Ig.as_str()
+        )
+        .fetch_one(pool)
+        .await?;
+        Ok(row)
+    }
+
+    async fn select_mita(
+        pool: &PgPool,
+        exchange: &ExchangeName,
+        droplet: &str,
+    ) -> Result<Self, sqlx::Error> {
+        let row = sqlx::query_as!(
+            Instance,
+            r#"
+            SELECT instance_type as "instance_type: InstanceType",
+                droplet,
+                exchange_name as "exchange_name: Option<ExchangeName>",
+                instance_status as "instance_status: InstanceStatus",
+                restart, last_restart_ts, restart_count, num_markets, last_update_ts,
+                last_message_ts
+            FROM instances
+            WHERE instance_type = $1
+            AND exchange_name = $2
+            AND droplet = $3
+            "#,
+            InstanceType::Mita.as_str(),
+            exchange.as_str(),
+            droplet,
+        )
+        .fetch_one(pool)
+        .await?;
+        Ok(row)
     }
 
     pub fn time_since_last_update(&self) -> Duration {
@@ -409,9 +465,14 @@ pub async fn select_instances(pool: &PgPool) -> Result<Vec<Instance>, sqlx::Erro
 
 #[cfg(test)]
 mod tests {
-    use crate::instances::*;
-    use crate::mita::Mita;
-    use crate::utilities::get_input;
+    use crate::{
+        instances::{
+            insert_or_update_instance_mita, update_instance_last_updated, update_instance_status,
+            InstanceStatus,
+        },
+        mita::Mita,
+        utilities::get_input,
+    };
 
     #[tokio::test]
     pub async fn insert_mita_instance() {

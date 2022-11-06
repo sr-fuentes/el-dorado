@@ -20,6 +20,7 @@ pub struct ElDorado {
     pub market_ids: HashMap<Uuid, MarketDetail>,
     pub instance: Instance,
     pub storage_path: String,
+    pub start_dt: DateTime<Utc>,
 }
 
 impl ElDorado {
@@ -34,7 +35,7 @@ impl ElDorado {
         // Create Twilio client
         let twilio = Twilio::new();
         // Initialize Instance
-        let mut instance = Instance::initialize(&pools[&Database::ElDorado], &settings);
+        let mut instance = Instance::initialize(&pools[&Database::ElDorado], &settings).await;
         // Load markets and insert into market maps
         let market_details = MarketDetail::select_all(&pools[&Database::ElDorado])
             .await
@@ -71,6 +72,7 @@ impl ElDorado {
             market_ids,
             instance,
             storage_path,
+            start_dt: Utc::now(),
         }
     }
 
@@ -80,6 +82,7 @@ impl ElDorado {
     pub async fn run(&mut self) {
         // let mut restart = self.instance.restart;
         while self.instance.restart {
+            self.start_dt = Utc::now();
             let restart = match self.instance.instance_type {
                 InstanceType::Ig => false, //todo!(),
                 InstanceType::Mita => self.mita().await,
@@ -104,16 +107,17 @@ impl ElDorado {
     ) -> (bool, Option<i32>, Option<DateTime<Utc>>) {
         // If time from last restart is more than 24 hours - sleep 5 seconds before restart, else
         // follow pattern to increase time as restarts increase
-        let (sleep_duration, restart_count) =
-            if Utc::now() - self.instance.last_restart_ts.unwrap() > Duration::days(1) {
-                (5, 1)
-            } else {
-                match self.instance.restart_count.unwrap() {
-                    0 => (5, self.instance.restart_count.unwrap() + 1),
-                    1 => (30, self.instance.restart_count.unwrap() + 1),
-                    _ => (60, self.instance.restart_count.unwrap() + 1),
-                }
-            };
+        let (sleep_duration, restart_count) = if self.instance.last_restart_ts.is_none()
+            || Utc::now() - self.instance.last_restart_ts.unwrap() > Duration::days(1)
+        {
+            (5, 1)
+        } else {
+            match self.instance.restart_count.unwrap() {
+                0 => (5, self.instance.restart_count.unwrap() + 1),
+                1 => (30, self.instance.restart_count.unwrap() + 1),
+                _ => (60, self.instance.restart_count.unwrap() + 1),
+            }
+        };
         if restart {
             println!("Sleeping for {:?} before restarting.", sleep_duration);
             tokio::time::sleep(tokio::time::Duration::from_secs(sleep_duration)).await;
@@ -211,7 +215,7 @@ impl ElDorado {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use crate::eldorado::ElDorado;
 
     #[tokio::test]
     async fn create_new_eldorado() {

@@ -7,7 +7,55 @@ use std::env;
 use std::io::{self, Write};
 use twilio::{OutboundMessage, TwilioClient};
 
-use crate::inquisidor::Inquisidor;
+use crate::{eldorado::ElDorado, inquisidor::Inquisidor};
+
+impl ElDorado {
+    // Create a date range using the timeframe interval starting with the start
+    // datetime and ending with the ending datetime exclusive. This function will not have the end
+    // datetime in the returning vec
+    pub fn create_date_range(
+        &self,
+        start: &DateTime<Utc>,
+        end: &DateTime<Utc>,
+        tf: &TimeFrame,
+    ) -> Vec<DateTime<Utc>> {
+        // Takes a start and end time and creates a vec of dates
+        let mut dr_start = *start;
+        let mut date_range = Vec::new();
+        while dr_start < *end {
+            date_range.push(dr_start);
+            dr_start = dr_start + tf.as_dur();
+        }
+        date_range
+    }
+
+    // Checks if a table exists in a given database connect with the scheme and full table
+    // name given.
+    pub async fn table_exists(
+        &self,
+        pool: &PgPool,
+        schema: &str,
+        table: &str,
+    ) -> Result<bool, sqlx::Error> {
+        println!("Checking table exists for {}.{}", schema, table);
+        let result = sqlx::query!(
+            r#"
+            SELECT EXISTS (
+                SELECT FROM
+                    pg_tables
+                WHERE
+                    schemaname = $1 AND
+                    tablename = $2
+            ) as "exists!";
+            "#,
+            schema,
+            table.to_lowercase()
+        )
+        .fetch_one(pool)
+        .await?;
+        Ok(result.exists)
+    }
+}
 
 impl Inquisidor {
     pub async fn table_exists(
@@ -353,11 +401,6 @@ pub fn min_to_dp(increment: Decimal) -> i32 {
             -log10.trunc().mantissa() as i32 - 1
         }
     }
-}
-
-pub trait Candle {
-    fn datetime(&self) -> DateTime<Utc>;
-    fn volume(&self) -> Decimal;
 }
 
 pub trait Market {

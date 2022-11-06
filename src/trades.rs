@@ -24,6 +24,7 @@ pub trait Trade {
     fn side(&self) -> String;
     fn liquidation(&self) -> bool;
     fn time(&self) -> DateTime<Utc>;
+    fn as_pridti(&self) -> PrIdTi;
     async fn create_table(
         pool: &PgPool,
         market: &MarketDetail,
@@ -32,6 +33,28 @@ pub trait Trade {
     where
         Self: Sized;
     async fn insert(&self, pool: &PgPool, market: &MarketDetail) -> Result<(), sqlx::Error>;
+    async fn select_one_gt_dt(
+        pool: &PgPool,
+        market: &MarketDetail,
+        dt: DateTime<Utc>,
+    ) -> Result<Box<dyn Trade>, sqlx::Error>
+    where
+        Self: Sized;
+    async fn select_all(
+        pool: &PgPool,
+        market: &MarketDetail,
+        dt: &DateTime<Utc>,
+    ) -> Result<Vec<Box<dyn Trade>>, sqlx::Error>
+    where
+        Self: Sized;
+}
+
+// Struct to pack information about last trade - typically used to create a candle from last trade
+#[derive(Debug, Clone, Copy)]
+pub struct PrIdTi {
+    pub dt: DateTime<Utc>,
+    pub id: Option<i64>,
+    pub price: Option<Decimal>,
 }
 
 impl Mita {
@@ -143,6 +166,41 @@ impl ElDorado {
             dt
         } else {
             dt
+        }
+    }
+
+    pub async fn trade_table_exists(&self, market: &MarketDetail, dt: &DateTime<Utc>) -> bool {
+        // Get the full trade table name and then check self fn for table and schema
+        let table = format!(
+            "{}_{}_{}",
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            dt.format("%Y%m%d")
+        );
+        let db = match market.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
+            ExchangeName::Gdax => Database::Gdax,
+        };
+        self.table_exists(&self.pools[&db], "trades", &table)
+            .await
+            .expect("Failed to check table.")
+    }
+
+    pub async fn select_first_ws_timeid(&self, market: &MarketDetail) -> Option<PrIdTi> {
+        // Select the first trade from database table after the start of the instance
+        let result = match market.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                FtxTrade::select_one_gt_dt(&self.pools[&Database::Ftx], market, self.start_dt).await
+            }
+            ExchangeName::Gdax => {
+                GdaxTrade::select_one_gt_dt(&self.pools[&Database::Gdax], market, self.start_dt)
+                    .await
+            }
+        };
+        match result {
+            Ok(t) => Some(t.as_pridti()),
+            Err(sqlx::Error::RowNotFound) => None,
+            Err(e) => panic!("Sqlx::Error: {:?}", e),
         }
     }
 }
@@ -953,7 +1011,7 @@ pub async fn delete_trades_by_time(
 
 #[cfg(test)]
 mod tests {
-    use crate::configuration::*;
+    use crate::configuration::get_configuration;
     use sqlx::PgPool;
 
     #[tokio::test]

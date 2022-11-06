@@ -1,4 +1,6 @@
-use crate::candles::{resample_candles, select_candles_gte_datetime, select_last_candle, Candle};
+use crate::candles::{
+    resample_candles, select_candles_gte_datetime, select_last_candle, ProductionCandle,
+};
 use crate::configuration::{get_configuration, Settings};
 use crate::eldorado::ElDorado;
 use crate::events::insert_event_process_trades;
@@ -37,7 +39,7 @@ pub struct Mita {
 pub struct Heartbeat {
     pub ts: DateTime<Utc>,
     pub last: Decimal,
-    pub candles: HashMap<TimeFrame, Vec<Candle>>,
+    pub candles: HashMap<TimeFrame, Vec<ProductionCandle>>,
 }
 
 impl Mita {
@@ -408,7 +410,7 @@ impl Mita {
                 < end.duration_trunc(tf.as_dur()).unwrap()
             {
                 // Resample trades for new candles and append
-                let new_candles: Vec<Candle> = map_candles[&self.hbtf]
+                let new_candles: Vec<ProductionCandle> = map_candles[&self.hbtf]
                     .iter()
                     .filter(|c| {
                         c.datetime >= heartbeat.candles[tf].last().unwrap().datetime + tf.as_dur()
@@ -487,7 +489,7 @@ impl Mita {
         map_candles.insert(TimeFrame::T15, candles);
         for tf in TimeFrame::time_frames().iter().skip(1) {
             // Filter candles from floor of new timeframe
-            let filtered_candles: Vec<Candle> = map_candles[&tf.prev()]
+            let filtered_candles: Vec<ProductionCandle> = map_candles[&tf.prev()]
                 .iter()
                 .filter(|c| c.datetime < ts.duration_trunc(tf.as_dur()).unwrap())
                 .cloned()
@@ -526,14 +528,36 @@ impl ElDorado {
     // Stream trades from websocket to trade tables.
     // Fill trades from start to current websocket stream
     // On candle interval, create candle and metrics
-    pub async fn mita(&self) -> bool {
+    pub async fn mita(&mut self) -> bool {
+        // Set restart value to false, error handling must explicitly set back to true
+        self.instance.restart = false;
+        // self.instance.update_status(&InstanceStatus::New).await;
+        let restart = tokio::select! {
+            res2 = self.stream() => res2,
+            res1 = self.sync_and_run_mita() => res1,
+        };
+        restart
+    }
+
+    // Sync by determiniting the last good state and filling trades from that state to the current
+    // first streamed trade. Then and Run Mita loop
+    pub async fn sync_and_run_mita(&self) -> bool {
+        // Wait for 5 seconds for stream to start
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+        // self.instance.update_status(&InstanceStatus::Sync).await;
+        // Sync candles from start to current time frame
+        let _heartbeats = self.sync().await;
+        println!("Starting MITA loop.");
+        // self.instance.update_status(&InstanceStatus::Active).await;
+        // let restart = self.run_mita(heartbeats).await;
+        // restart
         false
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::mita::Mita;
 
     #[tokio::test]
     async fn create_heartbeat_returns_resampled_candles() {

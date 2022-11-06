@@ -401,7 +401,7 @@ impl Inquisidor {
         // Process events
         for event in open_events.iter() {
             // Get market detail for event
-            let market = markets.iter().find(|m| m.market_id == event.market_id);
+            let _market = markets.iter().find(|m| m.market_id == event.market_id);
             match event.event_type {
                 EventType::ProcessTrades => continue, // All trade processing done by mita
                 EventType::ValidateCandle => {

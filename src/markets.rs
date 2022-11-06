@@ -477,7 +477,10 @@ impl MarketTradeDetail {
         Ok(rows)
     }
 
-    pub async fn select(pool: &PgPool, market_id: &Uuid) -> Result<MarketTradeDetail, sqlx::Error> {
+    pub async fn select(
+        pool: &PgPool,
+        market: &MarketDetail,
+    ) -> Result<MarketTradeDetail, sqlx::Error> {
         let row = sqlx::query_as!(
             MarketTradeDetail,
             r#"
@@ -489,7 +492,7 @@ impl MarketTradeDetail {
             FROM market_trade_details
             WHERE market_id = $1
             "#,
-            market_id
+            market.market_id
         )
         .fetch_one(pool)
         .await?;
@@ -651,7 +654,10 @@ impl Inquisidor {
             .expect("Failed to get markets from db.");
         // For each market that is not in the exchange, insert into db.
         for market in markets.iter() {
-            if !market_ids.iter().any(|m| m.market_name == market.name() && m.exchange_name == *exchange) {
+            if !market_ids
+                .iter()
+                .any(|m| m.market_name == market.name() && m.exchange_name == *exchange)
+            {
                 // Exchange market not in database.
                 println!("Adding {:?} market for {:?}", market.name(), exchange);
                 insert_new_market(&self.ig_pool, exchange, market)
@@ -1021,7 +1027,6 @@ pub async fn insert_market_rank(
     Ok(())
 }
 
-
 pub async fn select_market_detail_by_exchange_mita(
     pool: &PgPool,
     exchange: &ExchangeName,
@@ -1285,9 +1290,7 @@ mod tests {
         configuration::get_configuration,
         exchanges::{select_exchanges, ExchangeName},
         inquisidor::Inquisidor,
-        markets::{
-            select_market_details_by_status_exchange, select_market_details, MarketStatus,
-        },
+        markets::{select_market_details, select_market_details_by_status_exchange, MarketStatus},
     };
     use sqlx::PgPool;
 
@@ -1307,7 +1310,7 @@ mod tests {
             .await
             .expect("Could not fetch exchanges.");
         // Match exchange to exchanges in database
-        let exchange = exchanges
+        let _exchange = exchanges
             .iter()
             .find(|e| e.name.as_str() == configuration.application.exchange)
             .unwrap();

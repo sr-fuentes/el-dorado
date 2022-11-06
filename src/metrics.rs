@@ -1,4 +1,4 @@
-use crate::candles::Candle;
+use crate::candles::ProductionCandle;
 use crate::exchanges::ExchangeName;
 use crate::markets::MarketDetail;
 use crate::utilities::TimeFrame;
@@ -180,7 +180,7 @@ impl MetricAP {
         market: &str,
         exchange: &ExchangeName,
         tf: TimeFrame,
-        candles: &[Candle],
+        candles: &[ProductionCandle],
     ) -> Vec<MetricAP> {
         // Get look back periods for TimeFrame
         let lbps = tf.lbps();
@@ -530,11 +530,18 @@ pub async fn select_metrics_ap_by_exchange_market(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::candles::select_candles_gte_datetime;
-    use crate::configuration::get_configuration;
+    use crate::{
+        candles::select_candles_gte_datetime,
+        configuration::get_configuration,
+        exchanges::ExchangeName,
+        metrics::{insert_metric_ap, select_metrics_ap_by_exchange_market, Metric, MetricAP},
+        utilities::TimeFrame,
+    };
     use chrono::{TimeZone, Utc};
+    use rust_decimal::prelude::*;
+    use rust_decimal_macros::dec;
     use sqlx::PgPool;
+    use uuid::Uuid;
 
     #[tokio::test]
     pub async fn new_metrics_calculations_and_times() {

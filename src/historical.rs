@@ -1,28 +1,314 @@
 use crate::candles::{
     get_ftx_candles_daterange, insert_candle, select_first_01d_candle, select_last_candle,
-    select_previous_candle, Candle,
+    select_previous_candle, ProductionCandle, ResearchCandle,
 };
+use crate::configuration::Database;
+use crate::eldorado::ElDorado;
 use crate::events::{Event, EventStatus, EventType};
 use crate::exchanges::{
     client::RestClient, error::RestError, ftx::Trade as FtxTrade, Exchange, ExchangeName,
 };
 use crate::inquisidor::Inquisidor;
 use crate::markets::{
-    update_market_data_status, MarketDataStatus, MarketDetail, MarketStatus, MarketTradeDetail,
+    select_market_detail, update_market_data_status, MarketCandleDetail, MarketDataStatus,
+    MarketDetail, MarketStatus, MarketTradeDetail,
 };
-use crate::mita::Mita;
+use crate::mita::{Heartbeat, Mita};
 use crate::trades::{
     create_ftx_trade_table, drop_create_trade_table, drop_table, drop_trade_table,
     insert_delete_ftx_trades, insert_delete_gdax_trades, insert_ftx_trades, insert_gdax_trades,
     select_ftx_trades_by_table, select_ftx_trades_by_time, select_gdax_trades_by_table,
-    select_gdax_trades_by_time, select_trade_first_stream, Trade,
+    select_gdax_trades_by_time, select_trade_first_stream, PrIdTi, Trade,
 };
 use crate::utilities::{get_input, TimeFrame};
 use chrono::{DateTime, Datelike, Duration, DurationRound, TimeZone, Utc};
 use csv::{Reader, Writer};
 use rust_decimal_macros::dec;
+use std::collections::HashMap;
 use std::convert::TryInto;
 use std::fs::File;
+
+impl ElDorado {
+    pub async fn sync(&self) -> HashMap<String, Heartbeat> {
+        let heartbeats: HashMap<String, Heartbeat> = HashMap::new();
+        for market in self.markets.iter() {
+            // For each market in eldorado instnace, determine the start time and id for the sync
+            let (start, candles) = self.calculate_sync_start(market).await;
+            let end: PrIdTi = self.calculate_sync_end(market).await;
+            println!("Start {:?}", start);
+            println!("Candles #: {:?}", candles.len());
+            println!("End: {:?}", end);
+            // Fill the trades and candles from start to end
+            // self.fill_trades_and_candles(market, start, end).await;
+            // Sync the filled trades and the streamed trades to the current time frame interval
+            // let heartbeat = self.sync_to_now().await;
+            // heartbeats.insert(market.market_name.clone(), heartbeat);
+        }
+        heartbeats
+    }
+
+    // The start of the sync is the determined by the market status and data. If it is a brand
+    // new market, determined by there being no MarketTradeDetail or MarketCandleDetail, then
+    // the start is 90 days prior to current day. If however, there is a MarketTradeDetail or
+    // MarketCandleDetail, the start begins at the end of the last candle.
+    async fn calculate_sync_start(&self, market: &MarketDetail) -> (PrIdTi, Vec<ProductionCandle>) {
+        // Set the min date that is needed for start - 90 days prior
+        let mut start = PrIdTi {
+            dt: self.start_dt.duration_trunc(Duration::days(1)).unwrap() - Duration::days(90),
+            id: None,
+            price: None,
+        };
+        let mut candles = Vec::new();
+        // Try checking the mcd record for last candle and confirming candles are in candles table
+        let mcd_end: Option<(PrIdTi, Vec<ProductionCandle>)> =
+            self.try_mcd_start(market, &start.dt).await;
+        start = match mcd_end {
+            Some(mut r) => {
+                candles.append(&mut r.1);
+                r.0
+            }
+            None => start,
+        };
+        // Try checking the mtd record for last trades and confirming trade table/trades exist
+        let mtd_end: Option<(PrIdTi, Vec<ProductionCandle>)> =
+            self.try_mtd_start(market, &start).await;
+        start = match mtd_end {
+            Some(mut r) => {
+                candles.append(&mut r.1);
+                r.0
+            }
+            None => start,
+        };
+        // Try checking system candles table and last candle
+        let candles_end: Option<(PrIdTi, Vec<ProductionCandle>)> =
+            self.try_eld_start(market, &start.dt).await;
+        start = match candles_end {
+            Some(mut r) => {
+                candles.append(&mut r.1);
+                r.0
+            }
+            None => start,
+        };
+        // If at this point there are no candles, calc the start based on exchange logic
+        if candles.is_empty() {
+            match self.instance.exchange_name.unwrap() {
+                ExchangeName::Ftx | ExchangeName::FtxUs => {
+                    // start = self.get_ftx_start(market, &start.dt).await;
+                    (start, candles)
+                }
+                ExchangeName::Gdax => {
+                    // start = self.get_gdax_start(market, &start.dt).await;
+                    (start, candles)
+                }
+            }
+        } else {
+            (start, candles)
+        }
+    }
+
+    // Try to determine the start dt for sync by checking the mcd record for the market. The mcd
+    // will list the valid candle end dt if it exists. If this dt is greater than the given start dt
+    // return the mcd last dt and the candles from start to last resampled in the market time frame
+    // as these candles have been validated and archived.
+    async fn try_mcd_start(
+        &self,
+        market: &MarketDetail,
+        start: &DateTime<Utc>,
+    ) -> Option<(PrIdTi, Vec<ProductionCandle>)> {
+        let db = match market.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
+            ExchangeName::Gdax => Database::Gdax,
+        };
+        // Check for mcd
+        let mcd = MarketCandleDetail::select(&self.pools[&db], market).await;
+        match mcd {
+            Ok(m) => {
+                if m.last_trade_ts > *start {
+                    // Validate the data from the mcd record
+                    Some(self.use_mcd_start(&db, market, &m, start).await)
+                } else {
+                    // The archive market candles end before the request start and are of no use
+                    None
+                }
+            }
+            // No mcd exists, so no archive candles to use
+            Err(sqlx::Error::RowNotFound) => None,
+            // Other SQLX Error - TODO! - Add Error Handling
+            Err(e) => panic!("SQLX Error: {:?}", e),
+        }
+    }
+
+    // Get all candles from start to mcd last, resample to market time frame and convert to prod
+    async fn use_mcd_start(
+        &self,
+        db: &Database,
+        market: &MarketDetail,
+        mcd: &MarketCandleDetail,
+        start: &DateTime<Utc>,
+    ) -> (PrIdTi, Vec<ProductionCandle>) {
+        // Select candles
+        let archive_candles = ResearchCandle::select_dr(
+            &self.pools[db],
+            market,
+            start,
+            &(mcd.last_candle + Duration::seconds(15)),
+        )
+        .await
+        .expect("Failed to select research candles by dr.");
+        // Resample candles if the market time frame is longer than research base of S15
+        let candles: Vec<ProductionCandle> = if archive_candles.is_empty() {
+            // Could not select any candles, panic as there is a data integrity issue
+            panic!(
+                "Excpected mcd candles for sync. Select dr of {:?} to {:?} returned None.",
+                start,
+                mcd.last_candle + Duration::seconds(15)
+            );
+        } else if market.candle_timeframe.unwrap() == TimeFrame::S15 {
+            // Candles are already in S15 time frame. Convert the candles to prod candles.
+            archive_candles
+                .iter()
+                .map(|c| c.as_production_candle())
+                .collect()
+        } else {
+            // Resample candles to market time frame and convert to prod candles.
+            let resampled_candles =
+                self.resample_research_candles(&archive_candles, &market.candle_timeframe.unwrap());
+            resampled_candles
+                .iter()
+                .map(|c| c.as_production_candle())
+                .collect()
+        };
+        // Return the prepped candles ready for sync and new start TimeId
+        let last = candles.last().unwrap();
+        (
+            PrIdTi {
+                id: Some(last.last_trade_id.parse::<i64>().unwrap()),
+                dt: last.last_trade_ts,
+                price: Some(last.close),
+            },
+            candles,
+        )
+    }
+
+    // Try to determine start dt for sync by checking the mtd record for the market. The mtd will
+    // list the last trade date that was validated with a trade file archived. If this date is
+    // greater than the give start date, load all the trades for the days starting at the start dt
+    // and ending at the last valid trade date from the mtd as these trades have been validated.
+    // Create production candles from the trades and return with the updated start
+    async fn try_mtd_start(
+        &self,
+        market: &MarketDetail,
+        start: &PrIdTi,
+    ) -> Option<(PrIdTi, Vec<ProductionCandle>)> {
+        let db = match market.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
+            ExchangeName::Gdax => Database::Gdax,
+        };
+        let mtd = MarketTradeDetail::select(&self.pools[&db], market).await;
+        match mtd {
+            Ok(m) => {
+                match m.next_trade_day {
+                    // There is a next trade day, check if relevant to start dated
+                    Some(d) => {
+                        if d - Duration::days(1) > start.dt {
+                            // Validated trades available, convert to candles and use them
+                            self.use_mtd_start(market, &m, *start).await
+                        } else {
+                            // The last validated trade date is less than current start, not useful
+                            None
+                        }
+                    }
+                    // No next trade day, no archive trades to use
+                    None => None,
+                }
+            }
+            // No mtd exists, so no archive trades to use
+            Err(sqlx::Error::RowNotFound) => None,
+            // Other SQLX Error - TODO! - Add Error Handling
+            Err(e) => panic!("SQLX Error: {:?}", e),
+        }
+    }
+
+    // Get all trades from start to mtd next - 1, convert to production candles for market timeframe
+    async fn use_mtd_start(
+        &self,
+        market: &MarketDetail,
+        mtd: &MarketTradeDetail,
+        mut start: PrIdTi,
+    ) -> Option<(PrIdTi, Vec<ProductionCandle>)> {
+        // Check if start has any trades - if it does, it started with mcd candles and dt is from
+        // last candle of the last day. Start pulling trades from next day.
+        // If it does not, it has no trades or candles to start and can be built from given dt
+        let dr_start = match start.id {
+            Some(_) => start.dt.duration_trunc(Duration::days(1)).unwrap() + Duration::days(1),
+            None => start.dt,
+        };
+        // Create date range for days to load and make candles from
+        let dr = self.create_date_range(&dr_start, &mtd.next_trade_day.unwrap(), &TimeFrame::D01);
+        let mut candles = Vec::new();
+        // For each day, check for table
+        for d in dr.iter() {
+            // Does the trade table exist for the day?
+            if self.trade_table_exists(market, d).await {
+                // Select trades and make candles
+                let new_candles = self
+                    .make_production_candles_for_dt_from_table(market, d, &start)
+                    .await;
+                match new_candles {
+                    Some(mut c) => {
+                        start = PrIdTi {
+                            id: Some(c.last().unwrap().last_trade_id.parse::<i64>().unwrap()),
+                            dt: c.last().unwrap().last_trade_ts,
+                            price: Some(c.last().unwrap().close),
+                        };
+                        candles.append(&mut c);
+                    }
+                    None => break,
+                }
+            } else {
+                break;
+            };
+        }
+        if candles.is_empty() {
+            None
+        } else {
+            Some((start, candles))
+        }
+    }
+
+    async fn try_eld_start(
+        &self,
+        _market: &MarketDetail,
+        _start: &DateTime<Utc>,
+    ) -> Option<(PrIdTi, Vec<ProductionCandle>)> {
+        None
+    }
+
+    // async fn get_ftx_start(&self, market: &MarketDetail, start: DateTime<Utc>) -> TimeId {}
+
+    // async fn get_gdax_start(&self, market: &MarketDetail, start: DateTime<Utc>) -> TimeId {}
+
+    // The end of the sync is the first trade from the websocket stream. Check the table for the
+    // trade and return the id and timestamp. If there is no trade, sleep for interval and check
+    // again until a trade is found.
+    async fn calculate_sync_end(&self, market: &MarketDetail) -> PrIdTi {
+        println!(
+            "Fetching first {} trade from ws after {:?}.",
+            market.market_name, self.start_dt
+        );
+        loop {
+            match self.select_first_ws_timeid(market).await {
+                // There is a first trade, return it in TimeId format
+                Some(t) => break t,
+                // There are no trades in the db, sleep and check again in 5 seconds
+                None => {
+                    println!("Awaiting first ws trade for {}.", market.market_name);
+                    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                }
+            }
+        }
+    }
+}
 
 impl Mita {
     pub async fn historical(&self, end_source: &str) {
@@ -30,16 +316,16 @@ impl Mita {
         let client = RestClient::new(&self.exchange.name);
         for market in self.markets.iter() {
             // Validate hb, create and validate 01 candles
-            match &self.exchange.name {
-                ExchangeName::Ftx | ExchangeName::FtxUs => {
-                    self.validate_candles::<crate::exchanges::ftx::Candle>(&client, market)
-                        .await
-                }
-                ExchangeName::Gdax => {
-                    self.validate_candles::<crate::exchanges::gdax::Candle>(&client, market)
-                        .await
-                }
-            };
+            // match &self.exchange.name {
+            //     ExchangeName::Ftx | ExchangeName::FtxUs => {
+            //         self.validate_candles::<crate::exchanges::ftx::Candle>(&client, market)
+            //             .await
+            //     }
+            //     ExchangeName::Gdax => {
+            //         self.validate_candles::<crate::exchanges::gdax::Candle>(&client, market)
+            //             .await
+            //     }
+            // };
             // Set start and end times for backfill
             let (start_ts, start_id) = match select_last_candle(
                 &self.ed_pool,
@@ -116,18 +402,18 @@ impl Mita {
                 }
             };
             // If `eod` end source then run validation on new backfill
-            if end_source == "eod" {
-                match &self.exchange.name {
-                    ExchangeName::Ftx | ExchangeName::FtxUs => {
-                        self.validate_candles::<crate::exchanges::ftx::Candle>(&client, market)
-                            .await
-                    }
-                    ExchangeName::Gdax => {
-                        self.validate_candles::<crate::exchanges::gdax::Candle>(&client, market)
-                            .await
-                    }
-                };
-            }
+            // if end_source == "eod" {
+            //     // match &self.exchange.name {
+            //     //     ExchangeName::Ftx | ExchangeName::FtxUs => {
+            //     //         self.validate_candles::<crate::exchanges::ftx::Candle>(&client, market)
+            //     //             .await
+            //     //     }
+            //     //     ExchangeName::Gdax => {
+            //     //         self.validate_candles::<crate::exchanges::gdax::Candle>(&client, market)
+            //     //             .await
+            //     //     }
+            //     // };
+            // }
         }
     }
 
@@ -471,7 +757,7 @@ impl Mita {
                                 .await
                                 .expect("No previous candle.");
                                 // Create Candle
-                                Candle::new_from_last(
+                                ProductionCandle::new_from_last(
                                     market.market_id,
                                     interval_start,
                                     previous_candle.close,
@@ -485,7 +771,7 @@ impl Mita {
                                 interval_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
                                 // interval_trades.dedup_by(|t1, t2| t1.id == t2.id);
                                 // Create Candle
-                                Candle::new_from_trades(
+                                ProductionCandle::new_from_trades(
                                     market.market_id,
                                     interval_start,
                                     &interval_trades,
@@ -718,7 +1004,10 @@ impl Inquisidor {
     pub async fn process_event_forwardfill_trades(&self, event: &Event) {
         // Get current market trade detail
         // Match the exchage and process the event
-        let mut mtd = MarketTradeDetail::select(&self.ig_pool, &event.market_id)
+        let market = select_market_detail(&self.ig_pool, &event.market_id)
+            .await
+            .expect("Faile to select market.");
+        let mut mtd = MarketTradeDetail::select(&self.ig_pool, &market)
             .await
             .expect("Failed to select market trade detail.");
         let mut current_event = Some(event.clone());
@@ -734,7 +1023,7 @@ impl Inquisidor {
                         .await;
                 }
             };
-            mtd = MarketTradeDetail::select(&self.ig_pool, &event.market_id)
+            mtd = MarketTradeDetail::select(&self.ig_pool, &market)
                 .await
                 .expect("Failed to select market trade detail.");
             current_event =
@@ -768,7 +1057,7 @@ impl Inquisidor {
                 )
                 .await;
                 // Manually re-validate
-                let is_valid = self.manual_evaluate_ftx_trades(event).await;
+                let is_valid = true; // self.manual_evaluate_ftx_trades(event).await;
                 if is_valid {
                     // If accepted, write to file and set status to Validate
                     // TODO: REFACTOR with Backfill and Archvive
@@ -891,9 +1180,9 @@ impl Inquisidor {
                         .await;
                         // Delete any validations for that market and date
                         println!("Deleting validations for date.");
-                        self.delete_validations_for_date(event, start)
-                            .await
-                            .expect("Failed to purge candle validations.");
+                        // self.delete_validations_for_date(event, start)
+                        //     .await
+                        //     .expect("Failed to purge candle validations.");
                         // Update status to get to next event will reprocess
                         println!("Updating newxt marketdatastatus to get.");
                         mtd.update_next_status(&self.ig_pool, &MarketDataStatus::Get)
@@ -962,7 +1251,10 @@ impl Inquisidor {
         // Get current market trade detail
         // Match the exchange, if Ftx => Process the Event and mark as complete
         // if Gdax => Create loop to process event and the next until the next is None
-        let mut mtd = MarketTradeDetail::select(&self.ig_pool, &event.market_id)
+        let market = select_market_detail(&self.ig_pool, &event.market_id)
+            .await
+            .expect("Faile to select market.");
+        let mut mtd = MarketTradeDetail::select(&self.ig_pool, &market)
             .await
             .expect("Failed to select market trade detail.");
         match event.exchange_name {
@@ -973,7 +1265,7 @@ impl Inquisidor {
                 while current_event.is_some() {
                     self.process_gdax_backfill(&current_event.unwrap(), &mtd)
                         .await;
-                    mtd = MarketTradeDetail::select(&self.ig_pool, &event.market_id)
+                    mtd = MarketTradeDetail::select(&self.ig_pool, &market)
                         .await
                         .expect("Failed to select market trade detail.");
                     current_event = Event::new_fill_trades(

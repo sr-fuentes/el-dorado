@@ -188,14 +188,16 @@ pub async fn insert_new_exchange(pool: &PgPool, exchange: &Exchange) -> Result<(
 mod tests {
     use crate::{
         configuration::get_configuration,
+        exchanges::{
+            select_exchanges, select_exchanges_by_status, Exchange, ExchangeName, ExchangeStatus,
+        },
         markets::select_market_details,
         trades::{create_ftx_trade_table, insert_ftx_trades},
-        exchanges::{select_exchanges, Exchange, ExchangeName, ExchangeStatus, select_exchanges_by_status}
     };
-    use sqlx::PgPool;
-    use uuid::Uuid;
-    use std::convert::TryInto;
     use chrono::Utc;
+    use sqlx::PgPool;
+    use std::convert::TryInto;
+    use uuid::Uuid;
 
     #[tokio::test]
     async fn fetch_exchanges_returns_all_exchanges() {
