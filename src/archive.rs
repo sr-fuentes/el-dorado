@@ -185,7 +185,7 @@ mod test {
         },
         configuration::get_configuration,
         exchanges::{client::RestClient, ftx::Trade, select_exchanges},
-        markets::{select_market_detail, select_market_ids_by_exchange},
+        markets::{select_market_detail, select_market_details},
     };
     use chrono::{Duration, DurationRound};
     use csv::Writer;
@@ -218,14 +218,14 @@ mod test {
         let client = RestClient::new(&exchange.name);
 
         // Get input from config for market to archive
-        let market_ids = select_market_ids_by_exchange(&pool, &exchange.name)
+        let market_ids = select_market_details(&pool)
             .await
             .expect("Could not fetch exchanges.");
         let market = market_ids
             .iter()
             .find(|m| m.market_name == configuration.application.market)
             .unwrap();
-        let market_detail = select_market_detail(&pool, market)
+        let market_detail = select_market_detail(&pool, &market.market_id)
             .await
             .expect("Could not fetch market detail.");
 

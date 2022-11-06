@@ -247,7 +247,7 @@ mod tests {
     use crate::configuration::get_configuration;
     use crate::exchanges::select_exchanges;
     use crate::exchanges::ws::{Channel, Data, WebSocket};
-    use crate::markets::{select_market_detail, select_market_ids_by_exchange};
+    use crate::markets::{select_market_detail, select_market_details};
     use crate::trades::{create_ftx_trade_table, drop_trade_table, insert_ftx_trade};
     use futures::StreamExt;
     use sqlx::PgPool;
@@ -266,14 +266,14 @@ mod tests {
             .iter()
             .find(|e| e.name.as_str() == configuration.application.exchange)
             .unwrap();
-        let market_ids = select_market_ids_by_exchange(&pool, &exchange.name)
+        let market_ids = select_market_details(&pool)
             .await
             .expect("Could not fetch markets.");
         let market_id = market_ids
             .iter()
             .find(|m| m.market_name == configuration.application.market)
             .unwrap();
-        let market_detail = select_market_detail(&pool, market_id)
+        let market_detail = select_market_detail(&pool, &market_id.market_id)
             .await
             .expect("Could not fetch market detail.");
         drop_trade_table(&pool, &exchange.name, &market_detail, "ws_test")

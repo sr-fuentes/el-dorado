@@ -14,12 +14,6 @@ use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use uuid::Uuid;
 
-#[derive(Debug, PartialEq, Eq, sqlx::FromRow)]
-pub struct MarketId {
-    pub market_id: Uuid,
-    pub market_name: String,
-}
-
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct MarketDetail {
     pub market_id: Uuid,
@@ -79,12 +73,6 @@ pub struct MarketCandleDetail {
     pub last_trade_ts: DateTime<Utc>,
     pub last_trade_id: String,
     pub last_trade_price: Decimal,
-}
-
-impl MarketId {
-    pub fn as_strip(&self) -> String {
-        self.market_name.replace(&['/', '-'][..], "")
-    }
 }
 
 impl MarketDetail {
@@ -581,6 +569,25 @@ impl MarketCandleDetail {
         .await?;
         Ok(rows)
     }
+
+    pub async fn select(pool: &PgPool, market: &MarketDetail) -> Result<Self, sqlx::Error> {
+        let row = sqlx::query_as!(
+            MarketCandleDetail,
+            r#"
+            SELECT market_id,
+                exchange_name as "exchange_name: ExchangeName",
+                market_name,
+                time_frame as "time_frame: TimeFrame",
+                first_candle, last_candle, last_trade_ts, last_trade_id, last_trade_price
+            FROM market_candle_details
+            WHERE market_id = $1
+            "#,
+            market.market_id
+        )
+        .fetch_one(pool)
+        .await?;
+        Ok(row)
+    }
 }
 
 impl Inquisidor {
@@ -639,12 +646,12 @@ impl Inquisidor {
         // Get USD markets from exchange
         let markets: Vec<T> = get_usd_markets(&self.clients[exchange], exchange).await;
         // Get existing markets for exchange from db.
-        let market_ids = select_market_ids_by_exchange(&self.ig_pool, exchange)
+        let market_ids = select_market_details(&self.ig_pool)
             .await
             .expect("Failed to get markets from db.");
         // For each market that is not in the exchange, insert into db.
         for market in markets.iter() {
-            if !market_ids.iter().any(|m| m.market_name == market.name()) {
+            if !market_ids.iter().any(|m| m.market_name == market.name() && m.exchange_name == *exchange) {
                 // Exchange market not in database.
                 println!("Adding {:?} market for {:?}", market.name(), exchange);
                 insert_new_market(&self.ig_pool, exchange, market)
@@ -1014,23 +1021,6 @@ pub async fn insert_market_rank(
     Ok(())
 }
 
-pub async fn select_market_ids_by_exchange(
-    pool: &PgPool,
-    exchange: &ExchangeName,
-) -> Result<Vec<MarketId>, sqlx::Error> {
-    let rows = sqlx::query_as!(
-        MarketId,
-        r#"
-        SELECT market_id, market_name
-        FROM markets
-        WHERE exchange_name = $1
-        "#,
-        exchange.as_str()
-    )
-    .fetch_all(pool)
-    .await?;
-    Ok(rows)
-}
 
 pub async fn select_market_detail_by_exchange_mita(
     pool: &PgPool,
@@ -1110,7 +1100,7 @@ pub async fn select_market_details(pool: &PgPool) -> Result<Vec<MarketDetail>, s
 
 pub async fn select_market_detail(
     pool: &PgPool,
-    market: &MarketId,
+    market_id: &Uuid,
 ) -> Result<MarketDetail, sqlx::Error> {
     let row = sqlx::query_as!(
         MarketDetail,
@@ -1126,7 +1116,7 @@ pub async fn select_market_detail(
             FROM markets
             WHERE market_id = $1
         "#,
-        market.market_id,
+        market_id,
     )
     .fetch_one(pool)
     .await?;
@@ -1291,11 +1281,13 @@ pub async fn update_market_ranks_current_mita(
 
 #[cfg(test)]
 mod tests {
-    use crate::configuration::*;
-    use crate::exchanges::{select_exchanges, ExchangeName};
-    use crate::inquisidor::Inquisidor;
-    use crate::markets::{
-        select_market_details_by_status_exchange, select_market_ids_by_exchange, MarketStatus,
+    use crate::{
+        configuration::get_configuration,
+        exchanges::{select_exchanges, ExchangeName},
+        inquisidor::Inquisidor,
+        markets::{
+            select_market_details_by_status_exchange, select_market_details, MarketStatus,
+        },
     };
     use sqlx::PgPool;
 
@@ -1321,7 +1313,7 @@ mod tests {
             .unwrap();
 
         // Get input from config for market to archive
-        let market_ids = select_market_ids_by_exchange(&pool, &exchange.name)
+        let market_ids = select_market_details(&pool)
             .await
             .expect("Could not fetch exchanges.");
         let market = market_ids
