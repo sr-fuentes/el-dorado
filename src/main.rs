@@ -16,9 +16,9 @@ async fn main() {
         .subcommand(App::new("set").about("update ranks from proposed to current"))
         .subcommand(App::new("run").about("run el-dorado for a market"))
         .subcommand(App::new("eldorado").about("run el-dorado instance"))
-        .subcommand(App::new("sync").about("fill to current start of day"))
-        .subcommand(App::new("fill").about("fill from first candle to start"))
-        .subcommand(App::new("candle").about("make candles from backfilled trades"))
+        // .subcommand(App::new("sync").about("fill to current start of day"))
+        // .subcommand(App::new("fill").about("fill from first candle to start"))
+        // .subcommand(App::new("candle").about("make candles from backfilled trades"))
         .subcommand(App::new("candleload").about("load candles from file to db"))
         .subcommand(App::new("manage").about("run current cleanup script"))
         // .subcommand(App::new("manual").about("manually validate bad candles"))
@@ -96,31 +96,31 @@ async fn main() {
                 }
             }
         }
-        Some("sync") => {
-            // Create new mita instance and sync to start of current day from last trade or 90
-            // days prior to now.
-            let mita = Mita::new().await;
-            mita.reset_trade_tables(&["rest"]).await;
-            mita.create_trade_tables(&["processed", "validated"]).await;
-            mita.historical("eod").await;
-            let message = format!(
-                "{} {} historical backfill complete.",
-                mita.settings.application.droplet,
-                mita.exchange.name.as_str()
-            );
-            mita.twilio.send_sms(&message).await;
-        }
-        Some("fill") => {
-            // Download and archive trades from beginning of normal running sync (min 90 days) to
-            // the first trades of exchange.
-            let ig = Inquisidor::new().await;
-            ig.fill().await;
-        }
-        Some("candle") => {
-            // Make candles for trades that have been backfilled
-            let ig = Inquisidor::new().await;
-            ig.make_candles().await;
-        }
+        // Some("sync") => {
+        //     // Create new mita instance and sync to start of current day from last trade or 90
+        //     // days prior to now.
+        //     let mita = Mita::new().await;
+        //     mita.reset_trade_tables(&["rest"]).await;
+        //     mita.create_trade_tables(&["processed", "validated"]).await;
+        //     mita.historical("eod").await;
+        //     let message = format!(
+        //         "{} {} historical backfill complete.",
+        //         mita.settings.application.droplet,
+        //         mita.exchange.name.as_str()
+        //     );
+        //     mita.twilio.send_sms(&message).await;
+        // }
+        // Some("fill") => {
+        //     // Download and archive trades from beginning of normal running sync (min 90 days) to
+        //     // the first trades of exchange.
+        //     let ig = Inquisidor::new().await;
+        //     ig.fill().await;
+        // }
+        // Some("candle") => {
+        //     // Make candles for trades that have been backfilled
+        //     let ig = Inquisidor::new().await;
+        //     ig.make_candles().await;
+        // }
         Some("candleload") => {
             // Make candles for trades that have been backfilled
             let ig = Inquisidor::new().await;

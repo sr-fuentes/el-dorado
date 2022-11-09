@@ -121,7 +121,7 @@ impl Mita {
         self.update_instance_status(&crate::instances::InstanceStatus::Sync)
             .await;
         // Backfill trades from last candle to first trade of live stream
-        self.historical("stream").await;
+        // self.historical("stream").await;
         // Sync from last candle to current stream last trade
         println!("Starting sync.");
         let mut heartbeats = self.sync().await;

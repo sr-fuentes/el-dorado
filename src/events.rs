@@ -416,8 +416,8 @@ impl Inquisidor {
                 EventType::ArchiveDailyCandles => {
                     todo!() // self.process_event_archive_daily_candles(event).await
                 }
-                EventType::BackfillTrades => self.process_event_backfill_trades(event).await,
-                EventType::ForwardFillTrades => self.process_event_forwardfill_trades(event).await,
+                EventType::BackfillTrades => todo!(), // self.process_event_backfill_trades(event).await,
+                EventType::ForwardFillTrades => todo!(), //self.process_event_forwardfill_trades(event).await,
             }
         }
     }

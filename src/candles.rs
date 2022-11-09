@@ -21,6 +21,7 @@ use rust_decimal_macros::dec;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::PgPool;
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::fs::File;
 use uuid::Uuid;
 
@@ -97,13 +98,38 @@ pub trait Candle {
     // fn as_type(&self) -> CandleType;
 }
 
-// #[derive(Debug)]
-// pub enum CandleType {
-//     Research,
-//     Production,
-//     Ftx,
-//     Gdax,
-// }
+#[derive(Debug)]
+pub enum CandleType {
+    Research,
+    Production,
+    Ftx,
+    Gdax,
+}
+
+impl CandleType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CandleType::Research => "research",
+            CandleType::Production => "production",
+            CandleType::Ftx => "ftx",
+            CandleType::Gdax => "gdax",
+        }
+    }
+}
+
+impl TryFrom<String> for CandleType {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        match s.to_lowercase().as_str() {
+            "research" => Ok(Self::Research),
+            "production" => Ok(Self::Production),
+            "ftx" => Ok(Self::Ftx),
+            "gdax" => Ok(Self::Gdax),
+            other => Err(format!("{} is not a supported candle type.", other)),
+        }
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone, sqlx::FromRow)]
 pub struct ProductionCandle {
@@ -438,7 +464,7 @@ impl ProductionCandle {
         mut pit: PrIdTi,
         tf: &TimeFrame,
         dr: &[DateTime<Utc>],
-    ) -> Vec<ProductionCandle> {
+    ) -> Vec<Self> {
         // Iterate through dr, filter trades and make candles for each interval
         let candles = dr.iter().fold(Vec::new(), |mut v, d| {
             let filtered_trades: Vec<_> = trades
@@ -456,6 +482,31 @@ impl ProductionCandle {
             v
         });
         candles
+    }
+
+    pub async fn select_gte_dt(
+        pool: &PgPool,
+        market: &MarketDetail,
+        dt: &DateTime<Utc>,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        let sql = format!(
+            r#"
+            SELECT datetime, open, high, low, close, volume, volume_net, volume_liquidation, value,
+                trade_count, liquidation_count, last_trade_ts, last_trade_id, first_trade_ts,
+                first_trade_id
+            FROM candles.{}_{}_{}
+            WHERE datetime >= $1
+            ORDER BY datetime ASC
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            market.candle_timeframe.unwrap().as_str(),
+        );
+        let rows = sqlx::query_as::<_, ProductionCandle>(&sql)
+            .bind(dt)
+            .fetch_all(pool)
+            .await?;
+        Ok(rows)
     }
 }
 
@@ -978,7 +1029,7 @@ impl ResearchCandle {
     // datetime passed as argument. Candle built from candes in the order they are in
     // the Vec, sort before calling this function otherwise Open / Close may
     // be incorrect.
-    fn new_from_candles(dt: &DateTime<Utc>, candles: &Vec<Self>) -> Self {
+    fn new_from_candles(dt: &DateTime<Utc>, candles: &[Self]) -> Self {
         let first = match candles.first() {
             Some(c) => c,
             None => panic!("Cannot build candle from empty vec of candles."),
@@ -1133,7 +1184,7 @@ impl ResearchCandle {
             // Create a candle for each date in the daterange
             // TODO! - Test against drain filter for speed
             dr.iter().fold(Vec::new(), |mut v, d| {
-                let interval_candles = candles
+                let interval_candles: Vec<_> = candles
                     .iter()
                     .filter(|c| c.datetime().duration_trunc(tf.as_dur()).unwrap() == *d)
                     .cloned()
@@ -1146,11 +1197,15 @@ impl ResearchCandle {
     }
 
     // This function will create the research candle table for the given market
-    pub async fn create_table(pool: &PgPool, schema: &str, table: &str) -> Result<(), sqlx::Error> {
+    pub async fn create_table(
+        pool: &PgPool,
+        market: &MarketDetail,
+        tf: &TimeFrame,
+    ) -> Result<(), sqlx::Error> {
         // Cannot use query! macro for query validation as the table does not exist
         let sql = format!(
             r#"
-            CREATE TABLE IF NOT EXISTS {}.{} (
+            CREATE TABLE IF NOT EXISTS candles.research_{}_{}_{} (
                 datetime timestamptz NOT NULL,
                 PRIMARY KEY (datetime),
                 open NUMERIC NOT NULL,
@@ -1181,7 +1236,9 @@ impl ResearchCandle {
                 first_trade_id TExT NOT NULL
             )
             "#,
-            schema, table,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            tf.as_str(),
         );
         sqlx::query(&sql).execute(pool).await?;
         Ok(())
@@ -1190,8 +1247,8 @@ impl ResearchCandle {
     // This function will select the last (latest datetime) research candle from the given table
     pub async fn select_last(
         pool: &PgPool,
-        schema: &str,
-        table: &str,
+        market: &MarketDetail,
+        tf: &TimeFrame,
     ) -> Result<Self, sqlx::Error> {
         // Cannot use query_as! macro to check for query validation as the table may or may not
         // exist.
@@ -1202,10 +1259,12 @@ impl ResearchCandle {
                 value_liq_buy, value_liq_sell, trade_count, trade_count_buy, trade_count_sell,
                 liq_count, liq_count_buy, liq_count_sell, last_trade_ts, last_trade_id,
                 first_trade_ts, first_trade_id
-            FROM {}.{}
+            FROM candles.research_{}_{}_{}
             ORDER BY datetime DESC LIMIT 1
             "#,
-            schema, table
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            tf.as_str()
         );
         let row = sqlx::query_as::<_, ResearchCandle>(&sql)
             .fetch_one(pool)
@@ -1217,6 +1276,7 @@ impl ResearchCandle {
     pub async fn select_dr(
         pool: &PgPool,
         market: &MarketDetail,
+        tf: &TimeFrame,
         start: &DateTime<Utc>,
         end: &DateTime<Utc>,
     ) -> Result<Vec<Self>, sqlx::Error> {
@@ -1228,13 +1288,14 @@ impl ResearchCandle {
                 value_liq_buy, value_liq_sell, trade_count, trade_count_buy, trade_count_sell,
                 liq_count, liq_count_buy, liq_count_sell, last_trade_ts, last_trade_id,
                 first_trade_ts, first_trade_id
-            FROM archive.candles_{}_{}_s15
+            FROM candles.research_{}_{}_{}
             WHERE datetime >= $1
             AND datetime < $2
             ORDER BY trade_id ASC
             "#,
             market.exchange_name.as_str(),
             market.as_strip(),
+            tf.as_str()
         );
         let rows = sqlx::query_as::<_, ResearchCandle>(&sql)
             .bind(start)
@@ -1248,17 +1309,19 @@ impl ResearchCandle {
     pub async fn insert(
         &self,
         pool: &PgPool,
-        schema: &str,
-        table: &str,
+        market: &MarketDetail,
+        tf: &TimeFrame,
     ) -> Result<(), sqlx::Error> {
         // Cannot user query! macro as table may not exist as compile time.
         let sql = format!(
             r#"
-            INSERT INTO {}.{}
+            INSERT INTO candles.research_{}_{}_{}
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
                 $19, $20, $21, $22, $23, $24, $25, $26, $27)
             "#,
-            schema, table,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            tf.as_str(),
         );
         sqlx::query(&sql)
             .bind(self.datetime)
@@ -1295,6 +1358,30 @@ impl ResearchCandle {
 }
 
 impl ElDorado {
+    pub async fn candle_table_exists(
+        &self,
+        market: &MarketDetail,
+        tf: &TimeFrame,
+        candle: &CandleType,
+    ) -> bool {
+        // Get the full trade table name and then check self fn for table and schema
+        // ie research_ftx_btcperp_s15
+        let table = format!(
+            "{}_{}_{}_{}",
+            candle.as_str(),
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            tf.as_str(),
+        );
+        let db = match market.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
+            ExchangeName::Gdax => Database::Gdax,
+        };
+        self.table_exists(&self.pools[&db], "candles", &table)
+            .await
+            .expect("Failed to check table.")
+    }
+
     // Get date range and resample
     pub fn resample_research_candles(
         &self,
@@ -1344,9 +1431,12 @@ impl ElDorado {
         if trades.is_empty() {
             None
         } else {
-            // Make date range for candles
+            // Make date range for candles for the day.
             let dr_start = match start.id {
+                // Mcd candles that were used to start the sync. Use the date given
                 Some(_) => *dt,
+                // There have been no previous trades or candles loaded for sync. If there are
+                // trades on the date given, the first trade is when the candles should start.
                 None => {
                     let d = trades
                         .first()
@@ -1363,13 +1453,12 @@ impl ElDorado {
                 &market.candle_timeframe.unwrap(),
             );
             // Make candles for date range
-            ProductionCandle::from_trades_for_dr(
+            Some(ProductionCandle::from_trades_for_dr(
                 &trades,
                 *start,
                 &market.candle_timeframe.unwrap(),
                 &dr,
-            );
-            None
+            ))
         }
     }
 }
@@ -1517,9 +1606,9 @@ impl Inquisidor {
             .iter()
             .find(|m| m.market_name == mcd.market_name)
             .unwrap();
-        let schema = "archive";
+        let schema = "candles";
         let table = format!(
-            "candles_{}_{}_{}",
+            "research_{}_{}_{}",
             mcd.exchange_name.as_str(),
             market.as_strip(),
             mcd.time_frame.as_str()
@@ -1536,7 +1625,7 @@ impl Inquisidor {
                     mcd.market_name
                 );
                 let last_candle =
-                    ResearchCandle::select_last(&self.archive_pool, schema, &table).await;
+                    ResearchCandle::select_last(&self.archive_pool, market, &mcd.time_frame).await;
                 match last_candle {
                     Ok(lc) => next_month_datetime(lc.datetime),
                     Err(sqlx::Error::RowNotFound) => trunc_month_datetime(mcd.first_candle),
@@ -1549,7 +1638,7 @@ impl Inquisidor {
                     "Archive table does not exist for {:?}. Creating table.",
                     mcd.market_name
                 );
-                ResearchCandle::create_table(&self.archive_pool, schema, &table)
+                ResearchCandle::create_table(&self.archive_pool, market, &mcd.time_frame)
                     .await
                     .expect("Failed to create archive table.");
                 trunc_month_datetime(mcd.first_candle)
@@ -1569,8 +1658,8 @@ impl Inquisidor {
             .iter()
             .find(|m| m.market_name == mcd.market_name)
             .unwrap();
-        let schema = "archive";
-        let table = format!(
+        let _schema = "archive";
+        let _table = format!(
             "candles_{}_{}_{}",
             mcd.exchange_name.as_str(),
             market.as_strip(),
@@ -1601,47 +1690,47 @@ impl Inquisidor {
                 let candle: ResearchCandle = result.expect("Faile to deserialize candle record.");
                 // Write file to db
                 candle
-                    .insert(&self.archive_pool, schema, &table)
+                    .insert(&self.archive_pool, market, &mcd.time_frame)
                     .await
                     .expect("Failed to insert candle.");
             }
         }
     }
 
-    pub async fn make_candles(&self) {
-        // Aggregate trades for a market into timeframe buckets. Track the latest trade details to
-        // determine if the month has been completed and can be aggregated
-        // Get market to aggregate trades
-        let market = match self.get_valid_market().await {
-            Some(m) => m,
-            None => return,
-        };
-        // Get the market candle detail
-        let mcd = self.get_market_candle_detail(&market).await;
-        match mcd {
-            Some(m) => {
-                // Start from last candle
-                println!(
-                    "MCD found for {:?} starting to build from last candle {:?}",
-                    market.market_name, m.last_candle
-                );
-                self.make_candles_from_last_candle(&market, &m).await;
-            }
-            None => {
-                // Create mcd and start from first trade month
-                println!(
-                    "MCD not found for {:?}. Validating market and making mcd.",
-                    market.market_name
-                );
-                let mcd = self.validate_and_make_mcd_and_first_candle(&market).await;
-                if mcd.is_some() {
-                    println!("MCD created, making candles from last.");
-                    self.make_candles_from_last_candle(&market, &mcd.unwrap())
-                        .await;
-                };
-            }
-        }
-    }
+    // pub async fn make_candles(&self) {
+    //     // Aggregate trades for a market into timeframe buckets. Track the latest trade details to
+    //     // determine if the month has been completed and can be aggregated
+    //     // Get market to aggregate trades
+    //     let market = match self.get_valid_market().await {
+    //         Some(m) => m,
+    //         None => return,
+    //     };
+    //     // Get the market candle detail
+    //     let mcd = self.get_market_candle_detail(&market).await;
+    //     match mcd {
+    //         Some(m) => {
+    //             // Start from last candle
+    //             println!(
+    //                 "MCD found for {:?} starting to build from last candle {:?}",
+    //                 market.market_name, m.last_candle
+    //             );
+    //             self.make_candles_from_last_candle(&market, &m).await;
+    //         }
+    //         None => {
+    //             // Create mcd and start from first trade month
+    //             println!(
+    //                 "MCD not found for {:?}. Validating market and making mcd.",
+    //                 market.market_name
+    //             );
+    //             let mcd = self.validate_and_make_mcd_and_first_candle(&market).await;
+    //             if mcd.is_some() {
+    //                 println!("MCD created, making candles from last.");
+    //                 self.make_candles_from_last_candle(&market, &mcd.unwrap())
+    //                     .await;
+    //             };
+    //         }
+    //     }
+    // }
 
     pub async fn validate_market_eligibility_for_candles(
         &self,
@@ -3656,6 +3745,11 @@ mod tests {
     pub async fn check_mcd_for_months_to_load_tests() {
         // Setup
         let ig = Inquisidor::new().await;
+        let market = ig
+            .markets
+            .iter()
+            .find(|m| m.market_name == "SOL-PERP")
+            .unwrap();
         let mut mcd = MarketCandleDetail {
             market_id: Uuid::new_v4(),
             exchange_name: ExchangeName::Ftx,
@@ -3667,8 +3761,8 @@ mod tests {
             last_trade_id: "1234".to_string(),
             last_trade_price: dec!(123.0),
         };
-        let table = "candles_ftx_solperp_s15";
-        let schema = "archive";
+        let _table = "candles_ftx_solperp_s15";
+        let _schema = "archive";
         let drop_sql = r#"
             DROP TABLE IF EXISTS archive.candles_ftx_solperp_s15
         "#;
@@ -3684,7 +3778,7 @@ mod tests {
             .execute(&ig.archive_pool)
             .await
             .expect("Failed to update last candle to null.");
-        ResearchCandle::create_table(&ig.archive_pool, schema, table)
+        ResearchCandle::create_table(&ig.archive_pool, &market, &mcd.time_frame)
             .await
             .expect("Failed to create table.");
         sqlx::query(insert_sql)
@@ -3701,7 +3795,7 @@ mod tests {
             .execute(&ig.archive_pool)
             .await
             .expect("Failed to update last candle to null.");
-        ResearchCandle::create_table(&ig.archive_pool, schema, table)
+        ResearchCandle::create_table(&ig.archive_pool, &market, &mcd.time_frame)
             .await
             .expect("Failed to create table.");
         sqlx::query(insert_sql)
@@ -3719,7 +3813,7 @@ mod tests {
             .execute(&ig.archive_pool)
             .await
             .expect("Failed to update last candle to null.");
-        ResearchCandle::create_table(&ig.archive_pool, schema, table)
+        ResearchCandle::create_table(&ig.archive_pool, &market, &mcd.time_frame)
             .await
             .expect("Failed to create table.");
         mcd.first_candle = Utc.ymd(2022, 9, 15).and_hms(4, 30, 15);
@@ -3733,7 +3827,7 @@ mod tests {
             .execute(&ig.archive_pool)
             .await
             .expect("Failed to update last candle to null.");
-        ResearchCandle::create_table(&ig.archive_pool, schema, table)
+        ResearchCandle::create_table(&ig.archive_pool, &market, &mcd.time_frame)
             .await
             .expect("Failed to create table.");
         mcd.first_candle = Utc.ymd(2022, 9, 15).and_hms(4, 30, 15);
@@ -3771,6 +3865,11 @@ mod tests {
     pub async fn read_candle_and_insert() {
         // Setup
         let ig = Inquisidor::new().await;
+        let market = ig
+            .markets
+            .iter()
+            .find(|m| m.market_name == "SOL-PERP")
+            .unwrap();
         let mcd = MarketCandleDetail {
             market_id: Uuid::new_v4(),
             exchange_name: ExchangeName::Ftx,
@@ -3782,8 +3881,8 @@ mod tests {
             last_trade_id: "1234".to_string(),
             last_trade_price: dec!(123.0),
         };
-        let table = "candles_ftx_solperp_s15";
-        let schema = "archive";
+        let _table = "candles_ftx_solperp_s15";
+        let _schema = "archive";
         let drop_sql = r#"
             DROP TABLE IF EXISTS archive.candles_ftx_solperp_s15
         "#;
@@ -3791,7 +3890,7 @@ mod tests {
             .execute(&ig.archive_pool)
             .await
             .expect("Failed to update last candle to null.");
-        ResearchCandle::create_table(&ig.archive_pool, schema, table)
+        ResearchCandle::create_table(&ig.archive_pool, &market, &mcd.time_frame)
             .await
             .expect("Failed to create table.");
         let dr = vec![Utc.ymd(2022, 3, 1).and_hms(0, 0, 0)];
