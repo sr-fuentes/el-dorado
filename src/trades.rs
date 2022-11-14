@@ -295,6 +295,92 @@ impl Inquisidor {
         }
     }
 
+    pub async fn get_ftx_trades_dr_into_vec(
+        &self,
+        event: &Event,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Vec<FtxTrade> {
+        let market = self.market(&event.market_id);
+        // create_ftx_trade_table(&self.ftx_pool, &event.exchange_name, market, table_suf)
+        //     .await
+        //     .expect("Failed to create trade table.");
+        let mut trades = Vec::new();
+        // Fill trade table with trades
+        let mut end_or_last_trade = end;
+        let mut total_trades: usize = 0;
+        while start < end_or_last_trade {
+            // Prevent 429 errors by only requesting 4 per second
+            tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
+            let mut new_trades = match self.clients[&event.exchange_name]
+                .get_ftx_trades(
+                    market.market_name.as_str(),
+                    Some(5000),
+                    Some(start),
+                    Some(end_or_last_trade),
+                )
+                .await
+            {
+                Err(RestError::Reqwest(e)) => {
+                    if e.is_timeout() || e.is_connect() || e.is_request() {
+                        println!("{:?} error. Waiting 30 seconds before retry.", e);
+                        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                        continue;
+                    } else if e.is_status() {
+                        match e.status() {
+                            Some(s) => match s.as_u16() {
+                                500 | 502 | 503 | 504 | 520 | 522 | 530 => {
+                                    println!(
+                                        "{} status code. Waiting 30 seconds before retry {:?}",
+                                        s, e
+                                    );
+                                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                                    continue;
+                                }
+                                _ => {
+                                    panic!("Status code not handled: {:?} {:?}", s, e)
+                                }
+                            },
+                            None => panic!("No status code for request error: {:?}", e),
+                        }
+                    } else {
+                        panic!("Error (not timeout / connect / request): {:?}", e)
+                    }
+                }
+                Err(e) => panic!("Other RestError: {:?}", e),
+                Ok(result) => result,
+            };
+            let num_trades = new_trades.len();
+            total_trades += num_trades; // Add to running total of trades
+            if num_trades > 0 {
+                new_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
+                end_or_last_trade = new_trades.first().unwrap().time;
+                let first_trade = new_trades.last().unwrap().time;
+                println!(
+                    "{} trade returned. First: {}, Last: {}",
+                    num_trades, end_or_last_trade, first_trade
+                );
+                // insert_ftx_trades(
+                //     &self.ftx_pool,
+                //     &event.exchange_name,
+                //     market,
+                //     table_suf,
+                //     new_trades,
+                // )
+                // .await
+                // .expect("Failed to insert backfill ftx trades.");
+                trades.append(&mut new_trades)
+            };
+            if num_trades < 5000 && total_trades > 0 {
+                // Trades returned less than REST API limit. No more trades to retreive.
+                break;
+            };
+        }
+        trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
+        trades.dedup_by(|c1, c2| c1.id == c2.id);
+        trades
+    }
+
     pub async fn migrate_ftx_trades_for_date(
         &self,
         event: &Event,

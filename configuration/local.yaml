@@ -7,7 +7,7 @@ gdax_db:
 archive_db:
   require_ssl: false
 application:
-  exchange: "ftx"
+  exchange: "gdax"
   market: "SOL-PERP"
   droplet: "localdev"
   instance_type: "mita"

@@ -361,32 +361,6 @@
       ]
     }
   },
-  "239fa6007697874b920fed3d80665a3a426035242ec41c2fee39be619f9b50ed": {
-    "query": "\n        SELECT market_id, market_name\n        FROM markets\n        WHERE exchange_name = $1\n        ",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "market_id",
-          "type_info": "Uuid"
-        },
-        {
-          "ordinal": 1,
-          "name": "market_name",
-          "type_info": "Text"
-        }
-      ],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      },
-      "nullable": [
-        false,
-        false
-      ]
-    }
-  },
   "279fa4db3624ffb6f7b0ccebd16ddccade49aa179de9254e50fcc93a57f227b6": {
     "query": "\n            SELECT instance_type as \"instance_type: InstanceType\",\n                droplet,\n                exchange_name as \"exchange_name: Option<ExchangeName>\",\n                instance_status as \"instance_status: InstanceStatus\",\n                restart, last_restart_ts, restart_count, num_markets, last_update_ts,\n                last_message_ts\n            FROM instances\n            WHERE instance_type = $1\n            ",
     "describe": {
@@ -746,6 +720,20 @@
         true,
         true
       ]
+    }
+  },
+  "600a660a26a4eacc6c076747f848d7447d3466401e52e2334d50d9afd109c28f": {
+    "query": "\n            DELETE FROM candle_validations\n            WHERE market_id = $1\n            AND datetime >= $2\n            AND datetime < $3\n            ",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Timestamptz",
+          "Timestamptz"
+        ]
+      },
+      "nullable": []
     }
   },
   "62877fe9a19159ae96d2a4a169ff4f7ccca4fd306e80dca97559c6638f73e432": {

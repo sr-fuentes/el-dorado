@@ -1,14 +1,22 @@
-use crate::candles::{CandleType, ProductionCandle, ResearchCandle};
+use crate::candles::{select_first_01d_candle, CandleType, ProductionCandle, ResearchCandle};
 use crate::configuration::Database;
 use crate::eldorado::ElDorado;
+use crate::events::{Event, EventStatus, EventType};
+use crate::exchanges::ftx::Trade as FtxTrade;
 use crate::exchanges::ExchangeName;
 use crate::inquisidor::Inquisidor;
-use crate::markets::{MarketCandleDetail, MarketDetail, MarketTradeDetail};
+use crate::markets::{
+    select_market_detail, MarketCandleDetail, MarketDataStatus, MarketDetail, MarketStatus,
+    MarketTradeDetail,
+};
 use crate::mita::Heartbeat;
-use crate::trades::PrIdTi;
-use crate::utilities::TimeFrame;
+use crate::trades::{drop_trade_table, PrIdTi};
+use crate::utilities::{get_input, TimeFrame};
 use chrono::{DateTime, Duration, DurationRound, Utc};
+use csv::{Reader, Writer};
 use std::collections::HashMap;
+use std::convert::TryInto;
+use std::fs::File;
 
 impl ElDorado {
     pub async fn sync(&self) -> HashMap<String, Heartbeat> {
@@ -34,9 +42,9 @@ impl ElDorado {
     // the start is 90 days prior to current day. If however, there is a MarketTradeDetail or
     // MarketCandleDetail, the start begins at the end of the last candle.
     async fn calculate_sync_start(&self, market: &MarketDetail) -> (PrIdTi, Vec<ProductionCandle>) {
-        // Set the min date that is needed for start - 90 days prior
+        // Set the min date that is needed for start - 92 days prior
         let mut start = PrIdTi {
-            dt: self.start_dt.duration_trunc(Duration::days(1)).unwrap() - Duration::days(90),
+            dt: self.start_dt.duration_trunc(Duration::days(1)).unwrap() - Duration::days(92),
             id: None,
             price: None,
         };
@@ -79,13 +87,13 @@ impl ElDorado {
         };
         // If at this point there are no candles, calc the start based on exchange logic
         if candles.is_empty() {
-            match self.instance.exchange_name.unwrap() {
+            match market.exchange_name {
                 ExchangeName::Ftx | ExchangeName::FtxUs => {
-                    // start = self.get_ftx_start(market, &start.dt).await;
+                    start.dt = self.use_ftx_start(market, &start).await;
                     (start, candles)
                 }
                 ExchangeName::Gdax => {
-                    // start = self.get_gdax_start(market, &start.dt).await;
+                    start = self.use_gdax_start(market, &start).await;
                     (start, candles)
                 }
             }
@@ -324,9 +332,77 @@ impl ElDorado {
         }
     }
 
-    // async fn get_ftx_start(&self, market: &MarketDetail, start: DateTime<Utc>) -> TimeId {}
+    // Calculate the time and id for the ftx trade that corresponds to 92 days prior to today
+    // as there are no research candles, validated trades or production candles to start from.
+    // FTX API uses date time as field so the first day that has trades is the first day to use
+    async fn use_ftx_start(&self, market: &MarketDetail, start: &PrIdTi) -> DateTime<Utc> {
+        let end_dt = Utc::now().duration_trunc(Duration::days(1)).unwrap();
+        let mut start_dt = start.dt;
+        while start_dt < end_dt {
+            // Only request 1 per second to avoid 429 errors
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            let trades = self.clients[&market.exchange_name]
+                .get_ftx_trades(market.market_name.as_str(), Some(1), None, Some(start_dt))
+                .await
+                .expect("Failed to get ftx trades.");
+            if trades.is_empty() {
+                start_dt = start_dt + Duration::days(1)
+            } else {
+                break;
+            };
+        }
+        start_dt
+    }
 
-    // async fn get_gdax_start(&self, market: &MarketDetail, start: DateTime<Utc>) -> TimeId {}
+    // GDAX trade API uses trade id for pagination instead of date. In order to determine the trade
+    // id that started 92 days ago this function uses a binary search algorithm to find a trade on
+    // the given day 92 days ago, then refines it further to find the last trade of the previous
+    // say to give the exact trade id to start syncing from
+    async fn use_gdax_start(&self, market: &MarketDetail, start: &PrIdTi) -> PrIdTi {
+        // Get the latest exchange trade to get the last trade id for the market and timestamp
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        let mut trade = self.clients[&ExchangeName::Gdax]
+            .get_gdax_trades(&market.market_name.as_str(), Some(1), None, None)
+            .await
+            .expect("Failed to get gdax trade.")
+            .pop()
+            .unwrap();
+        // Continue to check for trades until the trade timestamp day matches the start day or until
+        // the trade id is less than 1000, in which case use that day
+        let mut low = 0_i64;
+        let mut high = trade.trade_id;
+        while trade.time.duration_trunc(Duration::days(1)).unwrap() != start.dt
+            && trade.trade_id > 1000
+        {
+            let mid = (high + low) / 2;
+            println!("Low: {}\tMid: {}\tHigh: {}", low, mid, high);
+            println!("Getting next trade before mid {}", mid);
+            // Get trade for mid id
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            trade = self.clients[&ExchangeName::Gdax]
+                .get_gdax_trades(
+                    &market.market_name.as_str(),
+                    Some(1),
+                    None,
+                    Some(mid as i32),
+                )
+                .await
+                .expect("Failed to get gdax trade.")
+                .pop()
+                .unwrap();
+            println!("Mid trade id and ts: {}\t{:?}", trade.trade_id, trade.time);
+            if trade.time < start.dt {
+                // Too far in the past, set low = trade id, high remains the same
+                low = trade.trade_id;
+            } else {
+                // Not far enough in past, set high = trade id, low remains the same
+                high = trade.trade_id
+            };
+        }
+        // Take the last trade from the binary search and then query sequentially to get the last
+        // trade of the day
+        start.clone()
+    }
 
     // The end of the sync is the first trade from the websocket stream. Check the table for the
     // trade and return the id and timestamp. If there is no trade, sleep for interval and check
@@ -873,114 +949,114 @@ impl ElDorado {
 // }
 
 impl Inquisidor {
-    //     pub async fn fill(&self) {
-    //         // Fill trades to the beginning of the market open on exchange from the first candle/trade
-    //         // day in el-dorado. Process will create a new trade detail table for each market working
-    //         // from the first candle backwards until the first trade for the market. From there the
-    //         // validation period will begin from the start through the current date.
-    //         // Example:
-    //         //      Market: BTC-PERP
-    //         //      El-Dorado began with a 90 day sync starting 15-NOV-2021 to present. Existing trades
-    //         //      are a mix of validated/unvalidated and archived trades.
-    //         //      Process:
-    //         //          1) Create Market Trade Details entry for BTC-PERP market
-    //         //          2) Populate market_id, first_trade_ts, first_trade_id, prev_trade_day, prev_stat
-    //         //          3) uuid | 2021-11-15 00:00:01 | 123456 | 2021-11-14 | get
-    //         //          4) Event or process will create trades_ftx_btcperp_20211114 table
-    //         //          5) Get trades for 14-Nov-2022 and put in that table
-    //         //          6) Once complete, update first trade ts/id, prev day, create 01d candle
-    //         //          7) Validate 01d can - if validated - archive trades, drop table
-    //         //          7) Repeat for 13-Nov-2022 until you reach beginning of market
-    //         //          8) At beginning set start_ts, set prev status to Completed
-    //         //          9) Set next day to prev day, set next status to validate
-    //         //          10) Validated next day, if validated - archive and move date forward
-    //         //          11) If not validated, create manual validation event, send sms, exit
-    //         // Get market to backfill
-    //         let market = match self.get_valid_market().await {
-    //             Some(m) => m,
-    //             None => return,
-    //         };
-    //         // Validate market eligibility
-    //         let market_eligible = self.validate_market_eligibility_for_fill(&market);
-    //         if !market_eligible {
-    //             return;
-    //         };
-    //         // Get the market trade detail
-    //         let mtd = self.get_market_trade_detail(&market).await;
-    //         // Get fill event
-    //         let event = match self.get_fill_event(&market, &mtd).await {
-    //             Some(e) => e,
-    //             None => {
-    //                 // No new events to create and process for the market. It is up to date in validated
-    //                 // trades from the start of the market through the last day of of tracking.
-    //                 println!("No fill event for market: {:?}.", market.market_name);
-    //                 println!(
-    //                     "Prev Status: {:?}\nNext Status: {:?}",
-    //                     mtd.previous_status, mtd.next_status
-    //                 );
-    //                 return;
-    //             }
-    //         };
-    //         // Process backfill for market
-    //         self.process_fill_event(&event).await;
-    //     }
+    pub async fn fill(&self) {
+        // Fill trades to the beginning of the market open on exchange from the first candle/trade
+        // day in el-dorado. Process will create a new trade detail table for each market working
+        // from the first candle backwards until the first trade for the market. From there the
+        // validation period will begin from the start through the current date.
+        // Example:
+        //      Market: BTC-PERP
+        //      El-Dorado began with a 90 day sync starting 15-NOV-2021 to present. Existing trades
+        //      are a mix of validated/unvalidated and archived trades.
+        //      Process:
+        //          1) Create Market Trade Details entry for BTC-PERP market
+        //          2) Populate market_id, first_trade_ts, first_trade_id, prev_trade_day, prev_stat
+        //          3) uuid | 2021-11-15 00:00:01 | 123456 | 2021-11-14 | get
+        //          4) Event or process will create trades_ftx_btcperp_20211114 table
+        //          5) Get trades for 14-Nov-2022 and put in that table
+        //          6) Once complete, update first trade ts/id, prev day, create 01d candle
+        //          7) Validate 01d can - if validated - archive trades, drop table
+        //          7) Repeat for 13-Nov-2022 until you reach beginning of market
+        //          8) At beginning set start_ts, set prev status to Completed
+        //          9) Set next day to prev day, set next status to validate
+        //          10) Validated next day, if validated - archive and move date forward
+        //          11) If not validated, create manual validation event, send sms, exit
+        // Get market to backfill
+        let market = match self.get_valid_market().await {
+            Some(m) => m,
+            None => return,
+        };
+        // Validate market eligibility
+        let market_eligible = self.validate_market_eligibility_for_fill(&market);
+        if !market_eligible {
+            return;
+        };
+        // Get the market trade detail
+        let mtd = self.get_market_trade_detail(&market).await;
+        // Get fill event
+        let event = match self.get_fill_event(&market, &mtd).await {
+            Some(e) => e,
+            None => {
+                // No new events to create and process for the market. It is up to date in validated
+                // trades from the start of the market through the last day of of tracking.
+                println!("No fill event for market: {:?}.", market.market_name);
+                println!(
+                    "Prev Status: {:?}\nNext Status: {:?}",
+                    mtd.previous_status, mtd.next_status
+                );
+                return;
+            }
+        };
+        // Process backfill for market
+        self.process_fill_event(&event).await;
+    }
 
-    //     pub async fn get_valid_market(&self) -> Option<MarketDetail> {
-    //         let exchange: String = get_input("Enter Exchange to Backfill: ");
-    //         let exchange: ExchangeName = match exchange.try_into() {
-    //             Ok(exchange) => exchange,
-    //             Err(err) => {
-    //                 // Exchange inputed is not part of existing exchanges
-    //                 println!("{:?} has not been added to El-Dorado.", err);
-    //                 println!("Available exchanges are: {:?}", self.list_exchanges());
-    //                 return None;
-    //             }
-    //         };
-    //         let market_name: String = get_input("Enter Market Name to Backfill: ");
-    //         let market = match self.markets.iter().find(|m| m.market_name == market_name) {
-    //             Some(m) => m,
-    //             None => {
-    //                 println!("{:?} not found in markets for {:?}", market_name, exchange);
-    //                 println!(
-    //                     "Available markets are: {:?}",
-    //                     self.list_markets(Some(&exchange))
-    //                 );
-    //                 return None;
-    //             }
-    //         };
-    //         Some(market.clone())
-    //     }
+    pub async fn get_valid_market(&self) -> Option<MarketDetail> {
+        let exchange: String = get_input("Enter Exchange to Backfill: ");
+        let exchange: ExchangeName = match exchange.try_into() {
+            Ok(exchange) => exchange,
+            Err(err) => {
+                // Exchange inputed is not part of existing exchanges
+                println!("{:?} has not been added to El-Dorado.", err);
+                println!("Available exchanges are: {:?}", self.list_exchanges());
+                return None;
+            }
+        };
+        let market_name: String = get_input("Enter Market Name to Backfill: ");
+        let market = match self.markets.iter().find(|m| m.market_name == market_name) {
+            Some(m) => m,
+            None => {
+                println!("{:?} not found in markets for {:?}", market_name, exchange);
+                println!(
+                    "Available markets are: {:?}",
+                    self.list_markets(Some(&exchange))
+                );
+                return None;
+            }
+        };
+        Some(market.clone())
+    }
 
-    //     pub fn validate_market_eligibility_for_fill(&self, market: &MarketDetail) -> bool {
-    //         // Validate market is eligible to fill:
-    //         // Market detail contains a last candle - ie it has been live in El-Dorado
-    //         if market.market_data_status != MarketStatus::Active || market.last_candle.is_none() {
-    //             println!(
-    //                 "Market not eligible for backfill. \nStatus: {:?}\nLast Candle: {:?}",
-    //                 market.market_data_status, market.last_candle
-    //             );
-    //             return false;
-    //         };
-    //         true
-    //     }
+    pub fn validate_market_eligibility_for_fill(&self, market: &MarketDetail) -> bool {
+        // Validate market is eligible to fill:
+        // Market detail contains a last candle - ie it has been live in El-Dorado
+        if market.market_data_status != MarketStatus::Active || market.last_candle.is_none() {
+            println!(
+                "Market not eligible for backfill. \nStatus: {:?}\nLast Candle: {:?}",
+                market.market_data_status, market.last_candle
+            );
+            return false;
+        };
+        true
+    }
 
-    //     pub async fn process_fill_event(&self, e: &Event) {
-    //         // Process event
-    //         match e.event_type {
-    //             // Insert into db for processing during normal IG loop
-    //             EventType::BackfillTrades => match e.exchange_name {
-    //                 ExchangeName::Ftx | ExchangeName::FtxUs => e
-    //                     .insert(&self.ig_pool)
-    //                     .await
-    //                     .expect("Failed to insert event."),
-    //                 ExchangeName::Gdax => self.process_event_backfill_trades(e).await,
-    //             },
-    //             // Do not insert into db. Process on separate instance. Manage API 429
-    //             // calls through REST handling.
-    //             EventType::ForwardFillTrades => self.process_event_forwardfill_trades(e).await,
-    //             _ => (), // Unreachable
-    //         }
-    //     }
+    pub async fn process_fill_event(&self, e: &Event) {
+        // Process event
+        match e.event_type {
+            // Insert into db for processing during normal IG loop
+            EventType::BackfillTrades => match e.exchange_name {
+                ExchangeName::Ftx | ExchangeName::FtxUs => e
+                    .insert(&self.ig_pool)
+                    .await
+                    .expect("Failed to insert event."),
+                ExchangeName::Gdax => return, //self.process_event_backfill_trades(e).await,
+            },
+            // Do not insert into db. Process on separate instance. Manage API 429
+            // calls through REST handling.
+            EventType::ForwardFillTrades => self.process_event_forwardfill_trades(e).await,
+            _ => (), // Unreachable
+        }
+    }
 
     pub async fn get_market_trade_detail(&self, market: &MarketDetail) -> MarketTradeDetail {
         let market_trade_details = MarketTradeDetail::select_all(&self.ig_pool)
@@ -1002,322 +1078,330 @@ impl Inquisidor {
         }
     }
 
-    //     pub async fn get_fill_event(
-    //         &self,
-    //         market: &MarketDetail,
-    //         mtd: &MarketTradeDetail,
-    //     ) -> Option<Event> {
-    //         // Checks to see new or open events for a fill event for the given market. If there is no
-    //         // event, it will try to create a new event. If there is no new event possible (the market
-    //         // is fully synced from beginning to current day) it will return None.
-    //         let events = Event::select_by_statuses_type(
-    //             &self.ig_pool,
-    //             &[EventStatus::New, EventStatus::Open],
-    //             &EventType::BackfillTrades,
-    //         )
+    pub async fn get_fill_event(
+        &self,
+        market: &MarketDetail,
+        mtd: &MarketTradeDetail,
+    ) -> Option<Event> {
+        // Checks to see new or open events for a fill event for the given market. If there is no
+        // event, it will try to create a new event. If there is no new event possible (the market
+        // is fully synced from beginning to current day) it will return None.
+        let events = Event::select_by_statuses_type(
+            &self.ig_pool,
+            &[EventStatus::New, EventStatus::Open],
+            &EventType::BackfillTrades,
+        )
+        .await
+        .expect("Failed to select backfill event.");
+        match events.iter().find(|e| e.market_id == market.market_id) {
+            Some(e) =>
+            // There exists an event, start there
+            {
+                Some(e.clone())
+            }
+            None => {
+                // There is no event, create one then start here
+                Event::new_fill_trades(market, mtd, &self.market(&mtd.market_id).exchange_name)
+            }
+        }
+    }
+
+    pub async fn is_backfill(&self, event: &Event) -> bool {
+        // Determine is date of event is populated by fill process or by normal el-dorado trade /
+        // candle processing.
+        let market = self.market(&event.market_id);
+        let start = event.start_ts.unwrap();
+        let first_candle = select_first_01d_candle(&self.ig_pool, &market.market_id)
+            .await
+            .expect("Failed to select first 01d candle.");
+        start < first_candle.datetime
+    }
+
+    pub async fn process_event_forwardfill_trades(&self, event: &Event) {
+        // Get current market trade detail
+        // Match the exchage and process the event
+        let market = select_market_detail(&self.ig_pool, &event.market_id)
+            .await
+            .expect("Faile to select market.");
+        let mut mtd = MarketTradeDetail::select(&self.ig_pool, &market)
+            .await
+            .expect("Failed to select market trade detail.");
+        let mut current_event = Some(event.clone());
+        println!("First Current Event: {:?}", current_event);
+        while current_event.is_some() {
+            match event.exchange_name {
+                ExchangeName::Ftx | ExchangeName::FtxUs => {
+                    self.process_ftx_forwardfill(&current_event.unwrap(), &mtd)
+                        .await;
+                }
+                ExchangeName::Gdax => {
+                    self.process_gdax_forwardfill(&current_event.unwrap(), &mtd)
+                        .await;
+                }
+            };
+            mtd = MarketTradeDetail::select(&self.ig_pool, &market)
+                .await
+                .expect("Failed to select market trade detail.");
+            current_event =
+                Event::new_fill_trades(self.market(&event.market_id), &mtd, &event.exchange_name);
+            println!("Next Current Event: {:?}", current_event);
+        }
+    }
+
+    pub async fn process_ftx_forwardfill(&self, event: &Event, mtd: &MarketTradeDetail) {
+        // Match the notes to a market data status
+        let status = event.notes.as_ref().unwrap().clone();
+        let status: MarketDataStatus = status.try_into().unwrap();
+        let market = self.market(&event.market_id);
+        let start = event.start_ts.unwrap();
+        match status {
+            MarketDataStatus::Completed => {} // completed, nothing to do
+            MarketDataStatus::Get => {
+                // TODO: Refactor into 3 sections - before input, input, after input
+                // self.get_trades_for_day()
+                // self.manual_evaluate_trades()
+                // self.process_evaluation()
+                // Only used to re-validate days processed via backfill, ongoing el-dorado days
+                // are validated via the manage / manual ig processes
+                // Re-download trades
+                // let new_trade_table = format!("{}_qc", start.format("%Y%m%d"));
+                // self.get_ftx_trades_dr_into_table(
+                //     event,
+                //     &new_trade_table,
+                //     start,
+                //     start + Duration::days(1),
+                // )
+                // .await;
+                let new_trades = self
+                    .get_ftx_trades_dr_into_vec(event, start, start + Duration::days(1))
+                    .await;
+                // Manually re-validate
+                let is_valid = self.manual_evaluate_ftx_trades(event, &new_trades).await;
+                if is_valid {
+                    // If accepted, write to file and set status to Validate
+                    // TODO: REFACTOR with Backfill and Archvive
+                    // Check directory for exchange csv is created
+                    let path = format!(
+                        "{}/csv/{}",
+                        &self.settings.application.archive_path,
+                        &market.exchange_name.as_str()
+                    );
+                    std::fs::create_dir_all(&path).expect("Failed to create directories.");
+                    // let trade_table =
+                    //     format!("trades_ftx_{}_{}", market.as_strip(), new_trade_table);
+                    // let trades_to_archive =
+                    //     select_ftx_trades_by_table(&self.ftx_pool, &trade_table)
+                    //         .await
+                    //         .expect("Failed to select backfill trades.");
+                    // Define filename = TICKER_YYYYMMDD.csv
+                    let f = format!("{}_{}.csv", market.as_strip(), start.format("%F"));
+                    // Set filepath and file name
+                    let fp = std::path::Path::new(&path).join(f);
+                    // Write trades to file
+                    let mut wtr = Writer::from_path(fp).expect("Failed to open file.");
+                    for trade in new_trades.iter() {
+                        wtr.serialize(trade).expect("Failed to serialize trade.");
+                    }
+                    wtr.flush().expect("Failed to flush wtr.");
+                    // Drop tables ff and bf
+                    let old_trade_table = format!("bf_{}", start.format("%Y%m%d"));
+                    // drop_trade_table(
+                    //     &self.ig_pool,
+                    //     &market.exchange_name,
+                    //     market,
+                    //     &new_trade_table,
+                    // )
+                    // .await
+                    // .expect("Failed to drop trade table.");
+                    drop_trade_table(
+                        &self.ig_pool,
+                        &market.exchange_name,
+                        market,
+                        &old_trade_table,
+                    )
+                    .await
+                    .expect("Failed to drop trade table.");
+                    // Update mtd status to validated
+                    mtd.update_next_status(&self.ig_pool, &MarketDataStatus::Validate)
+                        .await
+                        .expect("Failed to update mtd status.");
+                };
+            }
+            MarketDataStatus::Validate => {
+                println!("Validating forwardfill.");
+                // Locate trade file for date
+                let f = format!("{}_{}.csv", market.as_strip(), start.format("%F"));
+                let archive_path = format!(
+                    "{}/csv/{}",
+                    &self.settings.application.archive_path,
+                    &market.exchange_name.as_str()
+                );
+                let f_path = std::path::Path::new(&archive_path).join(f.clone());
+                // Try location 3
+                let bad_archive_path =
+                    format!("{}/csv/gdax2", &self.settings.application.archive_path,);
+                let bf_path = std::path::Path::new(&bad_archive_path).join(f.clone());
+                if bf_path.exists() {
+                    println!("File in location 3. Moving to correct location.");
+                    // Create directories in the correct location
+                    std::fs::create_dir_all(&archive_path).expect("Failed to create directories.");
+                    // File exists but in wrong location - copy to correct location
+                    std::fs::rename(bf_path, &f_path)
+                        .expect("Failed to copy file from location 3.");
+                }
+                // Try location 2
+                let bad_archive_path =
+                    format!("{}/csv/gdax/gdax", &self.settings.application.archive_path,);
+                let bf_path = std::path::Path::new(&bad_archive_path).join(f.clone());
+                if bf_path.exists() {
+                    println!("File in location 2. Moving to correct location.");
+                    // Create directories in the correct location
+                    std::fs::create_dir_all(&archive_path).expect("Failed to create directories.");
+                    // File exists but in wrong location - copy to correct location
+                    std::fs::rename(bf_path, &f_path)
+                        .expect("Failed to copy file from location 2.");
+                };
+                // Try location 1 - Correct Location
+                if f_path.exists() {
+                    println!("File correct location. Updating next status.");
+                    // File exists, day is validated. Update mtd next status to Archive
+                    mtd.update_next_status(&self.ig_pool, &MarketDataStatus::Archive)
+                        .await
+                        .expect("Failed to update mtd status.");
+                } else {
+                    println!("File not located.");
+                    // Determine if file creation is part of backfill or el-dorado
+                    if self.is_backfill(event).await {
+                        // If part of backfill process - update mtd status to GET
+                        mtd.update_next_status(&self.ig_pool, &MarketDataStatus::Get)
+                            .await
+                            .expect("Failed to update mtd status.");
+                    } else {
+                        // Not part of backfill process. Check that 01d candle exists, if so move
+                        println!("Creating new bf trades table.");
+                        let new_trade_table = format!("bf_{}", start.format("%Y%m%d"));
+                        // trades to 'bf_YYYYMMDD' table from _processed and _archived
+                        println!("Moving processed trades.");
+                        self.migrate_ftx_trades_for_date(
+                            event,
+                            &new_trade_table,
+                            "processed",
+                            start,
+                        )
+                        .await;
+                        println!("Moving validated trades.");
+                        self.migrate_ftx_trades_for_date(
+                            event,
+                            &new_trade_table,
+                            "validated",
+                            start,
+                        )
+                        .await;
+                        // Delete any validations for that market and date
+                        println!("Deleting validations for date.");
+                        self.delete_validations_for_date(event, start)
+                            .await
+                            .expect("Failed to purge candle validations.");
+                        // Update status to get to next event will reprocess
+                        println!("Updating newxt marketdatastatus to get.");
+                        mtd.update_next_status(&self.ig_pool, &MarketDataStatus::Get)
+                            .await
+                            .expect("Failed to update mtd status.");
+                    };
+                };
+            }
+            MarketDataStatus::Archive => {
+                // Get trade file path
+                let f = format!("{}_{}.csv", market.as_strip(), start.format("%F"));
+                let current_path = format!(
+                    "{}/csv/{}",
+                    &self.settings.application.archive_path,
+                    &market.exchange_name.as_str()
+                );
+                let f_path = std::path::Path::new(&current_path).join(f.clone());
+                // Set archive file path
+                let archive_path = format!(
+                    "{}/trades/{}/{}/{}/{}",
+                    &self.settings.application.archive_path,
+                    &market.exchange_name.as_str(),
+                    &market.as_strip(),
+                    start.format("%Y"),
+                    start.format("%m")
+                );
+                // Create directories if not exists
+                std::fs::create_dir_all(&archive_path).expect("Failed to create directories.");
+                let a_path = std::path::Path::new(&archive_path).join(f.clone());
+                // Move trade file to validated location
+                std::fs::rename(f_path, &a_path).expect("Failed to copy file to trade folder.");
+                // Update mtd next status and next day
+                let mtd = mtd
+                    .update_next_day_next_status(
+                        &self.ig_pool,
+                        &(start + Duration::days(1)),
+                        &MarketDataStatus::Completed,
+                    )
+                    .await
+                    .expect("Failed to update next day and next status.");
+                // Set filepath and file name
+                let file = File::open(a_path).expect("Failed to open file.");
+                // Read file from new location
+                let mut trades = Vec::new();
+                let mut rdr = Reader::from_reader(file);
+                for result in rdr.deserialize() {
+                    let record: FtxTrade = result.expect("Faile to deserialize record.");
+                    trades.push(record)
+                }
+                // Get first and last trades
+                if !trades.is_empty() {
+                    let first_trade = trades.first().unwrap();
+                    let last_trade = trades.last().unwrap();
+                    // Update first and last trade in the mtd
+                    mtd.update_first_and_last_trades(&self.ig_pool, first_trade, last_trade)
+                        .await
+                        .expect("Failed to update first and last trade details.");
+                }
+            }
+        };
+    }
+
+    pub async fn process_gdax_forwardfill(&self, _event: &Event, _mtd: &MarketTradeDetail) {}
+
+    // pub async fn process_event_backfill_trades(&self, event: &Event) {
+    //     // Get current market trade detail
+    //     // Match the exchange, if Ftx => Process the Event and mark as complete
+    //     // if Gdax => Create loop to process event and the next until the next is None
+    //     let market = select_market_detail(&self.ig_pool, &event.market_id)
     //         .await
-    //         .expect("Failed to select backfill event.");
-    //         match events.iter().find(|e| e.market_id == market.market_id) {
-    //             Some(e) =>
-    //             // There exists an event, start there
-    //             {
-    //                 Some(e.clone())
-    //             }
-    //             None => {
-    //                 // There is no event, create one then start here
-    //                 Event::new_fill_trades(market, mtd, &self.market(&mtd.market_id).exchange_name)
-    //             }
-    //         }
-    //     }
+    //         .expect("Faile to select market.");
+    //     let mut mtd = MarketTradeDetail::select(&self.ig_pool, &market)
+    //         .await
+    //         .expect("Failed to select market trade detail.");
+    //     let mut current_event = Some(event.clone());
+    //     println!("First Current Event: {:?}", current_event);
+    //     while current_event.is_some() && current_event.unwrap().event_type == EventType::BackfillTrades {
 
-    //     pub async fn is_backfill(&self, event: &Event) -> bool {
-    //         // Determine is date of event is populated by fill process or by normal el-dorado trade /
-    //         // candle processing.
-    //         let market = self.market(&event.market_id);
-    //         let start = event.start_ts.unwrap();
-    //         let first_candle = select_first_01d_candle(&self.ig_pool, &market.market_id)
-    //             .await
-    //             .expect("Failed to select first 01d candle.");
-    //         start < first_candle.datetime
-    //     }
-
-    //     pub async fn process_event_forwardfill_trades(&self, event: &Event) {
-    //         // Get current market trade detail
-    //         // Match the exchage and process the event
-    //         let market = select_market_detail(&self.ig_pool, &event.market_id)
-    //             .await
-    //             .expect("Faile to select market.");
-    //         let mut mtd = MarketTradeDetail::select(&self.ig_pool, &market)
-    //             .await
-    //             .expect("Failed to select market trade detail.");
-    //         let mut current_event = Some(event.clone());
-    //         println!("First Current Event: {:?}", current_event);
-    //         while current_event.is_some() {
-    //             match event.exchange_name {
-    //                 ExchangeName::Ftx | ExchangeName::FtxUs => {
-    //                     self.process_ftx_forwardfill(&current_event.unwrap(), &mtd)
-    //                         .await;
-    //                 }
-    //                 ExchangeName::Gdax => {
-    //                     self.process_gdax_forwardfill(&current_event.unwrap(), &mtd)
-    //                         .await;
-    //                 }
-    //             };
-    //             mtd = MarketTradeDetail::select(&self.ig_pool, &market)
-    //                 .await
-    //                 .expect("Failed to select market trade detail.");
-    //             current_event =
-    //                 Event::new_fill_trades(self.market(&event.market_id), &mtd, &event.exchange_name);
-    //             println!("Next Current Event: {:?}", current_event);
-    //         }
-    //     }
-
-    //     pub async fn process_ftx_forwardfill(&self, event: &Event, mtd: &MarketTradeDetail) {
-    //         // Match the notes to a market data status
-    //         let status = event.notes.as_ref().unwrap().clone();
-    //         let status: MarketDataStatus = status.try_into().unwrap();
-    //         let market = self.market(&event.market_id);
-    //         let start = event.start_ts.unwrap();
-    //         match status {
-    //             MarketDataStatus::Completed => {} // completed, nothing to do
-    //             MarketDataStatus::Get => {
-    //                 // TODO: Refactor into 3 sections - before input, input, after input
-    //                 // self.get_trades_for_day()
-    //                 // self.manual_evaluate_trades()
-    //                 // self.process_evaluation()
-    //                 // Only used to re-validate days processed via backfill, ongoing el-dorado days
-    //                 // are validated via the manage / manual ig processes
-    //                 // Re-download trades
-    //                 let new_trade_table = format!("{}_qc", start.format("%Y%m%d"));
-    //                 self.get_ftx_trades_dr_into_table(
-    //                     event,
-    //                     &new_trade_table,
-    //                     start,
-    //                     start + Duration::days(1),
-    //                 )
-    //                 .await;
-    //                 // Manually re-validate
-    //                 let is_valid = true; // self.manual_evaluate_ftx_trades(event).await;
-    //                 if is_valid {
-    //                     // If accepted, write to file and set status to Validate
-    //                     // TODO: REFACTOR with Backfill and Archvive
-    //                     // Check directory for exchange csv is created
-    //                     let path = format!(
-    //                         "{}/csv/{}",
-    //                         &self.settings.application.archive_path,
-    //                         &market.exchange_name.as_str()
-    //                     );
-    //                     std::fs::create_dir_all(&path).expect("Failed to create directories.");
-    //                     let trade_table =
-    //                         format!("trades_ftx_{}_{}", market.as_strip(), new_trade_table);
-    //                     let trades_to_archive =
-    //                         select_ftx_trades_by_table(&self.ftx_pool, &trade_table)
-    //                             .await
-    //                             .expect("Failed to select backfill trades.");
-    //                     // Define filename = TICKER_YYYYMMDD.csv
-    //                     let f = format!("{}_{}.csv", market.as_strip(), start.format("%F"));
-    //                     // Set filepath and file name
-    //                     let fp = std::path::Path::new(&path).join(f);
-    //                     // Write trades to file
-    //                     let mut wtr = Writer::from_path(fp).expect("Failed to open file.");
-    //                     for trade in trades_to_archive.iter() {
-    //                         wtr.serialize(trade).expect("Failed to serialize trade.");
-    //                     }
-    //                     wtr.flush().expect("Failed to flush wtr.");
-    //                     // Drop tables ff and bf
-    //                     let old_trade_table = format!("bf_{}", start.format("%Y%m%d"));
-    //                     drop_trade_table(
-    //                         &self.ig_pool,
-    //                         &market.exchange_name,
-    //                         market,
-    //                         &new_trade_table,
-    //                     )
-    //                     .await
-    //                     .expect("Failed to drop trade table.");
-    //                     drop_trade_table(
-    //                         &self.ig_pool,
-    //                         &market.exchange_name,
-    //                         market,
-    //                         &old_trade_table,
-    //                     )
-    //                     .await
-    //                     .expect("Failed to drop trade table.");
-    //                     // Update mtd status to validated
-    //                     mtd.update_next_status(&self.ig_pool, &MarketDataStatus::Validate)
-    //                         .await
-    //                         .expect("Failed to update mtd status.");
-    //                 };
-    //             }
-    //             MarketDataStatus::Validate => {
-    //                 println!("Validating forwardfill.");
-    //                 // Locate trade file for date
-    //                 let f = format!("{}_{}.csv", market.as_strip(), start.format("%F"));
-    //                 let archive_path = format!(
-    //                     "{}/csv/{}",
-    //                     &self.settings.application.archive_path,
-    //                     &market.exchange_name.as_str()
-    //                 );
-    //                 let f_path = std::path::Path::new(&archive_path).join(f.clone());
-    //                 // Try location 3
-    //                 let bad_archive_path =
-    //                     format!("{}/csv/gdax2", &self.settings.application.archive_path,);
-    //                 let bf_path = std::path::Path::new(&bad_archive_path).join(f.clone());
-    //                 if bf_path.exists() {
-    //                     println!("File in location 3. Moving to correct location.");
-    //                     // Create directories in the correct location
-    //                     std::fs::create_dir_all(&archive_path).expect("Failed to create directories.");
-    //                     // File exists but in wrong location - copy to correct location
-    //                     std::fs::rename(bf_path, &f_path)
-    //                         .expect("Failed to copy file from location 3.");
-    //                 }
-    //                 // Try location 2
-    //                 let bad_archive_path =
-    //                     format!("{}/csv/gdax/gdax", &self.settings.application.archive_path,);
-    //                 let bf_path = std::path::Path::new(&bad_archive_path).join(f.clone());
-    //                 if bf_path.exists() {
-    //                     println!("File in location 2. Moving to correct location.");
-    //                     // Create directories in the correct location
-    //                     std::fs::create_dir_all(&archive_path).expect("Failed to create directories.");
-    //                     // File exists but in wrong location - copy to correct location
-    //                     std::fs::rename(bf_path, &f_path)
-    //                         .expect("Failed to copy file from location 2.");
-    //                 };
-    //                 // Try location 1 - Correct Location
-    //                 if f_path.exists() {
-    //                     println!("File correct location. Updating next status.");
-    //                     // File exists, day is validated. Update mtd next status to Archive
-    //                     mtd.update_next_status(&self.ig_pool, &MarketDataStatus::Archive)
-    //                         .await
-    //                         .expect("Failed to update mtd status.");
-    //                 } else {
-    //                     println!("File not located.");
-    //                     // Determine if file creation is part of backfill or el-dorado
-    //                     if self.is_backfill(event).await {
-    //                         // If part of backfill process - update mtd status to GET
-    //                         mtd.update_next_status(&self.ig_pool, &MarketDataStatus::Get)
-    //                             .await
-    //                             .expect("Failed to update mtd status.");
-    //                     } else {
-    //                         // Not part of backfill process. Check that 01d candle exists, if so move
-    //                         println!("Creating new bf trades table.");
-    //                         let new_trade_table = format!("bf_{}", start.format("%Y%m%d"));
-    //                         // trades to 'bf_YYYYMMDD' table from _processed and _archived
-    //                         println!("Moving processed trades.");
-    //                         self.migrate_ftx_trades_for_date(
-    //                             event,
-    //                             &new_trade_table,
-    //                             "processed",
-    //                             start,
-    //                         )
-    //                         .await;
-    //                         println!("Moving validated trades.");
-    //                         self.migrate_ftx_trades_for_date(
-    //                             event,
-    //                             &new_trade_table,
-    //                             "validated",
-    //                             start,
-    //                         )
-    //                         .await;
-    //                         // Delete any validations for that market and date
-    //                         println!("Deleting validations for date.");
-    //                         // self.delete_validations_for_date(event, start)
-    //                         //     .await
-    //                         //     .expect("Failed to purge candle validations.");
-    //                         // Update status to get to next event will reprocess
-    //                         println!("Updating newxt marketdatastatus to get.");
-    //                         mtd.update_next_status(&self.ig_pool, &MarketDataStatus::Get)
-    //                             .await
-    //                             .expect("Failed to update mtd status.");
-    //                     };
-    //                 };
-    //             }
-    //             MarketDataStatus::Archive => {
-    //                 // Get trade file path
-    //                 let f = format!("{}_{}.csv", market.as_strip(), start.format("%F"));
-    //                 let current_path = format!(
-    //                     "{}/csv/{}",
-    //                     &self.settings.application.archive_path,
-    //                     &market.exchange_name.as_str()
-    //                 );
-    //                 let f_path = std::path::Path::new(&current_path).join(f.clone());
-    //                 // Set archive file path
-    //                 let archive_path = format!(
-    //                     "{}/trades/{}/{}/{}/{}",
-    //                     &self.settings.application.archive_path,
-    //                     &market.exchange_name.as_str(),
-    //                     &market.as_strip(),
-    //                     start.format("%Y"),
-    //                     start.format("%m")
-    //                 );
-    //                 // Create directories if not exists
-    //                 std::fs::create_dir_all(&archive_path).expect("Failed to create directories.");
-    //                 let a_path = std::path::Path::new(&archive_path).join(f.clone());
-    //                 // Move trade file to validated location
-    //                 std::fs::rename(f_path, &a_path).expect("Failed to copy file to trade folder.");
-    //                 // Update mtd next status and next day
-    //                 let mtd = mtd
-    //                     .update_next_day_next_status(
-    //                         &self.ig_pool,
-    //                         &(start + Duration::days(1)),
-    //                         &MarketDataStatus::Completed,
-    //                     )
-    //                     .await
-    //                     .expect("Failed to update next day and next status.");
-    //                 // Set filepath and file name
-    //                 let file = File::open(a_path).expect("Failed to open file.");
-    //                 // Read file from new location
-    //                 let mut trades = Vec::new();
-    //                 let mut rdr = Reader::from_reader(file);
-    //                 for result in rdr.deserialize() {
-    //                     let record: FtxTrade = result.expect("Faile to deserialize record.");
-    //                     trades.push(record)
-    //                 }
-    //                 // Get first and last trades
-    //                 if !trades.is_empty() {
-    //                     let first_trade = trades.first().unwrap();
-    //                     let last_trade = trades.last().unwrap();
-    //                     // Update first and last trade in the mtd
-    //                     mtd.update_first_and_last_trades(&self.ig_pool, first_trade, last_trade)
-    //                         .await
-    //                         .expect("Failed to update first and last trade details.");
-    //                 }
-    //             }
-    //         };
-    //     }
-
-    //     pub async fn process_gdax_forwardfill(&self, _event: &Event, _mtd: &MarketTradeDetail) {}
-
-    //     pub async fn process_event_backfill_trades(&self, event: &Event) {
-    //         // Get current market trade detail
-    //         // Match the exchange, if Ftx => Process the Event and mark as complete
-    //         // if Gdax => Create loop to process event and the next until the next is None
-    //         let market = select_market_detail(&self.ig_pool, &event.market_id)
-    //             .await
-    //             .expect("Faile to select market.");
-    //         let mut mtd = MarketTradeDetail::select(&self.ig_pool, &market)
-    //             .await
-    //             .expect("Failed to select market trade detail.");
     //         match event.exchange_name {
     //             ExchangeName::Ftx | ExchangeName::FtxUs => self.process_ftx_backfill(event, &mtd).await,
     //             ExchangeName::Gdax => {
-    //                 let mut current_event = Some(event.clone());
     //                 println!("Current Event: {:?}", current_event);
     //                 while current_event.is_some() {
     //                     self.process_gdax_backfill(&current_event.unwrap(), &mtd)
     //                         .await;
-    //                     mtd = MarketTradeDetail::select(&self.ig_pool, &market)
-    //                         .await
-    //                         .expect("Failed to select market trade detail.");
-    //                     current_event = Event::new_fill_trades(
-    //                         self.market(&event.market_id),
-    //                         &mtd,
-    //                         &ExchangeName::Gdax,
-    //                     );
-    //                     println!("Current Event: {:?}", current_event);
+
     //                 }
     //             }
     //         }
+    //         mtd = MarketTradeDetail::select(&self.ig_pool, &market)
+    //         .await
+    //         .expect("Failed to select market trade detail.");
+    //     current_event = Event::new_fill_trades(
+    //         self.market(&event.market_id),
+    //         &mtd,
+    //         &ExchangeName::Gdax,
+    //     );
+    //     println!("Current Event: {:?}", current_event);
     //     }
+    // }
 
     //     pub async fn process_ftx_backfill(&self, event: &Event, mtd: &MarketTradeDetail) {
     //         // Try to match the notes from the event to a market data status

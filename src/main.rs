@@ -17,7 +17,7 @@ async fn main() {
         .subcommand(App::new("run").about("run el-dorado for a market"))
         .subcommand(App::new("eldorado").about("run el-dorado instance"))
         // .subcommand(App::new("sync").about("fill to current start of day"))
-        // .subcommand(App::new("fill").about("fill from first candle to start"))
+        .subcommand(App::new("fill").about("fill from first candle to start"))
         // .subcommand(App::new("candle").about("make candles from backfilled trades"))
         .subcommand(App::new("candleload").about("load candles from file to db"))
         .subcommand(App::new("manage").about("run current cleanup script"))
@@ -110,12 +110,12 @@ async fn main() {
         //     );
         //     mita.twilio.send_sms(&message).await;
         // }
-        // Some("fill") => {
-        //     // Download and archive trades from beginning of normal running sync (min 90 days) to
-        //     // the first trades of exchange.
-        //     let ig = Inquisidor::new().await;
-        //     ig.fill().await;
-        // }
+        Some("fill") => {
+            // Download and archive trades from beginning of normal running sync (min 90 days) to
+            // the first trades of exchange.
+            let ig = Inquisidor::new().await;
+            ig.fill().await;
+        }
         // Some("candle") => {
         //     // Make candles for trades that have been backfilled
         //     let ig = Inquisidor::new().await;
