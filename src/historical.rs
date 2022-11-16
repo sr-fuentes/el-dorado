@@ -2,8 +2,7 @@ use crate::candles::{select_first_01d_candle, CandleType, ProductionCandle, Rese
 use crate::configuration::Database;
 use crate::eldorado::ElDorado;
 use crate::events::{Event, EventStatus, EventType};
-use crate::exchanges::ftx::Trade as FtxTrade;
-use crate::exchanges::ExchangeName;
+use crate::exchanges::{ftx::Trade as FtxTrade, gdax::Trade as GdaxTrade, ExchangeName};
 use crate::inquisidor::Inquisidor;
 use crate::markets::{
     select_market_detail, MarketCandleDetail, MarketDataStatus, MarketDetail, MarketStatus,
@@ -23,13 +22,16 @@ impl ElDorado {
         let heartbeats: HashMap<String, Heartbeat> = HashMap::new();
         for market in self.markets.iter() {
             // For each market in eldorado instnace, determine the start time and id for the sync
-            let (start, candles) = self.calculate_sync_start(market).await;
+            let (start, mut candles) = self.calculate_sync_start(market).await;
             let end: PrIdTi = self.calculate_sync_end(market).await;
             println!("Start {:?}", start);
             println!("Candles #: {:?}", candles.len());
             println!("End: {:?}", end);
-            // Fill the trades and candles from start to end
-            // self.fill_trades_and_candles(market, start, end).await;
+            // Fill the trades and aggregate to candles for start to end period
+            let mut fill_candles = self
+                .fill_trades_and_make_candles(market, &start, &end)
+                .await;
+            candles.append(&mut fill_candles);
             // Sync the filled trades and the streamed trades to the current time frame interval
             // let heartbeat = self.sync_to_now().await;
             // heartbeats.insert(market.market_name.clone(), heartbeat);
@@ -362,7 +364,7 @@ impl ElDorado {
         // Get the latest exchange trade to get the last trade id for the market and timestamp
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         let mut trade = self.clients[&ExchangeName::Gdax]
-            .get_gdax_trades(&market.market_name.as_str(), Some(1), None, None)
+            .get_gdax_trades(&market.market_name, Some(1), None, None)
             .await
             .expect("Failed to get gdax trade.")
             .pop()
@@ -380,12 +382,7 @@ impl ElDorado {
             // Get trade for mid id
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             trade = self.clients[&ExchangeName::Gdax]
-                .get_gdax_trades(
-                    &market.market_name.as_str(),
-                    Some(1),
-                    None,
-                    Some(mid as i32),
-                )
+                .get_gdax_trades(&market.market_name, Some(1), None, Some(mid as i32))
                 .await
                 .expect("Failed to get gdax trade.")
                 .pop()
@@ -401,7 +398,7 @@ impl ElDorado {
         }
         // Take the last trade from the binary search and then query sequentially to get the last
         // trade of the day
-        start.clone()
+        *start
     }
 
     // The end of the sync is the first trade from the websocket stream. Check the table for the
@@ -421,6 +418,91 @@ impl ElDorado {
                     println!("Awaiting first ws trade for {}.", market.market_name);
                     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                 }
+            }
+        }
+    }
+
+    // Get trades from start to end and write to trades table for market / day. Aggregrate trades
+    // into production candles to be returned
+    async fn fill_trades_and_make_candles(
+        &self,
+        market: &MarketDetail,
+        start: &PrIdTi,
+        end: &PrIdTi,
+    ) -> Vec<ProductionCandle> {
+        let mut fill_candles: Vec<ProductionCandle> = Vec::new();
+        // Create date range for days to fill
+        let dr = self.create_date_range(
+            &start.dt.duration_trunc(Duration::days(1)).unwrap(),
+            &(end.dt.duration_trunc(Duration::days(1)).unwrap() + Duration::days(1)),
+            &TimeFrame::D01,
+        );
+        // Fill trades for each day
+        for d in dr.iter() {
+            let mut new_candles = self
+                .fill_trades_and_make_candles_for_dt(market, start, end, d)
+                .await;
+            fill_candles.append(&mut new_candles);
+        }
+        fill_candles
+    }
+
+    async fn fill_trades_and_make_candles_for_dt(
+        &self,
+        market: &MarketDetail,
+        start: &PrIdTi,
+        end: &PrIdTi,
+        dt: &DateTime<Utc>,
+    ) -> Vec<ProductionCandle> {
+        // Create trade table
+        self.create_trade_table(market, *dt).await;
+        match market.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                // The interval end is the min of the start of the next day or the end PrIdTi given
+                // The use case where it is the end PrIdTi is when the sync is filling trades for
+                // the final day to sync to the first ws streamed trade. For example: if the first
+                // streamed trades is at 12:01:34 for a given day, the trades should be filled to
+                // that time, otherwise to 00:00:00 the following day.
+                let interval_end = end.dt.min(*dt + Duration::days(1));
+                // Fill trades for day to interval end
+                let trades: Vec<FtxTrade> = self
+                    .get_ftx_trades_for_interval(market, dt, &interval_end)
+                    .await;
+                // Make candles for day and insert to db
+                let candles =
+                    self.make_production_candles_for_dt_from_vec(market, dt, start, end, &trades);
+                for candle in candles.iter() {
+                    candle
+                        .insert(
+                            &self.pools[&Database::Ftx],
+                            market,
+                            &market.candle_timeframe.unwrap(),
+                        )
+                        .await
+                        .expect("Failed to insert candle.");
+                }
+                candles
+            }
+            ExchangeName::Gdax => {
+                // Fill trades for day
+                let interval_end = end.dt.min(*dt + Duration::days(1));
+                let trades: Vec<GdaxTrade> = self
+                    .get_gdax_trades_for_interval_forward(market, start, &interval_end)
+                    .await;
+                // Make candles for day
+                let candles =
+                    self.make_production_candles_for_dt_from_vec(market, dt, start, end, &trades);
+                for candle in candles.iter() {
+                    candle
+                        .insert(
+                            &self.pools[&Database::Gdax],
+                            market,
+                            &market.candle_timeframe.unwrap(),
+                        )
+                        .await
+                        .expect("Failed to insert candle.");
+                }
+                candles
             }
         }
     }
@@ -1049,7 +1131,7 @@ impl Inquisidor {
                     .insert(&self.ig_pool)
                     .await
                     .expect("Failed to insert event."),
-                ExchangeName::Gdax => return, //self.process_event_backfill_trades(e).await,
+                ExchangeName::Gdax => (), //self.process_event_backfill_trades(e).await,
             },
             // Do not insert into db. Process on separate instance. Manage API 429
             // calls through REST handling.

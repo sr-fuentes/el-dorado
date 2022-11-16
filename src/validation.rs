@@ -1572,11 +1572,13 @@ impl Inquisidor {
                 );
                 // Check auto approve
                 if new_trades_value == ec.volume {
+                    println!("Value and Volume match.");
                     return true;
                 } else if original_trades_value == new_trades_value
                     && percent > dec!(0)
                     && percent < dec!(1)
                 {
+                    println!("Within tolerance.");
                     return true;
                 }
             }

@@ -33,20 +33,6 @@ pub trait Trade {
     where
         Self: Sized;
     async fn insert(&self, pool: &PgPool, market: &MarketDetail) -> Result<(), sqlx::Error>;
-    async fn select_one_gt_dt(
-        pool: &PgPool,
-        market: &MarketDetail,
-        dt: DateTime<Utc>,
-    ) -> Result<Box<dyn Trade>, sqlx::Error>
-    where
-        Self: Sized;
-    async fn select_all(
-        pool: &PgPool,
-        market: &MarketDetail,
-        dt: &DateTime<Utc>,
-    ) -> Result<Vec<Box<dyn Trade>>, sqlx::Error>
-    where
-        Self: Sized;
 }
 
 // Struct to pack information about last trade - typically used to create a candle from last trade
@@ -128,7 +114,7 @@ impl ElDorado {
         }
         // Create trade tables for each market for today if they don't exist
         let today = Utc::now().duration_trunc(Duration::days(1)).unwrap();
-        self.create_trade_tables(today).await;
+        self.create_trade_tables_all_markets(today).await;
         today
     }
 
@@ -140,29 +126,36 @@ impl ElDorado {
         Ok(())
     }
 
-    pub async fn create_trade_tables(&self, dt: DateTime<Utc>) {
-        for market in self.markets.iter() {
-            match self.instance.exchange_name.unwrap() {
-                ExchangeName::Ftx | ExchangeName::FtxUs => {
-                    FtxTrade::create_table(&self.pools[&Database::Ftx], market, dt)
-                        .await
-                        .expect("Failed to create ftx/ftxus trade table.");
-                }
-                ExchangeName::Gdax => {
-                    GdaxTrade::create_table(&self.pools[&Database::Gdax], market, dt)
-                        .await
-                        .expect("Failed to create gdax trade table.");
-                }
+    pub async fn create_trade_table(&self, market: &MarketDetail, dt: DateTime<Utc>) {
+        match market.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                FtxTrade::create_table(&self.pools[&Database::Ftx], market, dt)
+                    .await
+                    .expect("Failed to create ftx/ftxus trade table.");
+            }
+            ExchangeName::Gdax => {
+                GdaxTrade::create_table(&self.pools[&Database::Gdax], market, dt)
+                    .await
+                    .expect("Failed to create gdax trade table.");
             }
         }
     }
 
-    pub async fn create_future_trade_tables(&self, mut dt: DateTime<Utc>) -> DateTime<Utc> {
+    pub async fn create_trade_tables_all_markets(&self, dt: DateTime<Utc>) {
+        for market in self.markets.iter() {
+            self.create_trade_table(market, dt).await;
+        }
+    }
+
+    pub async fn create_future_trade_tables_all_markets(
+        &self,
+        mut dt: DateTime<Utc>,
+    ) -> DateTime<Utc> {
         // If the date given is less than 2 days in the future, increment the date and
         // create tables for the date before returning it
         if dt < Utc::now().duration_trunc(Duration::days(1)).unwrap() + Duration::days(2) {
             dt = dt + Duration::days(1);
-            self.create_trade_tables(dt).await;
+            self.create_trade_tables_all_markets(dt).await;
             dt
         } else {
             dt
@@ -188,19 +181,163 @@ impl ElDorado {
 
     pub async fn select_first_ws_timeid(&self, market: &MarketDetail) -> Option<PrIdTi> {
         // Select the first trade from database table after the start of the instance
-        let result = match market.exchange_name {
+        match market.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
-                FtxTrade::select_one_gt_dt(&self.pools[&Database::Ftx], market, self.start_dt).await
+                match FtxTrade::select_one_gt_dt(&self.pools[&Database::Ftx], market, self.start_dt)
+                    .await
+                {
+                    Ok(t) => Some(t.as_pridti()),
+                    Err(sqlx::Error::RowNotFound) => None,
+                    Err(e) => panic!("Sqlx::Error: {:?}", e),
+                }
             }
             ExchangeName::Gdax => {
-                GdaxTrade::select_one_gt_dt(&self.pools[&Database::Gdax], market, self.start_dt)
-                    .await
+                match GdaxTrade::select_one_gt_dt(
+                    &self.pools[&Database::Gdax],
+                    market,
+                    self.start_dt,
+                )
+                .await
+                {
+                    Ok(t) => Some(t.as_pridti()),
+                    Err(sqlx::Error::RowNotFound) => None,
+                    Err(e) => panic!("Sqlx::Error: {:?}", e),
+                }
             }
-        };
-        match result {
-            Ok(t) => Some(t.as_pridti()),
-            Err(sqlx::Error::RowNotFound) => None,
-            Err(e) => panic!("Sqlx::Error: {:?}", e),
+        }
+    }
+
+    // This function relies on the trade tables to already be created. Do not call if there is no
+    // trade table created for the market as it will fail when attempting to insert trades
+    pub async fn get_ftx_trades_for_interval(
+        &self,
+        _market: &MarketDetail,
+        _start: &DateTime<Utc>,
+        _end: &DateTime<Utc>,
+    ) -> Vec<FtxTrade> {
+        Vec::new()
+    }
+
+    // This function relies on the trade tables to already be created. Do not call if there is no
+    // trade table created for the market as it will fail when attempting to insert trades
+    // From the start fill forward 1000 trades until you reach the end (which is either the first
+    // streamed trade or the end of the next full day
+    // Getting AAVE-PERP trades before and after trade id 13183395
+    // Before trades: - Returns trades before that trade id in descending order. Since this
+    // returns trades way beyond what we are seeking (those immediately before the trade id)
+    // we need to use the after function to get trades.
+    // Trade { trade_id: 17536192, side: "sell", size: 0.00400000, price: 101.57000000, time: 2022-05-24T20:23:05.836337Z }
+    // Trade { trade_id: 17536191, side: "buy", size: 3.30000000, price: 101.55000000, time: 2022-05-24T20:23:01.506580Z }
+    // Trade { trade_id: 17536190, side: "sell", size: 6.01100000, price: 101.56000000, time: 2022-05-24T20:23:00.273643Z }
+    // Trade { trade_id: 17536189, side: "sell", size: 1.96800000, price: 101.55000000, time: 2022-05-24T20:23:00.273643Z }
+    // Trade { trade_id: 17536188, side: "buy", size: 3.61100000, price: 101.48000000, time: 2022-05-24T20:22:55.061587Z }
+    // After trades:
+    // Trade { trade_id: 13183394, side: "buy", size: 0.21900000, price: 184.69100000, time: 2021-12-06T23:59:59.076214Z }
+    // Trade { trade_id: 13183393, side: "buy", size: 2.37800000, price: 184.69200000, time: 2021-12-06T23:59:59.076214Z }
+    // Trade { trade_id: 13183392, side: "buy", size: 0.00300000, price: 184.74100000, time: 2021-12-06T23:59:59.076214Z }
+    // Trade { trade_id: 13183391, side: "buy", size: 0.01600000, price: 184.80200000, time: 2021-12-06T23:59:58.962743Z }
+    // Trade { trade_id: 13183390, side: "buy", size: 0.01600000, price: 184.87100000, time: 2021-12-06T23:59:57.823784Z }
+    pub async fn get_gdax_trades_for_interval_forward(
+        &self,
+        market: &MarketDetail,
+        start: &PrIdTi,
+        end: &DateTime<Utc>,
+    ) -> Vec<GdaxTrade> {
+        // Start with the last trade prior to the start time. Get the next 1000 trades, move the
+        // start trade to be equal to the last trade received and continue until the timestamp of
+        // the last trade is greater than the end timestamp
+        let mut last = *start;
+        let mut trades: Vec<GdaxTrade> = Vec::new();
+        while last.dt < *end {
+            // Prevent 429 errors by only requesting 1 per second
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            let mut new_trades = match self.clients[&market.exchange_name]
+                .get_gdax_trades(
+                    &market.market_name,
+                    Some(1000),
+                    None,
+                    Some(last.id.unwrap() as i32 + 1001),
+                )
+                .await
+            {
+                Ok(result) => result,
+                Err(e) => {
+                    if self.handle_trade_rest_error(&e).await {
+                        continue;
+                    } else {
+                        panic!("Rest Error: {:?}", e);
+                    }
+                }
+            };
+            // Sort the new trades
+            new_trades.sort_by_key(|t| t.trade_id);
+            // Update the last trade
+            last = new_trades.last().unwrap().as_pridti();
+            // Filter out trades that are beyond the end date
+            let mut filtered_trades = if last.dt >= *end {
+                // There are trade to filter
+                new_trades
+                    .iter()
+                    .filter(|t| t.time < *end)
+                    .cloned()
+                    .collect()
+            } else {
+                new_trades
+            };
+            // Add new trades to trades vec
+            trades.append(&mut filtered_trades);
+        }
+        // Write trades to table
+        for trade in trades.iter() {
+            trade
+                .insert(&self.pools[&Database::Gdax], market)
+                .await
+                .expect("Failed to insert trade.");
+        }
+        trades
+    }
+
+    pub async fn handle_trade_rest_error(&self, e: &RestError) -> bool {
+        match e {
+            RestError::Reqwest(e) => {
+                if e.is_timeout() || e.is_connect() || e.is_request() {
+                    println!("Timeout/Connect/Request Error. Retry in 30 secs. {:?}", e);
+                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                    true
+                } else if e.is_status() {
+                    match e.status() {
+                        Some(s) => match s.as_u16() {
+                            500 | 502 | 503 | 504 | 520 | 522 | 530 => {
+                                // Server error, keep trying every 30 seconds
+                                println!("{} status code. Retry in 30 secs. {:?}", s, e);
+                                tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                                true
+                            }
+                            429 => {
+                                // Too many requests, chill for 90 seconds
+                                println!("{} status code. Retry in 90 secs. {:?}", s, e);
+                                tokio::time::sleep(tokio::time::Duration::from_secs(90)).await;
+                                true
+                            }
+                            _ => {
+                                println!("{} status code not handled. Panic.", s);
+                                false
+                            }
+                        },
+                        None => {
+                            println!("No status code for request error.");
+                            false
+                        }
+                    }
+                } else {
+                    println!("Other Reqwest Error. Panic.");
+                    false
+                }
+            }
+            _ => {
+                println!("Other Rest Error, not Reqwest.");
+                false
+            }
         }
     }
 }

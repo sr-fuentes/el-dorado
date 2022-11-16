@@ -42,7 +42,7 @@ impl ElDorado {
         // Loop forever writing each trade to the database and create new trade tables for each day
         loop {
             // Check the working date and create the next day's table if needed
-            dt = self.create_future_trade_tables(dt).await;
+            dt = self.create_future_trade_tables_all_markets(dt).await;
             // Get next websocket item
             let data = ws.next().await.expect("No data received.");
             // Process next item
