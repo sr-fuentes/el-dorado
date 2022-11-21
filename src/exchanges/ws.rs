@@ -169,6 +169,7 @@ impl WebSocket {
                 }
                 ExchangeName::Gdax => {
                     if let Some(msg) = self.stream.next().await {
+                        println!("msg: {:?}", msg);
                         let msg = msg?;
                         if let Message::Text(text) = msg {
                             // println!("Text: {}", text);

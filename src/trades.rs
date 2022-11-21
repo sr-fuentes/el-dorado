@@ -14,6 +14,7 @@ use csv::Reader;
 use rust_decimal::prelude::*;
 use sqlx::PgPool;
 use std::collections::HashMap;
+use std::fmt;
 use std::fs::File;
 
 #[async_trait]
@@ -39,8 +40,14 @@ pub trait Trade {
 #[derive(Debug, Clone, Copy)]
 pub struct PrIdTi {
     pub dt: DateTime<Utc>,
-    pub id: Option<i64>,
-    pub price: Option<Decimal>,
+    pub id: i64,
+    pub price: Decimal,
+}
+
+impl fmt::Display for PrIdTi {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "dt: {}\tid: {}\tprice: {}", self.dt, self.id, self.price)
+    }
 }
 
 impl Mita {
@@ -207,6 +214,89 @@ impl ElDorado {
         }
     }
 
+    // Return the last trade of the day for a given trade. For example: if the trade given was
+    // placed on 14:23:11 on 12/23/2020, return the last trade on 12/23/2020
+    pub async fn get_last_gdax_trade_for_day(
+        &self,
+        market: &MarketDetail,
+        trade: &GdaxTrade,
+    ) -> GdaxTrade {
+        let end = trade.time.duration_trunc(Duration::days(1)).unwrap() + Duration::days(1);
+        let mut t = trade.clone();
+        let mut trades = Vec::new();
+        while t.time < end {
+            // Prevent 429 errors by only requesting 1 per second
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            let mut new_trades = match self.clients[&market.exchange_name]
+                .get_gdax_trades(
+                    &market.market_name,
+                    Some(1000),
+                    None,
+                    Some(t.trade_id as i32 + 1001),
+                )
+                .await
+            {
+                Ok(result) => result,
+                Err(e) => {
+                    if self.handle_trade_rest_error(&e).await {
+                        continue;
+                    } else {
+                        panic!("Rest Error: {:?}", e);
+                    }
+                }
+            };
+            // Sort the new trades
+            new_trades.sort_by_key(|t| t.trade_id);
+            // Update the last trade
+            t = new_trades.last().unwrap().clone();
+            trades.append(&mut new_trades);
+        }
+        let vec_trades: Vec<GdaxTrade> = trades.iter().filter(|t| t.time < end).cloned().collect();
+        vec_trades.last().unwrap().clone()
+    }
+
+    // Return the last trade of the prev day for a given trade. For example: if the trade given was
+    // placed on 14:23:11 on 12/23/2020, return the last trade on 12/22/2020
+    pub async fn get_last_gdax_trade_for_prev_day(
+        &self,
+        market: &MarketDetail,
+        trade: &GdaxTrade,
+    ) -> GdaxTrade {
+        let end = trade.time.duration_trunc(Duration::days(1)).unwrap();
+        let mut t = trade.clone();
+        let mut trades = Vec::new();
+        while t.time > end {
+            // Prevent 429 errors by only requesting 1 per second
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            let mut new_trades = match self.clients[&market.exchange_name]
+                .get_gdax_trades(
+                    &market.market_name,
+                    Some(1000),
+                    None,
+                    Some(t.trade_id as i32),
+                )
+                .await
+            {
+                Ok(result) => result,
+                Err(e) => {
+                    if self.handle_trade_rest_error(&e).await {
+                        continue;
+                    } else {
+                        panic!("Rest Error: {:?}", e);
+                    }
+                }
+            };
+            // Sort the new trades
+            new_trades.sort_by_key(|t| t.trade_id);
+            // Update the last trade
+            t = new_trades.first().unwrap().clone();
+            trades.append(&mut new_trades);
+        }
+        trades.sort_by_key(|t| t.trade_id);
+        let vec_trades: Vec<GdaxTrade> = trades.iter().filter(|t| t.time < end).cloned().collect();
+        vec_trades.last().unwrap().clone()
+    }
+
     // This function relies on the trade tables to already be created. Do not call if there is no
     // trade table created for the market as it will fail when attempting to insert trades
     pub async fn get_ftx_trades_for_interval(
@@ -240,15 +330,20 @@ impl ElDorado {
     pub async fn get_gdax_trades_for_interval_forward(
         &self,
         market: &MarketDetail,
-        start: &PrIdTi,
-        end: &DateTime<Utc>,
+        interval_start: &DateTime<Utc>,
+        interval_end: &DateTime<Utc>,
+        last_trade: &PrIdTi,
     ) -> Vec<GdaxTrade> {
-        // Start with the last trade prior to the start time. Get the next 1000 trades, move the
-        // start trade to be equal to the last trade received and continue until the timestamp of
-        // the last trade is greater than the end timestamp
-        let mut last = *start;
+        // Start with the last trade prior to the interval start. Get the next 1000 trades, move the
+        // last trade to be equal to the last trade received and continue until the timestamp of
+        // the last trade is greater than the interval end timestamp
+        println!(
+            "Getting trades from {} to {}.\tLast Trade: {}",
+            interval_start, interval_end, last_trade
+        );
+        let mut last = *last_trade;
         let mut trades: Vec<GdaxTrade> = Vec::new();
-        while last.dt < *end {
+        while last.dt < *interval_end {
             // Prevent 429 errors by only requesting 1 per second
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             let mut new_trades = match self.clients[&market.exchange_name]
@@ -256,7 +351,7 @@ impl ElDorado {
                     &market.market_name,
                     Some(1000),
                     None,
-                    Some(last.id.unwrap() as i32 + 1001),
+                    Some(last.id as i32 + 1001),
                 )
                 .await
             {
@@ -273,14 +368,25 @@ impl ElDorado {
             new_trades.sort_by_key(|t| t.trade_id);
             // Update the last trade
             last = new_trades.last().unwrap().as_pridti();
+            println!(
+                "{} trades from API. New Last Trade: {}",
+                new_trades.len(),
+                last
+            );
             // Filter out trades that are beyond the end date
-            let mut filtered_trades = if last.dt >= *end {
+            let mut filtered_trades = if last.dt >= *interval_end {
                 // There are trade to filter
-                new_trades
+                let ft: Vec<_> = new_trades
                     .iter()
-                    .filter(|t| t.time < *end)
+                    .filter(|t| t.time < *interval_end)
                     .cloned()
-                    .collect()
+                    .collect();
+                println!(
+                    "Last trade beyond interval end. Filter trades. New # {}",
+                    ft.len()
+                );
+                println!("New Last Trade: {}", ft.last().unwrap().as_pridti());
+                ft
             } else {
                 new_trades
             };
@@ -288,6 +394,7 @@ impl ElDorado {
             trades.append(&mut filtered_trades);
         }
         // Write trades to table
+        println!("Writing {} trades to table.", trades.len());
         for trade in trades.iter() {
             trade
                 .insert(&self.pools[&Database::Gdax], market)

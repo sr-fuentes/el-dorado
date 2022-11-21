@@ -102,9 +102,9 @@ impl crate::trades::Trade for Trade {
 
     fn as_pridti(&self) -> PrIdTi {
         PrIdTi {
-            id: Some(self.trade_id),
+            id: self.trade_id,
             dt: self.time,
-            price: Some(self.price),
+            price: self.price,
         }
     }
 

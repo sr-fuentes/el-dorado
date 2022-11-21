@@ -1,7 +1,7 @@
 use crate::candles::{
     resample_candles, select_candles_gte_datetime, select_last_candle, ProductionCandle,
 };
-use crate::configuration::{get_configuration, Settings};
+use crate::configuration::{get_configuration, Database, Settings};
 use crate::eldorado::ElDorado;
 use crate::events::insert_event_process_trades;
 use crate::exchanges::{select_exchanges, Exchange, ExchangeName};
@@ -531,12 +531,27 @@ impl ElDorado {
     pub async fn mita(&mut self) -> bool {
         // Set restart value to false, error handling must explicitly set back to true
         self.instance.restart = false;
+        self.initialize_mita().await;
         // self.instance.update_status(&InstanceStatus::New).await;
         let restart = tokio::select! {
             res2 = self.stream() => res2,
             res1 = self.sync_and_run_mita() => res1,
         };
         restart
+    }
+
+    async fn initialize_mita(&self) {
+        // Create any candle schemas that are needed
+        match &self.markets.first().unwrap().exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => self
+                .create_candles_schema(&self.pools[&Database::Ftx])
+                .await
+                .expect("Failed to create candle schema."),
+            ExchangeName::Gdax => self
+                .create_candles_schema(&self.pools[&Database::Gdax])
+                .await
+                .expect("Failed to create candle schema."),
+        };
     }
 
     // Sync by determiniting the last good state and filling trades from that state to the current

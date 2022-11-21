@@ -4,6 +4,7 @@ use rust_decimal_macros::dec;
 use sqlx::PgPool;
 use std::convert::TryFrom;
 use std::env;
+use std::fmt;
 use std::io::{self, Write};
 use twilio::{OutboundMessage, TwilioClient};
 
@@ -184,6 +185,12 @@ pub enum TimeFrame {
     D01,
     D03,
     W01,
+}
+
+impl fmt::Display for TimeFrame {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
 }
 
 impl TimeFrame {

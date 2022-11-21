@@ -9,7 +9,7 @@ use crate::markets::{
     MarketTradeDetail,
 };
 use crate::mita::Heartbeat;
-use crate::trades::{drop_trade_table, PrIdTi};
+use crate::trades::{drop_trade_table, PrIdTi, Trade};
 use crate::utilities::{get_input, TimeFrame};
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use csv::{Reader, Writer};
@@ -22,14 +22,14 @@ impl ElDorado {
         let heartbeats: HashMap<String, Heartbeat> = HashMap::new();
         for market in self.markets.iter() {
             // For each market in eldorado instnace, determine the start time and id for the sync
-            let (start, mut candles) = self.calculate_sync_start(market).await;
-            let end: PrIdTi = self.calculate_sync_end(market).await;
-            println!("Start {:?}", start);
-            println!("Candles #: {:?}", candles.len());
-            println!("End: {:?}", end);
+            let (sync_start, last_trade, mut candles) = self.calculate_sync_start(market).await;
+            println!("Sync Start: {}\tLast Trade: {:?}", sync_start, last_trade);
+            println!("Candles Loaded: {:?}", candles.len());
+            let first_trade: PrIdTi = self.calculate_sync_end(market).await;
+            println!("Sync End: {:?}", first_trade.dt);
             // Fill the trades and aggregate to candles for start to end period
             let mut fill_candles = self
-                .fill_trades_and_make_candles(market, &start, &end)
+                .fill_trades_and_make_candles(market, sync_start, last_trade, first_trade)
                 .await;
             candles.append(&mut fill_candles);
             // Sync the filled trades and the streamed trades to the current time frame interval
@@ -40,67 +40,78 @@ impl ElDorado {
     }
 
     // The start of the sync is the determined by the market status and data. If it is a brand
-    // new market, determined by there being no MarketTradeDetail or MarketCandleDetail, then
-    // the start is 90 days prior to current day. If however, there is a MarketTradeDetail or
-    // MarketCandleDetail, the start begins at the end of the last candle.
-    async fn calculate_sync_start(&self, market: &MarketDetail) -> (PrIdTi, Vec<ProductionCandle>) {
+    // new market, determined by there being no MarketTradeDetail or MarketCandleDetail (validated
+    // and archived trade and candle data), then the start is 92 days prior to current day or the
+    // openeing of the given market on the exchange. If however, there is a MarketTradeDetail or
+    // MarketCandleDetail, the start begins at the end of the last candle from these sources. The
+    // system will also consider existing candles that were created but not validated/archived
+    // by checking the production candle table, this is to speed up the sync using data that was
+    // previously used in the last run of the system.
+    async fn calculate_sync_start(
+        &self,
+        market: &MarketDetail,
+    ) -> (DateTime<Utc>, Option<PrIdTi>, Vec<ProductionCandle>) {
         // Set the min date that is needed for start - 92 days prior
-        let mut start = PrIdTi {
-            dt: self.start_dt.duration_trunc(Duration::days(1)).unwrap() - Duration::days(92),
-            id: None,
-            price: None,
-        };
+        let mut sync_start =
+            self.start_dt.duration_trunc(Duration::days(1)).unwrap() - Duration::days(92);
+        let mut last_trade: Option<PrIdTi> = None;
         let mut candles = Vec::new();
+        println!("Initialize start to 92 days prior.");
+        println!("Sync Start: {}", sync_start);
         // Try checking the mcd record for last candle and confirming candles are in candles table
-        let mcd_end: Option<(PrIdTi, Vec<ProductionCandle>)> =
-            self.try_mcd_start(market, &start.dt).await;
-        start = match mcd_end {
+        let mcd_end = self.try_mcd_start(market, &sync_start).await;
+        (sync_start, last_trade) = match mcd_end {
             Some(mut r) => {
-                candles.append(&mut r.1);
+                println!("MCD start succesful. Adding {} candles.", r.2.len());
+                candles.append(&mut r.2);
                 // Start now equals the last trade captured in the last candle. Try mtd and try eld
                 // Will need to check if the id field is Some or None to determine start dr for
                 // trades or candles
-                r.0
+                println!("New Sync Start: {}\tLast Trade: {}", r.0, r.1);
+                (r.0, Some(r.1))
             }
-            None => start,
+            None => (sync_start, last_trade),
         };
         // Try checking the mtd record for last trades and confirming trade table/trades exist
-        let mtd_end: Option<(PrIdTi, Vec<ProductionCandle>)> =
-            self.try_mtd_start(market, &start).await;
-        start = match mtd_end {
+        let mtd_end = self.try_mtd_start(market, &sync_start, &last_trade).await;
+        (sync_start, last_trade) = match mtd_end {
             Some(mut r) => {
-                candles.append(&mut r.1);
+                println!("MTD start successful. Adding {} candles.", r.2.len());
+                candles.append(&mut r.2);
                 // Start now equals the last trade captured in candles made from the trade tables.
-                r.0
+                println!("New Sync Start: {}\tLast Trade: {}", r.0, r.1);
+                (r.0, Some(r.1))
             }
             // No candles from trade tables were added, start could still be the original 90 day
             // sync window or smaller from the addition of the mcd archived research candles.
-            None => start,
+            None => (sync_start, last_trade),
         };
         // Try checking system candles table and last candle
-        let candles_end: Option<(PrIdTi, Vec<ProductionCandle>)> =
-            self.try_eld_start(market, &start).await;
-        start = match candles_end {
+        let candles_end = self.try_eld_start(market, &sync_start).await;
+        (sync_start, last_trade) = match candles_end {
             Some(mut r) => {
-                candles.append(&mut r.1);
-                r.0
+                println!("Eld start successful. Adding {} candles.", r.2.len());
+                candles.append(&mut r.2);
+                // Start now equals the last trade captured in candles from the production table.
+                println!("New Sync Start: {}\tLast Trade: {}", r.0, r.1);
+                (r.0, Some(r.1))
             }
-            None => start,
+            None => (sync_start, last_trade),
         };
         // If at this point there are no candles, calc the start based on exchange logic
         if candles.is_empty() {
             match market.exchange_name {
                 ExchangeName::Ftx | ExchangeName::FtxUs => {
-                    start.dt = self.use_ftx_start(market, &start).await;
-                    (start, candles)
+                    sync_start = self.use_ftx_start(market, &sync_start).await;
+                    (sync_start, last_trade, candles)
                 }
                 ExchangeName::Gdax => {
-                    start = self.use_gdax_start(market, &start).await;
-                    (start, candles)
+                    (sync_start, last_trade) = self.use_gdax_start(market, &sync_start).await;
+                    (sync_start, last_trade, candles)
                 }
             }
         } else {
-            (start, candles)
+            (sync_start, last_trade, candles)
         }
     }
 
@@ -111,8 +122,9 @@ impl ElDorado {
     async fn try_mcd_start(
         &self,
         market: &MarketDetail,
-        start: &DateTime<Utc>,
-    ) -> Option<(PrIdTi, Vec<ProductionCandle>)> {
+        sync_start: &DateTime<Utc>,
+    ) -> Option<(DateTime<Utc>, PrIdTi, Vec<ProductionCandle>)> {
+        println!("Trying MCD start.");
         let db = match market.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
             ExchangeName::Gdax => Database::Gdax,
@@ -121,16 +133,21 @@ impl ElDorado {
         let mcd = MarketCandleDetail::select(&self.pools[&db], market).await;
         match mcd {
             Ok(m) => {
-                if m.last_trade_ts > *start {
+                if m.last_trade_ts > *sync_start {
                     // Validate the data from the mcd record
-                    Some(self.use_mcd_start(&db, market, &m, start).await)
+                    Some(self.use_mcd_start(&db, market, &m, sync_start).await)
                 } else {
                     // The archive market candles end before the request start and are of no use
+                    println!("MCD ends before sync start");
+                    println!("MCD end: {}\tSync start: {}", m.last_trade_ts, sync_start);
                     None
                 }
             }
             // No mcd exists, so no archive candles to use
-            Err(sqlx::Error::RowNotFound) => None,
+            Err(sqlx::Error::RowNotFound) => {
+                println!("No MCD exists.");
+                None
+            }
             // Other SQLX Error - TODO! - Add Error Handling
             Err(e) => panic!("SQLX Error: {:?}", e),
         }
@@ -142,15 +159,16 @@ impl ElDorado {
         db: &Database,
         market: &MarketDetail,
         mcd: &MarketCandleDetail,
-        start: &DateTime<Utc>,
-    ) -> (PrIdTi, Vec<ProductionCandle>) {
+        sync_start: &DateTime<Utc>,
+    ) -> (DateTime<Utc>, PrIdTi, Vec<ProductionCandle>) {
+        println!("Using MCD start.");
         // Select candles
         let archive_candles = ResearchCandle::select_dr(
             &self.pools[db],
             market,
             &mcd.time_frame,
-            start,
-            &(mcd.last_candle + Duration::seconds(15)),
+            sync_start,
+            &(mcd.last_candle + mcd.time_frame.as_dur()),
         )
         .await
         .expect("Failed to select research candles by dr.");
@@ -159,17 +177,22 @@ impl ElDorado {
             // Could not select any candles, panic as there is a data integrity issue
             panic!(
                 "Excpected mcd candles for sync. Select dr of {:?} to {:?} returned None.",
-                start,
-                mcd.last_candle + Duration::seconds(15)
+                sync_start,
+                mcd.last_candle + mcd.time_frame.as_dur()
             );
-        } else if market.candle_timeframe.unwrap() == TimeFrame::S15 {
-            // Candles are already in S15 time frame. Convert the candles to prod candles.
+        } else if market.candle_timeframe.unwrap() == mcd.time_frame {
+            // Candles are already in time frame. Convert the candles to prod candles.
             archive_candles
                 .iter()
                 .map(|c| c.as_production_candle())
                 .collect()
         } else {
             // Resample candles to market time frame and convert to prod candles.
+            println!(
+                "Resampling MCD candles from {} to {}.",
+                mcd.time_frame,
+                market.candle_timeframe.unwrap()
+            );
             let resampled_candles =
                 self.resample_research_candles(&archive_candles, &market.candle_timeframe.unwrap());
             resampled_candles
@@ -177,14 +200,11 @@ impl ElDorado {
                 .map(|c| c.as_production_candle())
                 .collect()
         };
-        // Return the prepped candles ready for sync and new start TimeId
+        // Return the prepped candles ready for sync and new sync start and pridti
         let last = candles.last().unwrap();
         (
-            PrIdTi {
-                id: Some(last.last_trade_id.parse::<i64>().unwrap()),
-                dt: last.last_trade_ts,
-                price: Some(last.close),
-            },
+            last.datetime + market.candle_timeframe.unwrap().as_dur(),
+            last.close_as_pridti(),
             candles,
         )
     }
@@ -197,8 +217,10 @@ impl ElDorado {
     async fn try_mtd_start(
         &self,
         market: &MarketDetail,
-        start: &PrIdTi,
-    ) -> Option<(PrIdTi, Vec<ProductionCandle>)> {
+        sync_start: &DateTime<Utc>,
+        last_trade: &Option<PrIdTi>,
+    ) -> Option<(DateTime<Utc>, PrIdTi, Vec<ProductionCandle>)> {
+        println!("Trying MTD start.");
         let db = match market.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
             ExchangeName::Gdax => Database::Gdax,
@@ -207,13 +229,17 @@ impl ElDorado {
         match mtd {
             Ok(m) => {
                 match m.next_trade_day {
-                    // There is a next trade day, check if relevant to start dated
-                    Some(d) => {
-                        if d - Duration::days(1) > start.dt {
+                    // There is a next trade day, check if relevant to start date. ie if sync start
+                    // is 08/12/2020 00:00 (it is a even date as it is only either a MCD or 92 day)
+                    Some(ntd) => {
+                        if ntd > *sync_start {
                             // Validated trades available, convert to candles and use them
-                            self.use_mtd_start(market, &m, *start).await
+                            self.use_mtd_start(market, &m, sync_start, *last_trade)
+                                .await
                         } else {
                             // The last validated trade date is less than current start, not useful
+                            println!("MTD ends before sync start.");
+                            println!("MTD next trade day: {}\tSync start: {}", ntd, sync_start);
                             None
                         }
                     }
@@ -222,7 +248,10 @@ impl ElDorado {
                 }
             }
             // No mtd exists, so no archive trades to use
-            Err(sqlx::Error::RowNotFound) => None,
+            Err(sqlx::Error::RowNotFound) => {
+                println!("No MTD exists.");
+                None
+            }
             // Other SQLX Error - TODO! - Add Error Handling
             Err(e) => panic!("SQLX Error: {:?}", e),
         }
@@ -233,45 +262,49 @@ impl ElDorado {
         &self,
         market: &MarketDetail,
         mtd: &MarketTradeDetail,
-        mut start: PrIdTi,
-    ) -> Option<(PrIdTi, Vec<ProductionCandle>)> {
-        // Check if start has any trades - if it does, it started with mcd candles and dt is from
-        // last candle of the last day. Start pulling trades from next day.
-        // If it does not, it has no trades or candles to start and can be built from given dt
-        let dr_start = match start.id {
-            Some(_) => start.dt.duration_trunc(Duration::days(1)).unwrap() + Duration::days(1),
-            None => start.dt,
-        };
+        sync_start: &DateTime<Utc>,
+        mut last_trade: Option<PrIdTi>,
+    ) -> Option<(DateTime<Utc>, PrIdTi, Vec<ProductionCandle>)> {
+        println!("Using MTD start.");
         // Create date range for days to load and make candles from
-        let dr = self.create_date_range(&dr_start, &mtd.next_trade_day.unwrap(), &TimeFrame::D01);
+        let dr = self.create_date_range(sync_start, &mtd.next_trade_day.unwrap(), &TimeFrame::D01);
         let mut candles = Vec::new();
+        println!(
+            "MTD Date Range: {} to {}",
+            dr.first().unwrap(),
+            dr.last().unwrap()
+        );
         // For each day, check for table
         for d in dr.iter() {
             // Does the trade table exist for the day?
+            println!("Checking trade table exists for {}", d);
             if self.trade_table_exists(market, d).await {
                 // Select trades and make candles
                 let new_candles = self
-                    .make_production_candles_for_dt_from_table(market, d, &start)
+                    .make_production_candles_for_dt_from_table(market, d, last_trade)
                     .await;
                 match new_candles {
                     Some(mut c) => {
-                        start = PrIdTi {
-                            id: Some(c.last().unwrap().last_trade_id.parse::<i64>().unwrap()),
-                            dt: c.last().unwrap().last_trade_ts,
-                            price: Some(c.last().unwrap().close),
-                        };
+                        last_trade = Some(c.last().unwrap().close_as_pridti());
                         candles.append(&mut c);
                     }
                     None => break,
                 }
             } else {
+                println!("Trade table does not exist. Exiting MTD start.");
                 break;
             };
         }
         if candles.is_empty() {
             None
         } else {
-            Some((start, candles))
+            // Return the prepped candles ready for sync and new sync start and pridti
+            let last = candles.last().unwrap();
+            Some((
+                last.datetime + market.candle_timeframe.unwrap().as_dur(),
+                last.close_as_pridti(),
+                candles,
+            ))
         }
     }
 
@@ -282,8 +315,9 @@ impl ElDorado {
     async fn try_eld_start(
         &self,
         market: &MarketDetail,
-        start: &PrIdTi,
-    ) -> Option<(PrIdTi, Vec<ProductionCandle>)> {
+        sync_start: &DateTime<Utc>,
+    ) -> Option<(DateTime<Utc>, PrIdTi, Vec<ProductionCandle>)> {
+        println!("Trying ElD start.");
         // Check if production candle table exists for market
         if self
             .candle_table_exists(
@@ -293,15 +327,21 @@ impl ElDorado {
             )
             .await
         {
-            let candle_start = match start.id {
-                // Started with either mcd candles or from trade tables. Use next day
-                Some(_) => start.dt.duration_trunc(Duration::days(1)).unwrap() + Duration::days(1),
-                // No trades or candles, use given date
-                None => start.dt,
-            };
-            self.use_eld_start(market, &candle_start).await
+            self.use_eld_start(market, sync_start).await
         } else {
-            // No production candles, return None
+            // No production candles, create the candle table and return None
+            println!("ElD production candles table does not exist. Creating table.");
+            let db = match market.exchange_name {
+                ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
+                ExchangeName::Gdax => Database::Gdax,
+            };
+            ProductionCandle::create_table(
+                &self.pools[&db],
+                market,
+                &market.candle_timeframe.unwrap(),
+            )
+            .await
+            .expect("Failed to create candle table.");
             None
         }
     }
@@ -310,25 +350,23 @@ impl ElDorado {
     async fn use_eld_start(
         &self,
         market: &MarketDetail,
-        dt: &DateTime<Utc>,
-    ) -> Option<(PrIdTi, Vec<ProductionCandle>)> {
+        sync_start: &DateTime<Utc>,
+    ) -> Option<(DateTime<Utc>, PrIdTi, Vec<ProductionCandle>)> {
         let db = match market.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
             ExchangeName::Gdax => Database::Gdax,
         };
-        let candles = ProductionCandle::select_gte_dt(&self.pools[&db], market, dt)
+        let candles = ProductionCandle::select_gte_dt(&self.pools[&db], market, sync_start)
             .await
             .expect("Failed to select candles.");
         if candles.is_empty() {
+            println!("No ElD production candles greater than current start.");
             None
         } else {
             let last = candles.last().unwrap();
             Some((
-                PrIdTi {
-                    id: Some(last.last_trade_id.parse::<i64>().unwrap()),
-                    dt: last.last_trade_ts,
-                    price: Some(last.close),
-                },
+                last.datetime + market.candle_timeframe.unwrap().as_dur(),
+                last.close_as_pridti(),
                 candles,
             ))
         }
@@ -337,11 +375,16 @@ impl ElDorado {
     // Calculate the time and id for the ftx trade that corresponds to 92 days prior to today
     // as there are no research candles, validated trades or production candles to start from.
     // FTX API uses date time as field so the first day that has trades is the first day to use
-    async fn use_ftx_start(&self, market: &MarketDetail, start: &PrIdTi) -> DateTime<Utc> {
+    async fn use_ftx_start(
+        &self,
+        market: &MarketDetail,
+        sync_start: &DateTime<Utc>,
+    ) -> DateTime<Utc> {
         let end_dt = Utc::now().duration_trunc(Duration::days(1)).unwrap();
-        let mut start_dt = start.dt;
+        let mut start_dt = *sync_start;
         while start_dt < end_dt {
             // Only request 1 per second to avoid 429 errors
+            println!("Checking Ftx for trades on {}", start_dt);
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             let trades = self.clients[&market.exchange_name]
                 .get_ftx_trades(market.market_name.as_str(), Some(1), None, Some(start_dt))
@@ -350,6 +393,7 @@ impl ElDorado {
             if trades.is_empty() {
                 start_dt = start_dt + Duration::days(1)
             } else {
+                println!("Trades exist. Use start of day.");
                 break;
             };
         }
@@ -360,8 +404,13 @@ impl ElDorado {
     // id that started 92 days ago this function uses a binary search algorithm to find a trade on
     // the given day 92 days ago, then refines it further to find the last trade of the previous
     // say to give the exact trade id to start syncing from
-    async fn use_gdax_start(&self, market: &MarketDetail, start: &PrIdTi) -> PrIdTi {
+    async fn use_gdax_start(
+        &self,
+        market: &MarketDetail,
+        sync_start: &DateTime<Utc>,
+    ) -> (DateTime<Utc>, Option<PrIdTi>) {
         // Get the latest exchange trade to get the last trade id for the market and timestamp
+        println!("Getting Gdax start from exchange.");
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         let mut trade = self.clients[&ExchangeName::Gdax]
             .get_gdax_trades(&market.market_name, Some(1), None, None)
@@ -373,7 +422,7 @@ impl ElDorado {
         // the trade id is less than 1000, in which case use that day
         let mut low = 0_i64;
         let mut high = trade.trade_id;
-        while trade.time.duration_trunc(Duration::days(1)).unwrap() != start.dt
+        while trade.time.duration_trunc(Duration::days(1)).unwrap() != *sync_start
             && trade.trade_id > 1000
         {
             let mid = (high + low) / 2;
@@ -388,7 +437,7 @@ impl ElDorado {
                 .pop()
                 .unwrap();
             println!("Mid trade id and ts: {}\t{:?}", trade.trade_id, trade.time);
-            if trade.time < start.dt {
+            if trade.time < *sync_start {
                 // Too far in the past, set low = trade id, high remains the same
                 low = trade.trade_id;
             } else {
@@ -397,8 +446,26 @@ impl ElDorado {
             };
         }
         // Take the last trade from the binary search and then query sequentially to get the last
-        // trade of the day
-        *start
+        // trade of the day or last trade of the previous day depending on total number of trades
+        let last_trade = if trade.trade_id > 1000 {
+            self.get_last_gdax_trade_for_prev_day(market, &trade)
+                .await
+                .as_pridti()
+        } else {
+            // Get end of current day as there a < 1000 trades and it may not make it to previous
+            // day to set start at 92 days
+            self.get_last_gdax_trade_for_day(market, &trade)
+                .await
+                .as_pridti()
+        };
+        (
+            last_trade
+                .dt
+                .duration_trunc(market.candle_timeframe.unwrap().as_dur())
+                .unwrap()
+                + market.candle_timeframe.unwrap().as_dur(),
+            Some(last_trade),
+        )
     }
 
     // The end of the sync is the first trade from the websocket stream. Check the table for the
@@ -427,21 +494,35 @@ impl ElDorado {
     async fn fill_trades_and_make_candles(
         &self,
         market: &MarketDetail,
-        start: &PrIdTi,
-        end: &PrIdTi,
+        sync_start: DateTime<Utc>,
+        mut last_trade: Option<PrIdTi>,
+        first_trade: PrIdTi,
     ) -> Vec<ProductionCandle> {
         let mut fill_candles: Vec<ProductionCandle> = Vec::new();
         // Create date range for days to fill
+        let dr_start = sync_start.duration_trunc(Duration::days(1)).unwrap();
         let dr = self.create_date_range(
-            &start.dt.duration_trunc(Duration::days(1)).unwrap(),
-            &(end.dt.duration_trunc(Duration::days(1)).unwrap() + Duration::days(1)),
+            &dr_start,
+            &(first_trade.dt.duration_trunc(Duration::days(1)).unwrap() + Duration::days(1)),
             &TimeFrame::D01,
         );
         // Fill trades for each day
         for d in dr.iter() {
+            println!("Filling trades and making candles for date: {}", d);
             let mut new_candles = self
-                .fill_trades_and_make_candles_for_dt(market, start, end, d)
+                .fill_trades_and_make_candles_for_dt(
+                    market,
+                    &sync_start,
+                    &last_trade,
+                    &first_trade,
+                    d,
+                )
                 .await;
+            last_trade = if !new_candles.is_empty() {
+                Some(new_candles.last().unwrap().close_as_pridti())
+            } else {
+                last_trade
+            };
             fill_candles.append(&mut new_candles);
         }
         fill_candles
@@ -450,8 +531,9 @@ impl ElDorado {
     async fn fill_trades_and_make_candles_for_dt(
         &self,
         market: &MarketDetail,
-        start: &PrIdTi,
-        end: &PrIdTi,
+        sync_start: &DateTime<Utc>,
+        last_trade: &Option<PrIdTi>,
+        first_trade: &PrIdTi,
         dt: &DateTime<Utc>,
     ) -> Vec<ProductionCandle> {
         // Create trade table
@@ -463,14 +545,21 @@ impl ElDorado {
                 // the final day to sync to the first ws streamed trade. For example: if the first
                 // streamed trades is at 12:01:34 for a given day, the trades should be filled to
                 // that time, otherwise to 00:00:00 the following day.
-                let interval_end = end.dt.min(*dt + Duration::days(1));
+                let interval_start = sync_start.max(dt);
+                let interval_end = first_trade.dt.min(*dt + Duration::days(1));
                 // Fill trades for day to interval end
                 let trades: Vec<FtxTrade> = self
                     .get_ftx_trades_for_interval(market, dt, &interval_end)
                     .await;
                 // Make candles for day and insert to db
-                let candles =
-                    self.make_production_candles_for_dt_from_vec(market, dt, start, end, &trades);
+                let candles = self.make_production_candles_for_dt_from_vec(
+                    market,
+                    dt,
+                    last_trade,
+                    interval_start,
+                    &interval_end,
+                    &trades,
+                );
                 for candle in candles.iter() {
                     candle
                         .insert(
@@ -485,13 +574,25 @@ impl ElDorado {
             }
             ExchangeName::Gdax => {
                 // Fill trades for day
-                let interval_end = end.dt.min(*dt + Duration::days(1));
+                let interval_start = sync_start.max(dt);
+                let interval_end = first_trade.dt.min(*dt + Duration::days(1));
                 let trades: Vec<GdaxTrade> = self
-                    .get_gdax_trades_for_interval_forward(market, start, &interval_end)
+                    .get_gdax_trades_for_interval_forward(
+                        market,
+                        interval_start,
+                        &interval_end,
+                        &last_trade.unwrap(),
+                    )
                     .await;
                 // Make candles for day
-                let candles =
-                    self.make_production_candles_for_dt_from_vec(market, dt, start, end, &trades);
+                let candles = self.make_production_candles_for_dt_from_vec(
+                    market,
+                    dt,
+                    last_trade,
+                    interval_start,
+                    &interval_end,
+                    &trades,
+                );
                 for candle in candles.iter() {
                     candle
                         .insert(

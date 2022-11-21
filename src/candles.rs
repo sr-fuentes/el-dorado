@@ -205,6 +205,14 @@ pub struct DailyCandle {
 }
 
 impl ProductionCandle {
+    pub fn close_as_pridti(&self) -> PrIdTi {
+        PrIdTi {
+            id: self.last_trade_id.parse::<i64>().unwrap(),
+            dt: self.last_trade_ts,
+            price: self.close,
+        }
+    }
+
     // Takes a Vec of Trade and aggregates into a Candle with the Datetime = the
     // datetime passed as argument. Candle built from trades in the order they are in
     // the Vec, sort before calling this function otherwise Open / Close / Datetime may
@@ -350,10 +358,10 @@ impl ProductionCandle {
     pub fn from_last(datetime: DateTime<Utc>, pit: &PrIdTi) -> Self {
         Self {
             datetime,
-            open: pit.price.unwrap(), // All OHLC are = last trade price
-            high: pit.price.unwrap(),
-            low: pit.price.unwrap(),
-            close: pit.price.unwrap(),
+            open: pit.price, // All OHLC are = last trade price
+            high: pit.price,
+            low: pit.price,
+            close: pit.price,
             volume: dec!(0),
             volume_net: dec!(0),
             volume_liquidation: dec!(0),
@@ -361,9 +369,9 @@ impl ProductionCandle {
             trade_count: 0,
             liquidation_count: 0,
             last_trade_ts: pit.dt,
-            last_trade_id: pit.id.unwrap().to_string(),
+            last_trade_id: pit.id.to_string(),
             first_trade_ts: pit.dt,
-            first_trade_id: pit.id.unwrap().to_string(),
+            first_trade_id: pit.id.to_string(),
         }
     }
 
@@ -461,23 +469,23 @@ impl ProductionCandle {
 
     pub fn from_trades_for_dr<T: Trade>(
         trades: &[T],
-        mut pit: PrIdTi,
+        mut last_trade: Option<PrIdTi>,
         tf: &TimeFrame,
         dr: &[DateTime<Utc>],
     ) -> Vec<Self> {
         // Iterate through dr, filter trades and make candles for each interval
+        // TODO - Add validation that dr start interval has trades if the last trade is None to
+        // prevent panic on unwrap of last trade for ::from_last() call
         let candles = dr.iter().fold(Vec::new(), |mut v, d| {
             let filtered_trades: Vec<_> = trades
                 .iter()
                 .filter(|t| t.time().duration_trunc(tf.as_dur()).unwrap() == *d)
                 .collect();
             let new_candle = match filtered_trades.is_empty() {
-                true => Self::from_last(*d, &pit),
+                true => Self::from_last(*d, &last_trade.unwrap()),
                 false => Self::from_trades(*d, &filtered_trades),
             };
-            pit.id = Some(new_candle.last_trade_id.parse::<i64>().unwrap());
-            pit.dt = new_candle.last_trade_ts;
-            pit.price = Some(new_candle.close);
+            last_trade = Some(new_candle.close_as_pridti());
             v.push(new_candle);
             v
         });
@@ -508,7 +516,7 @@ impl ProductionCandle {
                 last_trade_ts timestamptz NOT NULL,
                 last_trade_id TEXT NOT NULL,
                 first_trade_ts timestamptz NOT NULL,
-                first_trade_id TEXT NOT NULL,
+                first_trade_id TEXT NOT NULL
             )
             "#,
             market.exchange_name.as_str(),
@@ -566,7 +574,7 @@ impl ProductionCandle {
             SELECT datetime, open, high, low, close, volume, volume_net, volume_liquidation, value,
                 trade_count, liquidation_count, last_trade_ts, last_trade_id, first_trade_ts,
                 first_trade_id
-            FROM candles.{}_{}_{}
+            FROM candles.production_{}_{}_{}
             WHERE datetime >= $1
             ORDER BY datetime ASC
             "#,
@@ -1430,6 +1438,14 @@ impl ResearchCandle {
 }
 
 impl ElDorado {
+    pub async fn create_candles_schema(&self, pool: &PgPool) -> Result<(), sqlx::Error> {
+        let sql = r#"
+            CREATE SCHEMA IF NOT EXISTS candles
+            "#;
+        sqlx::query(sql).execute(pool).await?;
+        Ok(())
+    }
+
     pub async fn candle_table_exists(
         &self,
         market: &MarketDetail,
@@ -1487,21 +1503,29 @@ impl ElDorado {
         &self,
         market: &MarketDetail,
         dt: &DateTime<Utc>,
-        last: &PrIdTi,
+        last_trade: Option<PrIdTi>,
     ) -> Option<Vec<ProductionCandle>> {
-        // Select trades for the give date
+        // Select trades for the given date
         match market.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
                 let trades = FtxTrade::select_all(&self.pools[&Database::Ftx], market, dt)
                     .await
                     .expect("Failed to select trades.");
                 if trades.is_empty() {
+                    // TODO: Handle case where there are no trades for the day (Kraken in Jan 2018)
                     None
                 } else {
-                    let dr = self.create_mtd_candles_dr(market, dt, last, trades.last().unwrap());
+                    let dr =
+                        self.create_mtd_candles_dr(market, dt, last_trade, trades.last().unwrap());
+                    println!(
+                        "Candle Date Range for MTD Date {}: {} to {}",
+                        dt,
+                        dr.first().unwrap(),
+                        dr.last().unwrap()
+                    );
                     Some(ProductionCandle::from_trades_for_dr(
                         &trades,
-                        *last,
+                        last_trade,
                         &market.candle_timeframe.unwrap(),
                         &dr,
                     ))
@@ -1512,12 +1536,20 @@ impl ElDorado {
                     .await
                     .expect("Failed to select trades.");
                 if trades.is_empty() {
+                    // TODO: Handle case where there are no trades for the day (Kraken in Jan 2018)
                     None
                 } else {
-                    let dr = self.create_mtd_candles_dr(market, dt, last, trades.last().unwrap());
+                    let dr =
+                        self.create_mtd_candles_dr(market, dt, last_trade, trades.last().unwrap());
+                    println!(
+                        "Candle Date Range for MTD Date {}: {} to {}",
+                        dt,
+                        dr.first().unwrap(),
+                        dr.last().unwrap()
+                    );
                     Some(ProductionCandle::from_trades_for_dr(
                         &trades,
-                        *last,
+                        last_trade,
                         &market.candle_timeframe.unwrap(),
                         &dr,
                     ))
@@ -1530,8 +1562,9 @@ impl ElDorado {
         &self,
         market: &MarketDetail,
         dt: &DateTime<Utc>,
-        start: &PrIdTi,
-        end: &PrIdTi,
+        last_trade: &Option<PrIdTi>,
+        interval_start: &DateTime<Utc>,
+        interval_end: &DateTime<Utc>,
         trades: &[T],
     ) -> Vec<ProductionCandle> {
         let dr = if trades.is_empty() {
@@ -1544,16 +1577,32 @@ impl ElDorado {
             )
         } else {
             // Set last trade to start if start is None
-            self.create_fill_candles_dr(market, dt, start, end, trades.first().unwrap())
+            self.create_fill_candles_dr(
+                market,
+                last_trade,
+                interval_start,
+                interval_end,
+                trades.first().unwrap(),
+            )
         };
+        println!(
+            "Creating candles for dr from {} to {}",
+            dr.first().unwrap(),
+            dr.last().unwrap()
+        );
         // Create candles
-        ProductionCandle::from_trades_for_dr(trades, *start, &market.candle_timeframe.unwrap(), &dr)
+        ProductionCandle::from_trades_for_dr(
+            trades,
+            *last_trade,
+            &market.candle_timeframe.unwrap(),
+            &dr,
+        )
         // Save candles and trades
     }
 
     // Create a date range or the candles expected for the day of the given dt from the mtd. There
-    // are two possibilities for the start of the dr. If the give start PrIdTi does not have a
-    // trade id -> then there have been no production candles found to start the sync and the trade
+    // are two possibilities for the start of the dr. If the give last trade PrIdTi is None:
+    // then there have been no production candles found to start the sync and the trade
     // from the mtd will be the first candles. The day itself may be the first day of the market so
     // it will not start at 00:00 UTC and will need to start when the first trade occurs, truncated
     // to the timeframe. For example, if the first trade is at 00:07:23 and the TimeFrame is T05.
@@ -1563,11 +1612,11 @@ impl ElDorado {
         &self,
         market: &MarketDetail,
         dt: &DateTime<Utc>,
-        last: &PrIdTi,
+        last_trade: Option<PrIdTi>,
         trade: &T,
     ) -> Vec<DateTime<Utc>> {
         // Make date range for candles for the day.
-        let dr_start = match last.id {
+        let dr_start = match last_trade {
             // Last trade from last candle given, use the date given as the start
             Some(_) => *dt,
             // There have been no previous trades or candles loaded for sync. If there are
@@ -1587,15 +1636,15 @@ impl ElDorado {
     pub fn create_fill_candles_dr<T: Trade>(
         &self,
         market: &MarketDetail,
-        dt: &DateTime<Utc>,
-        start: &PrIdTi,
-        end: &PrIdTi,
+        last_trade: &Option<PrIdTi>,
+        interval_start: &DateTime<Utc>,
+        interval_end: &DateTime<Utc>,
         trade: &T,
     ) -> Vec<DateTime<Utc>> {
         // Make date range for candles for the day.
-        let dr_start = match start.id {
+        let dr_start = match last_trade {
             // Last trade from last candle given, use the date given as the start
-            Some(_) => *dt,
+            Some(_) => *interval_start,
             // There have been no previous trades or candles loaded for sync. If there are
             // trades on the date given, the first trade is when the candles should start.
             None => trade
@@ -1603,11 +1652,9 @@ impl ElDorado {
                 .duration_trunc(market.candle_timeframe.unwrap().as_dur())
                 .unwrap(),
         };
-        let dr_end = end
-            .dt
+        let dr_end = interval_end
             .duration_trunc(market.candle_timeframe.unwrap().as_dur())
-            .unwrap()
-            .min(*dt + Duration::days(1));
+            .unwrap();
         self.create_date_range(&dr_start, &dr_end, &market.candle_timeframe.unwrap())
     }
 }
