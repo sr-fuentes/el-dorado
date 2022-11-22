@@ -19,7 +19,7 @@ use std::fs::File;
 
 impl ElDorado {
     pub async fn sync(&self) -> HashMap<String, Heartbeat> {
-        let heartbeats: HashMap<String, Heartbeat> = HashMap::new();
+        let mut heartbeats: HashMap<String, Heartbeat> = HashMap::new();
         for market in self.markets.iter() {
             // For each market in eldorado instnace, determine the start time and id for the sync
             let (sync_start, last_trade, mut candles) = self.calculate_sync_start(market).await;
@@ -32,9 +32,9 @@ impl ElDorado {
                 .fill_trades_and_make_candles(market, sync_start, last_trade, first_trade)
                 .await;
             candles.append(&mut fill_candles);
-            // Sync the filled trades and the streamed trades to the current time frame interval
-            // let heartbeat = self.sync_to_now().await;
-            // heartbeats.insert(market.market_name.clone(), heartbeat);
+            // Create the heartbeat for the market given the sync'd candles
+            let heartbeat = self.create_heartbeat(market, candles).await;
+            heartbeats.insert(market.market_name.clone(), heartbeat);
         }
         heartbeats
     }
@@ -605,6 +605,39 @@ impl ElDorado {
                 }
                 candles
             }
+        }
+    }
+
+    // Take the candles created in the fill and sync functions and create the current heartbeat
+    // for the market
+    async fn create_heartbeat(
+        &self,
+        market: &MarketDetail,
+        candles: Vec<ProductionCandle>,
+    ) -> Heartbeat {
+        // Create hashmap for timeframes and their candles
+        let last = candles.last().expect("Expected at least one candle.");
+        let last_ts = last.datetime;
+        let last_price = last.close;
+        let mut candles_map = HashMap::new();
+        let base_tf = market
+            .candle_timeframe
+            .expect("Expected timeframe for market.");
+        candles_map.insert(base_tf, candles);
+        for tf in TimeFrame::time_frames().iter().skip(1) {
+            // Filter candles from flor of new timeframe
+            let filtered_candles: Vec<_> = candles_map[&tf.prev()]
+                .iter()
+                .filter(|c| c.datetime < last_ts.duration_trunc(tf.as_dur()).unwrap())
+                .cloned()
+                .collect();
+            let resampled_candles = self.resample_production_candles(&filtered_candles, tf);
+            candles_map.insert(*tf, resampled_candles);
+        }
+        Heartbeat {
+            ts: last_ts,
+            last: last_price,
+            candles: candles_map,
         }
     }
 }

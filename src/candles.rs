@@ -492,6 +492,27 @@ impl ProductionCandle {
         candles
     }
 
+    pub fn resample(candles: &[Self], tf: &TimeFrame, dr: &[DateTime<Utc>]) -> Vec<Self> {
+        // Check first that there are candles to resample
+        if candles.is_empty() {
+            // Return original empty vec
+            candles.to_vec()
+        } else {
+            // Create a candle for each date in the daterange
+            // TODO! - Test against drain filter for speed
+            dr.iter().fold(Vec::new(), |mut v, d| {
+                let interval_candles: Vec<_> = candles
+                    .iter()
+                    .filter(|c| c.datetime.duration_trunc(tf.as_dur()).unwrap() == *d)
+                    .cloned()
+                    .collect();
+                let resampled_candle = Self::new_from_candles(*d, &interval_candles);
+                v.push(resampled_candle);
+                v
+            })
+        }
+    }
+
     pub async fn create_table(
         pool: &PgPool,
         market: &MarketDetail,
@@ -1496,6 +1517,33 @@ impl ElDorado {
                 .unwrap();
             let dr = self.create_date_range(&first, &(last + tf.as_dur()), tf);
             ResearchCandle::resample(candles, tf, &dr)
+        }
+    }
+
+    pub fn resample_production_candles(
+        &self,
+        candles: &[ProductionCandle],
+        tf: &TimeFrame,
+    ) -> Vec<ProductionCandle> {
+        if !candles.is_empty() {
+            // Create date range for reample period
+            let first = candles
+                .first()
+                .expect("Expected candles.")
+                .datetime
+                .duration_trunc(tf.as_dur())
+                .expect("Expected truncation");
+            let last = candles
+                .last()
+                .expect("Expected candles.")
+                .datetime
+                .duration_trunc(tf.as_dur())
+                .expect("Expected truncation.");
+            let dr = self.create_date_range(&first, &(last + tf.as_dur()), tf);
+            ProductionCandle::resample(candles, tf, &dr)
+        } else {
+            // No candles to resample, return empty vec
+            Vec::new()
         }
     }
 

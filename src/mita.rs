@@ -568,6 +568,16 @@ impl ElDorado {
         // restart
         false
     }
+
+    // async fn process_interval() {
+    //         // Create date range for days to sync - typically one day, sometimes two
+    //         let interval_start = candles.last().expect("No candles in market.").datetime + market.candle_timeframe.expect("No candle timeframe").as_dur();
+    //         let interval_end = now.duration_trunc(market.candle_timeframe.expect("No Candle Timeframe.").as_dur()).unwrap();
+    //         let dr = self.create_date_range(&interval_start, &interval_end, market.candle_timeframe.expect("No Candle Timefram.").as_dur());
+
+    //     // For each date in the date range, get the trades from the db and make the candle
+    //     let mut last_trade = candles.last().expect("No candles.").close_as_pridti();
+    // }
 }
 
 #[cfg(test)]
