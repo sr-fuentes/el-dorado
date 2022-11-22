@@ -10,6 +10,7 @@ use crate::markets::{
     MarketDetail, MarketStatus,
 };
 use crate::metrics::{delete_metrics_ap_by_exchange_market, insert_metric_ap, MetricAP};
+use crate::trades::PrIdTi;
 use crate::trades::{
     insert_delete_ftx_trades, insert_delete_gdax_trades, select_ftx_trades_by_time,
     select_gdax_trades_by_time, select_insert_drop_trades,
@@ -17,7 +18,6 @@ use crate::trades::{
 use crate::utilities::TimeFrame;
 use crate::utilities::Twilio;
 use chrono::{DateTime, Duration, DurationRound, Utc};
-use rust_decimal::Decimal;
 use sqlx::PgPool;
 use std::collections::HashMap;
 
@@ -38,8 +38,9 @@ pub struct Mita {
 #[derive(Debug)]
 pub struct Heartbeat {
     pub ts: DateTime<Utc>,
-    pub last: Decimal,
+    pub last: PrIdTi,
     pub candles: HashMap<TimeFrame, Vec<ProductionCandle>>,
+    pub metrics: Option<Vec<MetricAP>>,
 }
 
 impl Mita {
@@ -389,8 +390,8 @@ impl Mita {
         let n = new_candles.len();
         // println!("{} new candles: {:?}", n, new_candles);
         // Set last and heartbeat time
-        let last = new_candles.last().unwrap().close;
         let ts = new_candles.last().unwrap().datetime;
+        let last_pridti = new_candles.last().unwrap().close_as_pridti();
         // Create hash map of candles for new heartbeat
         let mut map_candles = HashMap::new();
         // Insert hbft candles - clone the current heartbeat which will be dropped when replaced
@@ -465,8 +466,9 @@ impl Mita {
         // Return new heartbeat
         Some(Heartbeat {
             ts,
-            last,
+            last: last_pridti,
             candles: map_candles,
+            metrics: None,
         })
     }
 
@@ -482,8 +484,8 @@ impl Mita {
         .await
         .expect("Failed to select candles.");
         // Set last and heartbeat time
-        let last = candles.last().unwrap().close;
         let ts = candles.last().unwrap().datetime;
+        let last_pridti = candles.last().unwrap().close_as_pridti();
         // Create map for each time frame
         let mut map_candles = HashMap::new();
         map_candles.insert(TimeFrame::T15, candles);
@@ -501,8 +503,9 @@ impl Mita {
         }
         Heartbeat {
             ts,
-            last,
+            last: last_pridti,
             candles: map_candles,
+            metrics: None,
         }
     }
 

@@ -36,6 +36,28 @@ impl ElDorado {
             let heartbeat = self.create_heartbeat(market, candles).await;
             heartbeats.insert(market.market_name.clone(), heartbeat);
         }
+        for hb in heartbeats.iter() {
+            println!(
+                "Heartbeat for {}:\tDT: {}\tLast: {}",
+                hb.0, hb.1.ts, hb.1.last
+            );
+            for c in hb.1.candles.iter() {
+                println!(
+                    "TF: {}\tFirst: {}\tLast: {}\tCount: {}",
+                    c.0,
+                    c.1.first().unwrap().datetime,
+                    c.1.last().unwrap().datetime,
+                    c.1.len()
+                );
+            }
+            if hb.1.metrics.is_none() {
+                println!("No metrics.");
+            } else {
+                for m in hb.1.metrics.as_ref().unwrap().iter() {
+                    println!("Metric: {}\t{}\t{}", m.time_frame, m.lbp, m.datetime);
+                }
+            }
+        }
         heartbeats
     }
 
@@ -509,7 +531,7 @@ impl ElDorado {
         // Fill trades for each day
         for d in dr.iter() {
             println!("Filling trades and making candles for date: {}", d);
-            let mut new_candles = self
+            let new_candles = self
                 .fill_trades_and_make_candles_for_dt(
                     market,
                     &sync_start,
@@ -518,12 +540,14 @@ impl ElDorado {
                     d,
                 )
                 .await;
-            last_trade = if !new_candles.is_empty() {
-                Some(new_candles.last().unwrap().close_as_pridti())
-            } else {
-                last_trade
+            last_trade = match new_candles {
+                Some(mut ncs) => {
+                    let lt = ncs.last().unwrap().close_as_pridti();
+                    fill_candles.append(&mut ncs);
+                    Some(lt)
+                }
+                None => last_trade,
             };
-            fill_candles.append(&mut new_candles);
         }
         fill_candles
     }
@@ -535,7 +559,7 @@ impl ElDorado {
         last_trade: &Option<PrIdTi>,
         first_trade: &PrIdTi,
         dt: &DateTime<Utc>,
-    ) -> Vec<ProductionCandle> {
+    ) -> Option<Vec<ProductionCandle>> {
         // Create trade table
         self.create_trade_table(market, *dt).await;
         match market.exchange_name {
@@ -560,17 +584,22 @@ impl ElDorado {
                     &interval_end,
                     &trades,
                 );
-                for candle in candles.iter() {
-                    candle
-                        .insert(
-                            &self.pools[&Database::Ftx],
-                            market,
-                            &market.candle_timeframe.unwrap(),
-                        )
-                        .await
-                        .expect("Failed to insert candle.");
+                match candles {
+                    Some(cs) => {
+                        for candle in cs.iter() {
+                            candle
+                                .insert(
+                                    &self.pools[&Database::Ftx],
+                                    market,
+                                    &market.candle_timeframe.unwrap(),
+                                )
+                                .await
+                                .expect("Failed to insert candle.");
+                        }
+                        Some(cs)
+                    }
+                    None => None,
                 }
-                candles
             }
             ExchangeName::Gdax => {
                 // Fill trades for day
@@ -593,17 +622,22 @@ impl ElDorado {
                     &interval_end,
                     &trades,
                 );
-                for candle in candles.iter() {
-                    candle
-                        .insert(
-                            &self.pools[&Database::Gdax],
-                            market,
-                            &market.candle_timeframe.unwrap(),
-                        )
-                        .await
-                        .expect("Failed to insert candle.");
+                match candles {
+                    Some(cs) => {
+                        for candle in cs.iter() {
+                            candle
+                                .insert(
+                                    &self.pools[&Database::Gdax],
+                                    market,
+                                    &market.candle_timeframe.unwrap(),
+                                )
+                                .await
+                                .expect("Failed to insert candle.");
+                        }
+                        Some(cs)
+                    }
+                    None => None,
                 }
-                candles
             }
         }
     }
@@ -618,7 +652,7 @@ impl ElDorado {
         // Create hashmap for timeframes and their candles
         let last = candles.last().expect("Expected at least one candle.");
         let last_ts = last.datetime;
-        let last_price = last.close;
+        let last_pridti = last.close_as_pridti();
         let mut candles_map = HashMap::new();
         let base_tf = market
             .candle_timeframe
@@ -636,8 +670,9 @@ impl ElDorado {
         }
         Heartbeat {
             ts: last_ts,
-            last: last_price,
+            last: last_pridti,
             candles: candles_map,
+            metrics: None,
         }
     }
 }

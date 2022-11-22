@@ -1614,7 +1614,7 @@ impl ElDorado {
         interval_start: &DateTime<Utc>,
         interval_end: &DateTime<Utc>,
         trades: &[T],
-    ) -> Vec<ProductionCandle> {
+    ) -> Option<Vec<ProductionCandle>> {
         let dr = if trades.is_empty() {
             // Rare edge case where there are not trades on the day - can happen with
             // exchange outages like Kraken in Jan 2018
@@ -1633,19 +1633,23 @@ impl ElDorado {
                 trades.first().unwrap(),
             )
         };
-        println!(
-            "Creating candles for dr from {} to {}",
-            dr.first().unwrap(),
-            dr.last().unwrap()
-        );
-        // Create candles
-        ProductionCandle::from_trades_for_dr(
-            trades,
-            *last_trade,
-            &market.candle_timeframe.unwrap(),
-            &dr,
-        )
-        // Save candles and trades
+        if !dr.is_empty() {
+            println!(
+                "Creating candles for dr from {} to {}",
+                dr.first().unwrap(),
+                dr.last().unwrap()
+            );
+            // Create candles
+            Some(ProductionCandle::from_trades_for_dr(
+                trades,
+                *last_trade,
+                &market.candle_timeframe.unwrap(),
+                &dr,
+            ))
+        } else {
+            println!("No candles to make. DR len 0");
+            None
+        }
     }
 
     // Create a date range or the candles expected for the day of the given dt from the mtd. There
