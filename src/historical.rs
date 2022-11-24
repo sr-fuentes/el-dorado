@@ -675,6 +675,57 @@ impl ElDorado {
             metrics: None,
         }
     }
+
+    // Fill trades to the beginning of the market open on exchange from the first candle/trade
+    // day in el-dorado. Process will create a market trade detail record for each market working
+    // from the first candle backwards until the first trade for the market. From there the
+    // validation period will begin from the start through the current date.
+    // Example:
+    //      Market: BTC-PERP
+    //      El-Dorado began with a 90 day sync starting 15-NOV-2021 to present. Existing trades
+    //      are a mix of validated/unvalidated and archived trades.
+    //      Process:
+    //          1) Create Market Trade Details entry for BTC-PERP market
+    //          2) Populate market_id, first_trade_ts, first_trade_id, prev_trade_day, prev_stat
+    //          3) uuid | 2021-11-15 00:00:01 | 123456 | 2021-11-14 | get
+    //          4) Event or process will create trades_ftx_btcperp_20211114 table
+    //          5) Get trades for 14-Nov-2022 and put in that table
+    //          6) Once complete, update first trade ts/id, prev day, create 01d candle
+    //          7) Validate 01d can - if validated - archive trades to csv file and drop table
+    //          7) Repeat for 13-Nov-2022 until you reach beginning of market
+    //          8) At beginning set start_ts, set prev status to Completed
+    //          9) Set next day to prev day, set next status to validate
+    //          10) Validated next day, if validated - archive and move date forward
+    //          11) If not validated, create manual validation event, send sms, exit
+    pub async fn fill(&self, market: &Option<MarketDetail>, automate: Option<bool>) {
+        // Eval params to determine to run and whether to automate or get manual inputs
+        let markets = match market {
+            Some(m) => {
+                // Validate that market given is eligible for fill
+                [*m].to_vec(),
+            }
+            None => self.select_markets_eligible_for_fill().await,
+        };
+        let automate = automate.unwrap_or(true);
+        // For each market: fill back than forward until either fully synced or manual input to stop
+        for market in markets.iter() {
+            // Get market trade detail
+            let mtd = self.get_market_trade_detail(market).await;
+            // Get next fill event
+            let fill_event = match self.get_fill_event(market, &mtd).await {
+                Some(e) => e,
+                None => {
+                    // No new event, market is up to date and validated to the current day
+                    println!("No fill events for {}.", market.market_name);
+                    println!("Next Date: {}\tNext Status: {}", mtd.next_day, mtd.next_status);
+                    continue;
+                }
+            };
+            // Process fill event
+            self.fill_market(&fill_event, automate).await;
+        };
+    } 
+
 }
 
 impl Inquisidor {
