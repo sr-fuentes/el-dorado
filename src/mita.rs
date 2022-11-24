@@ -242,8 +242,7 @@ impl Mita {
             let mut metrics: Vec<MetricAP> = Vec::new();
             for tf in TimeFrame::time_frames().iter() {
                 let mut new_metrics = MetricAP::new(
-                    &market.market_name,
-                    &self.exchange.name,
+                    market,
                     *tf,
                     &heartbeats[market.market_name.as_str()].candles[tf],
                 );
@@ -399,12 +398,7 @@ impl Mita {
         candles.append(&mut new_candles);
         map_candles.insert(TimeFrame::T15, candles);
         // Insert metrics for hbtf
-        let mut metrics = MetricAP::new(
-            &market.market_name,
-            &market.exchange_name,
-            TimeFrame::T15,
-            &map_candles[&TimeFrame::T15],
-        );
+        let mut metrics = MetricAP::new(market, TimeFrame::T15, &map_candles[&TimeFrame::T15]);
         // For each time frame either append new candle and insert or insert existing candles
         for tf in TimeFrame::time_frames().iter().skip(1) {
             if heartbeat.candles[tf].last().unwrap().datetime + tf.as_dur()
@@ -429,8 +423,7 @@ impl Mita {
                 let mut candles = heartbeat.candles[tf].clone();
                 candles.append(&mut resampled_candles);
                 // Calc metrics on new candle vec
-                let mut more_metrics =
-                    MetricAP::new(&market.market_name, &market.exchange_name, *tf, &candles);
+                let mut more_metrics = MetricAP::new(market, *tf, &candles);
                 metrics.append(&mut more_metrics);
                 map_candles.insert(*tf, candles);
             } else {
@@ -559,28 +552,177 @@ impl ElDorado {
 
     // Sync by determiniting the last good state and filling trades from that state to the current
     // first streamed trade. Then and Run Mita loop
-    pub async fn sync_and_run_mita(&self) -> bool {
+    async fn sync_and_run_mita(&self) -> bool {
         // Wait for 5 seconds for stream to start
         tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
         // self.instance.update_status(&InstanceStatus::Sync).await;
         // Sync candles from start to current time frame
-        let _heartbeats = self.sync().await;
+        let heartbeats = self.sync().await;
         println!("Starting MITA loop.");
         // self.instance.update_status(&InstanceStatus::Active).await;
-        // let restart = self.run_mita(heartbeats).await;
-        // restart
-        false
+        let restart = self.run_mita(heartbeats).await;
+        restart
     }
 
-    // async fn process_interval() {
-    //         // Create date range for days to sync - typically one day, sometimes two
-    //         let interval_start = candles.last().expect("No candles in market.").datetime + market.candle_timeframe.expect("No candle timeframe").as_dur();
-    //         let interval_end = now.duration_trunc(market.candle_timeframe.expect("No Candle Timeframe.").as_dur()).unwrap();
-    //         let dr = self.create_date_range(&interval_start, &interval_end, market.candle_timeframe.expect("No Candle Timefram.").as_dur());
+    // Run the Mita instance - at each interval for each market - aggregate trades into new candle
+    // resample if needed and publish metrics with new candle datapoint
+    async fn run_mita(&self, mut heartbeats: HashMap<String, Heartbeat>) -> bool {
+        loop {
+            // Set loop timestamp
+            let dt = Utc::now();
+            // For each market, check if loop datetime is greater than market heartbeat
+            for market in self.markets.iter() {
+                match self.check_interval(market, &heartbeats[&market.market_name], &dt) {
+                    Some(end) => {
+                        match self
+                            .process_interval(market, &heartbeats[&market.market_name], &end)
+                            .await
+                        {
+                            Some(hb) => heartbeats.insert(market.market_name.clone(), hb),
+                            None => continue,
+                        }
+                    }
+                    None => continue,
+                };
+            }
+            // Reload heartbeats if needed (ie when a candle validation is updated)
+            // Sleep for 200 ms to give control back to tokio scheduler
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        }
+    }
 
-    //     // For each date in the date range, get the trades from the db and make the candle
-    //     let mut last_trade = candles.last().expect("No candles.").close_as_pridti();
-    // }
+    // Check if there is a new interval to process. This can occur in two scenarios:
+    // 1) The new timestamp is greater than the heartbeat timestamp + one interval.
+    // 2) There is no metrics in the heartbeat
+    fn check_interval(
+        &self,
+        market: &MarketDetail,
+        heartbeat: &Heartbeat,
+        dt: &DateTime<Utc>,
+    ) -> Option<DateTime<Utc>> {
+        let trunc_dt = dt
+            .duration_trunc(market.candle_timeframe.unwrap().as_dur())
+            .unwrap();
+        println!("Trunc dt: {}\tHeartbeat TS: {}", trunc_dt, heartbeat.ts);
+        if trunc_dt > heartbeat.ts + market.candle_timeframe.unwrap().as_dur() {
+            println!(
+                "New heartbeat interval for {}: {}",
+                market.market_name, trunc_dt
+            );
+            Some(trunc_dt)
+        } else if heartbeat.metrics.is_none() {
+            println!("No metrics, calculating from current heartbeat.");
+            Some(trunc_dt)
+        } else {
+            None
+        }
+    }
+
+    async fn process_interval(
+        &self,
+        market: &MarketDetail,
+        heartbeat: &Heartbeat,
+        interval_end: &DateTime<Utc>,
+    ) -> Option<Heartbeat> {
+        // Create date range of intervals to process - most of the time this will be for one
+        // interval but may involve multiple intervals if the sync is long
+        let interval_start = heartbeat.ts + market.candle_timeframe.unwrap().as_dur();
+        let dr = self.create_date_range(
+            &interval_start,
+            interval_end,
+            &market.candle_timeframe.expect("No Candle Timefram."),
+        );
+        println!("Process interval dr: {:?}", dr);
+        if !dr.is_empty() {
+            // There are intervals to process, process then run metrics
+            match self
+                .make_production_candles_for_interval(market, &dr, &heartbeat.last)
+                .await
+            {
+                Some(candles) => {
+                    println!("Updating heartbeat.");
+                    Some(
+                        self.update_heartbeat(market, heartbeat, candles, interval_end)
+                            .await,
+                    )
+                }
+                None => None,
+            }
+        } else if heartbeat.metrics.is_none() {
+            // There are no intervals to process but metrics need to be updated
+            println!("Updating and inserting metrics.");
+            let metrics = self.calc_metrics_all_tfs(market, heartbeat);
+            self.insert_metrics_ap(&metrics).await;
+            Some(Heartbeat {
+                ts: heartbeat.ts,
+                last: heartbeat.last,
+                candles: heartbeat.candles.clone(),
+                metrics: Some(metrics),
+            })
+        } else {
+            None
+        }
+    }
+
+    async fn update_heartbeat(
+        &self,
+        market: &MarketDetail,
+        heartbeat: &Heartbeat,
+        mut candles: Vec<ProductionCandle>,
+        interval_end: &DateTime<Utc>,
+    ) -> Heartbeat {
+        // Create hashmap for timeframes and candles
+        let last = candles.last().expect("Expected candle in Vec.");
+        let last_ts = last.datetime;
+        let last_pridti = last.close_as_pridti();
+        let mut candles_map = HashMap::new();
+        let base_tf = market.candle_timeframe.unwrap();
+        let mut base_candles = heartbeat.candles[&base_tf].clone();
+        base_candles.append(&mut candles);
+        candles_map.insert(base_tf, base_candles);
+        // Start metrics vec
+        let mut metrics = MetricAP::new(market, base_tf, &candles_map[&base_tf]);
+        // For each time frame - either append new candle for interval or clone existing
+        for tf in TimeFrame::time_frames().iter().skip(1) {
+            let hb_last = heartbeat.candles[tf].last().unwrap();
+            if hb_last.datetime + tf.as_dur() < interval_end.duration_trunc(tf.as_dur()).unwrap() {
+                // Resample new candles to tf and add to tf candles
+                let new_candles: Vec<_> = candles_map[&base_tf]
+                    .iter()
+                    .filter(|c| {
+                        c.datetime >= hb_last.datetime + tf.as_dur()
+                            && c.datetime < interval_end.duration_trunc(tf.as_dur()).unwrap()
+                    })
+                    .cloned()
+                    .collect();
+                let mut resampled_candles = self.resample_production_candles(&new_candles, tf);
+                println!("{} new {} resampled candles.", resampled_candles.len(), tf);
+                let mut candles = heartbeat.candles[tf].clone();
+                candles.append(&mut resampled_candles);
+                // Calc metrics on new candle vec
+                let mut more_metrics = MetricAP::new(market, *tf, &candles);
+                metrics.append(&mut more_metrics);
+                candles_map.insert(*tf, candles);
+            } else {
+                // Interval end does not create new interval for timeframe
+                candles_map.insert(*tf, heartbeat.candles[tf].clone());
+            }
+        }
+        // Insert metrics to db
+        self.insert_metrics_ap(&metrics).await;
+        // Update the market last candle
+        market
+            .update_last_candle(&self.pools[&Database::ElDorado], &last_ts)
+            .await
+            .expect("Failed to update market last candle.");
+        // Return the new heartbeat
+        Heartbeat {
+            ts: last_ts,
+            last: last_pridti,
+            candles: candles_map,
+            metrics: Some(metrics),
+        }
+    }
 }
 
 #[cfg(test)]

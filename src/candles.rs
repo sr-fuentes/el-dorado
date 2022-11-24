@@ -1635,7 +1635,7 @@ impl ElDorado {
         };
         if !dr.is_empty() {
             println!(
-                "Creating candles for dr from {} to {}",
+                "Creating candlesfrom {} through {}",
                 dr.first().unwrap(),
                 dr.last().unwrap()
             );
@@ -1649,6 +1649,29 @@ impl ElDorado {
         } else {
             println!("No candles to make. DR len 0");
             None
+        }
+    }
+
+    pub async fn make_production_candles_for_interval(
+        &self,
+        market: &MarketDetail,
+        dr: &Vec<DateTime<Utc>>,
+        last_trade: &PrIdTi,
+    ) -> Option<Vec<ProductionCandle>> {
+        match market.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => None,
+            ExchangeName::Gdax => {
+                // Get the trades for the interval
+                self.select_gdax_trades_for_interval(market, dr).await.map(
+                    |trades|  // Make candles with the trades
+                        ProductionCandle::from_trades_for_dr(
+                            &trades,
+                            Some(*last_trade),
+                            &market.candle_timeframe.unwrap(),
+                            dr,
+                        ),
+                )
+            }
         }
     }
 

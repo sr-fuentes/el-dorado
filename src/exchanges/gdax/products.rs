@@ -224,6 +224,32 @@ impl Trade {
         let rows = sqlx::query_as::<_, Trade>(&sql).fetch_all(pool).await?;
         Ok(rows)
     }
+
+    pub async fn select_gte_and_lt_dts(
+        pool: &PgPool,
+        market: &MarketDetail,
+        dt: &DateTime<Utc>,
+        start: &DateTime<Utc>,
+        end: &DateTime<Utc>,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        let sql = format!(
+            r#"
+            SELECT trade_id, price, size, side, time
+            FROM trades.{}_{}_{}
+            WHERE time >= $1 AND time < $2
+            ORDER BY trade_id ASC
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            dt.format("%Y%m%d")
+        );
+        let rows = sqlx::query_as::<_, Trade>(&sql)
+            .bind(start)
+            .bind(end)
+            .fetch_all(pool)
+            .await?;
+        Ok(rows)
+    }
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug)]

@@ -170,6 +170,25 @@ impl TryFrom<String> for MarketDataStatus {
 }
 
 impl MarketDetail {
+    pub async fn update_last_candle(
+        &self,
+        pool: &PgPool,
+        dt: &DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"
+            UPDATE markets
+            SET last_candle  = $1
+            WHERE market_id = $2
+            "#,
+            dt,
+            self.market_id,
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn select_all(pool: &PgPool) -> Result<Vec<Self>, sqlx::Error> {
         let rows = sqlx::query_as!(
             MarketDetail,

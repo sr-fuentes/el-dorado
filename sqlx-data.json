@@ -435,6 +435,19 @@
       ]
     }
   },
+  "34a87af57f943a17968609a01bc929b6e64e30bf008ed3007765424a22ff3a6c": {
+    "query": "\n            UPDATE markets\n            SET last_candle  = $1\n            WHERE market_id = $2\n            ",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Timestamptz",
+          "Uuid"
+        ]
+      },
+      "nullable": []
+    }
+  },
   "3656e7faa8f268850c1682b6868ad8d53d5d65cb4b8d1c5c476cbd39ed7e7b2d": {
     "query": "\n            UPDATE market_trade_details\n            SET (next_trade_day, next_status) = ($1, $2)\n            WHERE market_id = $3\n            ",
     "describe": {

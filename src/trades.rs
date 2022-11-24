@@ -447,6 +447,58 @@ impl ElDorado {
             }
         }
     }
+
+    // Select all gdax trades from the gdax db for the market for the interval given. This may be
+    // accross mulitple tables as the tables are broken up by day
+    pub async fn select_gdax_trades_for_interval(
+        &self,
+        market: &MarketDetail,
+        dr: &Vec<DateTime<Utc>>,
+    ) -> Option<Vec<GdaxTrade>> {
+        // Assert that the dr has dates and is not empty
+        let (first, last) = match !dr.is_empty() {
+            true => {
+                // Safely unwrap the first and last items of the dr
+                (
+                    dr.first().expect("Expected dates in daterange."),
+                    dr.last().expect("Expected dates in daterange."),
+                )
+            }
+            false => {
+                // No dates in dr, return no trades
+                return None;
+            }
+        };
+        println!("Selecting trades from {} to {}", first, last);
+        let mut trades = Vec::new();
+        let days = self.create_date_range(
+            &first.duration_trunc(Duration::days(1)).unwrap(),
+            &(last.duration_trunc(Duration::days(1)).unwrap() + Duration::days(1)),
+            &TimeFrame::D01,
+        );
+        for d in days.iter() {
+            // Select trades
+            println!(
+                "Selecting {} trades for {} for interval.",
+                market.market_name, d
+            );
+            let mut db_trades = GdaxTrade::select_gte_and_lt_dts(
+                &self.pools[&Database::Gdax],
+                market,
+                d,
+                first,
+                last,
+            )
+            .await
+            .expect("Failed to select trades.");
+            trades.append(&mut db_trades);
+        }
+        if !trades.is_empty() {
+            Some(trades)
+        } else {
+            None
+        }
+    }
 }
 
 impl Inquisidor {

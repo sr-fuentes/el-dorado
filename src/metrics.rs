@@ -1,7 +1,7 @@
-use crate::candles::ProductionCandle;
-use crate::exchanges::ExchangeName;
-use crate::markets::MarketDetail;
-use crate::utilities::TimeFrame;
+use crate::{
+    candles::ProductionCandle, configuration::Database, eldorado::ElDorado,
+    exchanges::ExchangeName, markets::MarketDetail, mita::Heartbeat, utilities::TimeFrame,
+};
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
@@ -177,8 +177,7 @@ impl Metric {
 impl MetricAP {
     // Takes vec of candles for a time frame and calculates metrics for the period
     pub fn new(
-        market: &str,
-        exchange: &ExchangeName,
+        market: &MarketDetail,
         tf: TimeFrame,
         candles: &[ProductionCandle],
     ) -> Vec<MetricAP> {
@@ -321,8 +320,8 @@ impl MetricAP {
             let bz = Metric::z(&vecs.10, range_shift_start, range_shift_end).round_dp(2);
             let lwz = Metric::z(&vecs.11, range_shift_start, range_shift_end).round_dp(2);
             let new_metric = MetricAP {
-                market_name: market.to_string(),
-                exchange_name: *exchange,
+                market_name: market.market_name.clone(),
+                exchange_name: market.exchange_name,
                 datetime,
                 time_frame: tf,
                 lbp: *lbp,
@@ -376,6 +375,104 @@ impl MetricAP {
                 lwz,
             };
             metrics.push(new_metric);
+        }
+        metrics
+    }
+
+    pub async fn insert(&self, pool: &PgPool) -> Result<(), sqlx::Error> {
+        let sql = r#"
+            INSERT INTO metrics_ap (
+                exchange_name, market_name, datetime, time_frame, lbp, high, low, close, r, H004R, 
+                H004C, L004R,
+                L004C, H008R, H008C, L008R, L008C, H012R, H012C, L012R,
+                L012C, H024R, H024C, L024R, L024C, H048R, H048C, L048R,
+                L048C, H096R, H096C, L096R, L096C, H192R, H192C, L192R,
+                L192C, EMA1, EMA2, EMA3, MV1, MV2, MV3,
+                ofs, vs, rs, n, trs, uws, mbs, lws, ma, vw, insert_ts)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+                $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35,
+                $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52,
+                $53, now())
+            "#;
+        sqlx::query(sql)
+            .bind(self.exchange_name.as_str())
+            .bind(&self.market_name)
+            .bind(self.datetime)
+            .bind(self.time_frame.as_str())
+            .bind(self.lbp)
+            .bind(self.high)
+            .bind(self.low)
+            .bind(self.close)
+            .bind(self.r)
+            .bind(self.h004h)
+            .bind(self.h004c)
+            .bind(self.l004l)
+            .bind(self.l004c)
+            .bind(self.h008h)
+            .bind(self.h008c)
+            .bind(self.l008l)
+            .bind(self.l008c)
+            .bind(self.h012h)
+            .bind(self.h012c)
+            .bind(self.l012l)
+            .bind(self.l012c)
+            .bind(self.h024h)
+            .bind(self.h024c)
+            .bind(self.l024l)
+            .bind(self.l024c)
+            .bind(self.h048h)
+            .bind(self.h048c)
+            .bind(self.l048l)
+            .bind(self.l048c)
+            .bind(self.h096h)
+            .bind(self.h096c)
+            .bind(self.l096l)
+            .bind(self.l096c)
+            .bind(self.h192h)
+            .bind(self.h192c)
+            .bind(self.l192l)
+            .bind(self.l192c)
+            .bind(self.ema1)
+            .bind(self.ema2)
+            .bind(self.ema3)
+            .bind(self.mv1)
+            .bind(self.mv2)
+            .bind(self.mv3)
+            .bind(self.ofz)
+            .bind(self.vz)
+            .bind(self.rz)
+            .bind(self.atr)
+            .bind(self.trz)
+            .bind(self.uwz)
+            .bind(self.bz)
+            .bind(self.lwz)
+            .bind(self.ma)
+            .bind(self.vw)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+}
+
+impl ElDorado {
+    pub async fn insert_metrics_ap(&self, metrics: &[MetricAP]) {
+        for metric in metrics.iter() {
+            metric
+                .insert(&self.pools[&Database::ElDorado])
+                .await
+                .expect("Failed to insert metric.");
+        }
+    }
+
+    pub fn calc_metrics_all_tfs(
+        &self,
+        market: &MarketDetail,
+        heartbeat: &Heartbeat,
+    ) -> Vec<MetricAP> {
+        let mut metrics = Vec::new();
+        for tf in TimeFrame::time_frames().iter() {
+            let mut tf_metrics = MetricAP::new(market, *tf, &heartbeat.candles[tf]);
+            metrics.append(&mut tf_metrics);
         }
         metrics
     }
@@ -543,41 +640,41 @@ mod tests {
     use sqlx::PgPool;
     use uuid::Uuid;
 
-    #[tokio::test]
-    pub async fn new_metrics_calculations_and_times() {
-        // Select set of candles and calc metrics for them.
-        // Expand to 91 days scenario and calculations for all time frame and lbps
-        // Exclude time to fetch candles from database in this calc.
-        // Load configuration
-        let configuration = get_configuration().expect("Failed to read configuration.");
-        println!("Configuration: {:?}", configuration);
-        // Create db connection
-        let pool = PgPool::connect_with(configuration.ftx_db.with_db())
-            .await
-            .expect("Failed to connect to Postgres.");
-        // Get candles from db
-        let start = Utc.ymd(2021, 09, 25).and_hms(0, 0, 0);
-        let candles = select_candles_gte_datetime(
-            &pool,
-            &ExchangeName::FtxUs,
-            &Uuid::parse_str("2246c870-769f-44a4-b989-ffa2de37f8b1").unwrap(),
-            start,
-        )
-        .await
-        .expect("Failed to select candles.");
-        println!("Num Candles: {:?}", candles.len());
-        let timer_start = Utc::now();
-        let metrics = MetricAP::new("BTC-PERP", &ExchangeName::Ftx, TimeFrame::T15, &candles);
-        let timer_end = Utc::now();
-        let time_elapsed = timer_end - timer_start;
-        println!("Time to calc: {:?}", time_elapsed);
-        println!("Metrics: {:?}", metrics);
-        for metric in metrics.iter() {
-            insert_metric_ap(&pool, metric)
-                .await
-                .expect("Failed to insert metric ap.");
-        }
-    }
+    // #[tokio::test]
+    // pub async fn new_metrics_calculations_and_times() {
+    //     // Select set of candles and calc metrics for them.
+    //     // Expand to 91 days scenario and calculations for all time frame and lbps
+    //     // Exclude time to fetch candles from database in this calc.
+    //     // Load configuration
+    //     let configuration = get_configuration().expect("Failed to read configuration.");
+    //     println!("Configuration: {:?}", configuration);
+    //     // Create db connection
+    //     let pool = PgPool::connect_with(configuration.ftx_db.with_db())
+    //         .await
+    //         .expect("Failed to connect to Postgres.");
+    //     // Get candles from db
+    //     let start = Utc.ymd(2021, 09, 25).and_hms(0, 0, 0);
+    //     let candles = select_candles_gte_datetime(
+    //         &pool,
+    //         &ExchangeName::FtxUs,
+    //         &Uuid::parse_str("2246c870-769f-44a4-b989-ffa2de37f8b1").unwrap(),
+    //         start,
+    //     )
+    //     .await
+    //     .expect("Failed to select candles.");
+    //     println!("Num Candles: {:?}", candles.len());
+    //     let timer_start = Utc::now();
+    //     let metrics = MetricAP::new("BTC-PERP", &ExchangeName::Ftx, TimeFrame::T15, &candles);
+    //     let timer_end = Utc::now();
+    //     let time_elapsed = timer_end - timer_start;
+    //     println!("Time to calc: {:?}", time_elapsed);
+    //     println!("Metrics: {:?}", metrics);
+    //     for metric in metrics.iter() {
+    //         insert_metric_ap(&pool, metric)
+    //             .await
+    //             .expect("Failed to insert metric ap.");
+    //     }
+    // }
 
     #[tokio::test]
     pub async fn calc_daily_ema() {
