@@ -1,11 +1,9 @@
 use crate::configuration::Database;
 use crate::eldorado::ElDorado;
 use crate::exchanges::{error::WsError, ws::Channel, ws::Data, ws::WebSocket, ExchangeName};
-use crate::mita::Mita;
-use crate::trades::{insert_ftx_trade, insert_gdax_trade, Trade};
+use crate::trades::Trade;
 use chrono::{DateTime, Utc};
 use futures::StreamExt;
-use std::collections::HashMap;
 use std::io::ErrorKind;
 use tokio_tungstenite::tungstenite::error::ProtocolError;
 
@@ -132,118 +130,6 @@ impl ElDorado {
             };
         }
         channels
-    }
-}
-
-impl Mita {
-    pub async fn stream(&self) -> bool {
-        // Run ::reset_trade_tables for ws before calling this function or the table
-        // may not exist that the streamed trades write to.
-        // Initiate channel and map data structures
-        let mut channels = Vec::new();
-        let mut market_details = HashMap::new();
-        // Drop and re-create _ws table for markets and populate data structures
-        for market in self.markets.iter() {
-            match &self.exchange.name {
-                ExchangeName::Ftx | ExchangeName::FtxUs => {
-                    channels.push(Channel::Trades(market.market_name.to_owned()))
-                }
-                ExchangeName::Gdax => {
-                    channels.push(Channel::Ticker(market.market_name.to_owned()));
-                }
-            };
-            market_details.insert(market.market_name.as_str(), market);
-        }
-        // println!("Market details map: {:?}", market_details);
-        // Create ws client
-        let mut ws = WebSocket::connect(&self.exchange.name)
-            .await
-            .expect("Failed to connect to ws.");
-        // Subscribe to trades channels for each market
-        match ws.subscribe(channels).await {
-            Ok(_) => {}
-            Err(WsError::MissingSubscriptionConfirmation) => {
-                println!("Missing subscription confirmation, sleep 5s and restart.");
-                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                return true;
-            }
-            Err(e) => {
-                println!("Subscription error: {:?}", e);
-                return false;
-            }
-        };
-        // Loop forever writing each trade to the database
-        loop {
-            let data = ws.next().await.expect("No data received.");
-            match data {
-                Ok((Some(market), Data::FtxTrade(trade))) => {
-                    insert_ftx_trade(
-                        &self.trade_pool,
-                        &self.exchange.name,
-                        market_details[market.as_str()],
-                        "ws",
-                        trade,
-                    )
-                    .await
-                    .expect("Could not insert trade from ws into db.");
-                }
-                Ok((Some(market), Data::GdaxTrade(trade))) => {
-                    // println!("Market: {:?}", market);
-                    insert_gdax_trade(
-                        &self.trade_pool,
-                        &self.exchange.name,
-                        market_details[market.as_str()],
-                        "ws",
-                        trade,
-                    )
-                    .await
-                    .expect("Failed to insert ws trade to db.");
-                }
-                Ok((None, d)) => {
-                    panic!("Market missing from ws data: {:?}", d);
-                }
-                Err(WsError::Tungstenite(e)) => match e {
-                    tokio_tungstenite::tungstenite::Error::Io(ioerr) => match ioerr.kind() {
-                        ErrorKind::ConnectionReset => {
-                            println!("Error Kind: ConnectionReset.");
-                            println!("to_string(): {:?}", ioerr.to_string());
-                            break true;
-                        }
-                        ErrorKind::UnexpectedEof => {
-                            println!("Error Kind: UnexpectedEof.");
-                            println!("to_string(): {:?}", ioerr.to_string());
-                            break true;
-                        }
-                        _ => {
-                            println!("Other Error Kind: {:?}.", ioerr.kind());
-                            println!("to_string(): {:?}", ioerr.to_string());
-                            break false;
-                        }
-                    },
-                    tokio_tungstenite::tungstenite::Error::Protocol(err) => match err {
-                        ProtocolError::SendAfterClosing => {
-                            println!("Error Kind: Protocol SendAfterClosing.");
-                            println!("to_string(): {:?}", err.to_string());
-                            break true;
-                        }
-                        _ => {
-                            println!("Other WSError::Tungstenite protocol error {:?}", err);
-                            println!("to_string(): {:?}", err.to_string());
-                            panic!();
-                        }
-                    },
-                    _ => {
-                        println!("Other WSError::Tungstenite error {:?}", e);
-                        println!("to_string(): {:?}", e.to_string());
-                        panic!();
-                    }
-                },
-                // Err(WsError::Tungstenite(tokio_tungstenite::tungstenite::Error::Io(std::io::Error(ErrorKind)))) => {
-                Err(e) => {
-                    panic!("Other WsError {:?}", e);
-                }
-            }
-        }
     }
 }
 

@@ -1,9 +1,5 @@
-use chrono::Utc;
 use clap::App;
-use el_dorado::{
-    eldorado::ElDorado, exchanges::ExchangeName, inquisidor::Inquisidor, instances::InstanceStatus,
-    mita::Mita, utilities::get_input,
-};
+use el_dorado::{eldorado::ElDorado, inquisidor::Inquisidor};
 
 #[tokio::main]
 async fn main() {
@@ -14,9 +10,7 @@ async fn main() {
         .subcommand(App::new("refresh").about("refresh markets for exchange"))
         .subcommand(App::new("rank").about("rank exchange markets"))
         .subcommand(App::new("set").about("update ranks from proposed to current"))
-        .subcommand(App::new("run").about("run el-dorado for a market"))
         .subcommand(App::new("eldorado").about("run el-dorado instance"))
-        // .subcommand(App::new("sync").about("fill to current start of day"))
         .subcommand(App::new("fill").about("fill from first candle to start"))
         // .subcommand(App::new("candle").about("make candles from backfilled trades"))
         .subcommand(App::new("candleload").about("load candles from file to db"))
@@ -56,60 +50,6 @@ async fn main() {
             let mut eld = ElDorado::new().await;
             eld.run().await;
         }
-        Some("run") => {
-            // Create new mita instance and run stream and backfill until no restart
-            let mut mita = Mita::new().await;
-            if mita.exchange.name == ExchangeName::Gdax {
-                // Check if user wants to reset processed and validated
-                let resp: String = get_input(
-                    "Do you want to reset '_processed' and '_validated' trade tables? [y or yes]",
-                );
-                if resp == *"y" || resp == *"yes" {
-                    println!("{:?}: Reseting tables.", Utc::now());
-                    mita.reset_trade_tables(&["processed", "validated"]).await;
-                    println!("{:?}: Tables reset.", Utc::now());
-                };
-            };
-            // Restart loop if the mita restart value is true, else exit program
-            while mita.restart {
-                // Set restart value to false, error handling must explicity set back to true
-                mita.restart = false;
-                mita.insert_instance().await;
-                mita.reset_trade_tables(&["ws", "rest"]).await;
-                mita.create_trade_tables(&["processed", "validated"]).await;
-                let restart = tokio::select! {
-                    res1 = mita.run() => res1,
-                    res2 = mita.stream() => res2,
-                };
-                if restart {
-                    mita.update_instance_status(&InstanceStatus::Restart).await;
-                    let dur = mita.process_restart().await;
-                    mita.last_restart = Utc::now();
-                    if dur > chrono::Duration::days(1) {
-                        // If there has been > 24 hours since last restart
-                        // reset the counter
-                        mita.restart_count = 1
-                    } else {
-                        mita.restart_count += 1;
-                    };
-                    mita.restart = true;
-                }
-            }
-        }
-        // Some("sync") => {
-        //     // Create new mita instance and sync to start of current day from last trade or 90
-        //     // days prior to now.
-        //     let mita = Mita::new().await;
-        //     mita.reset_trade_tables(&["rest"]).await;
-        //     mita.create_trade_tables(&["processed", "validated"]).await;
-        //     mita.historical("eod").await;
-        //     let message = format!(
-        //         "{} {} historical backfill complete.",
-        //         mita.settings.application.droplet,
-        //         mita.exchange.name.as_str()
-        //     );
-        //     mita.twilio.send_sms(&message).await;
-        // }
         Some("fill") => {
             // Download and archive trades from beginning of normal running sync (min 90 days) to
             // the first trades of exchange.

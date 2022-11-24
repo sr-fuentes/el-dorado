@@ -6,7 +6,6 @@ use crate::exchanges::{
 };
 use crate::inquisidor::Inquisidor;
 use crate::markets::MarketDetail;
-use crate::mita::Mita;
 use crate::utilities::TimeFrame;
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, DurationRound, Utc};
@@ -47,61 +46,6 @@ pub struct PrIdTi {
 impl fmt::Display for PrIdTi {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "dt: {}\tid: {}\tprice: {}", self.dt, self.id, self.price)
-    }
-}
-
-impl Mita {
-    pub async fn reset_trade_tables(&self, tables: &[&str]) {
-        for market in self.markets.iter() {
-            for table in tables.iter() {
-                if *table == "processed" || *table == "validated" {
-                    // Alter table, create, migrate, drop
-                    alter_create_migrate_drop_trade_table(
-                        &self.trade_pool,
-                        &self.exchange.name,
-                        market,
-                        *table,
-                    )
-                    .await
-                    .expect("Failed to alter create migrate drop trade table.");
-                } else {
-                    // "ws" or "rest", just drop and re-create each time
-                    drop_create_trade_table(&self.trade_pool, &self.exchange.name, market, *table)
-                        .await
-                        .expect("Failed to drop and create table.");
-                }
-            }
-        }
-    }
-
-    pub async fn create_trade_tables(&self, tables: &[&str]) {
-        for market in self.markets.iter() {
-            for table in tables.iter() {
-                // Create the trade table to exchange specifications
-                match self.exchange.name {
-                    ExchangeName::Ftx | ExchangeName::FtxUs => {
-                        create_ftx_trade_table(
-                            &self.trade_pool,
-                            &self.exchange.name,
-                            market,
-                            *table,
-                        )
-                        .await
-                        .expect("Failed to create trade table.");
-                    }
-                    ExchangeName::Gdax => {
-                        create_gdax_trade_table(
-                            &self.trade_pool,
-                            &self.exchange.name,
-                            market,
-                            *table,
-                        )
-                        .await
-                        .expect("Failed to create trade table.");
-                    }
-                }
-            }
-        }
     }
 }
 

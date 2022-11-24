@@ -289,34 +289,34 @@ impl TryFrom<String> for InstanceStatus {
     }
 }
 
-impl Mita {
-    pub async fn insert_instance(&self) {
-        insert_or_update_instance_mita(self)
-            .await
-            .expect("Failed to insert mita instance.");
-    }
+// impl Mita {
+//     pub async fn insert_instance(&self) {
+//         insert_or_update_instance_mita(self)
+//             .await
+//             .expect("Failed to insert mita instance.");
+//     }
 
-    pub async fn update_instance_status(&self, status: &InstanceStatus) {
-        update_instance_status(
-            &self.ed_pool,
-            &self.settings.application.droplet,
-            Some(&self.exchange.name),
-            status,
-        )
-        .await
-        .expect("Failed to update status.");
-    }
+//     pub async fn update_instance_status(&self, status: &InstanceStatus) {
+//         update_instance_status(
+//             &self.ed_pool,
+//             &self.settings.application.droplet,
+//             Some(&self.exchange.name),
+//             status,
+//         )
+//         .await
+//         .expect("Failed to update status.");
+//     }
 
-    pub async fn update_instance_last(&self) {
-        update_instance_last_updated(
-            &self.ed_pool,
-            &self.settings.application.droplet,
-            Some(&self.exchange.name),
-        )
-        .await
-        .expect("Failed to update last updated.");
-    }
-}
+//     pub async fn update_instance_last(&self) {
+//         update_instance_last_updated(
+//             &self.ed_pool,
+//             &self.settings.application.droplet,
+//             Some(&self.exchange.name),
+//         )
+//         .await
+//         .expect("Failed to update last updated.");
+//     }
+// }
 
 pub async fn insert_or_update_instance_mita(mita: &Mita) -> Result<(), sqlx::Error> {
     let sql = r#"
@@ -465,91 +465,91 @@ pub async fn select_instances(pool: &PgPool) -> Result<Vec<Instance>, sqlx::Erro
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        instances::{
-            insert_or_update_instance_mita, update_instance_last_updated, update_instance_status,
-            InstanceStatus,
-        },
-        mita::Mita,
-        utilities::get_input,
-    };
+    // use crate::{
+    //     instances::{
+    //         insert_or_update_instance_mita, update_instance_last_updated, update_instance_status,
+    //         InstanceStatus,
+    //     },
+    //     mita::Mita,
+    //     utilities::get_input,
+    // };
 
-    #[tokio::test]
-    pub async fn insert_mita_instance() {
-        let mita = Mita::new().await;
-        // Clear table
-        let sql = r#"DELETE FROM instances WHERE 1=1"#;
-        sqlx::query(sql)
-            .execute(&mita.ed_pool)
-            .await
-            .expect("Failed to clear isntances table.");
-        // Insert mita
-        insert_or_update_instance_mita(&mita)
-            .await
-            .expect("Failed to insert/update mita.");
-    }
+    // #[tokio::test]
+    // pub async fn insert_mita_instance() {
+    //     let mita = Mita::new().await;
+    //     // Clear table
+    //     let sql = r#"DELETE FROM instances WHERE 1=1"#;
+    //     sqlx::query(sql)
+    //         .execute(&mita.ed_pool)
+    //         .await
+    //         .expect("Failed to clear isntances table.");
+    //     // Insert mita
+    //     insert_or_update_instance_mita(&mita)
+    //         .await
+    //         .expect("Failed to insert/update mita.");
+    // }
 
-    #[tokio::test]
-    pub async fn insert_conflict_update_mita_instance() {
-        let mita = Mita::new().await;
-        // Clear table
-        let sql = r#"DELETE FROM instances WHERE 1=1"#;
-        sqlx::query(sql)
-            .execute(&mita.ed_pool)
-            .await
-            .expect("Failed to clear isntances table.");
-        // Insert mita
-        insert_or_update_instance_mita(&mita)
-            .await
-            .expect("Failed to insert/update mita.");
-        let _input: String = get_input("Press enter to continue: ");
-        insert_or_update_instance_mita(&mita)
-            .await
-            .expect("Failed to insert/update mita.");
-    }
+    // #[tokio::test]
+    // pub async fn insert_conflict_update_mita_instance() {
+    //     let mita = Mita::new().await;
+    //     // Clear table
+    //     let sql = r#"DELETE FROM instances WHERE 1=1"#;
+    //     sqlx::query(sql)
+    //         .execute(&mita.ed_pool)
+    //         .await
+    //         .expect("Failed to clear isntances table.");
+    //     // Insert mita
+    //     insert_or_update_instance_mita(&mita)
+    //         .await
+    //         .expect("Failed to insert/update mita.");
+    //     let _input: String = get_input("Press enter to continue: ");
+    //     insert_or_update_instance_mita(&mita)
+    //         .await
+    //         .expect("Failed to insert/update mita.");
+    // }
 
-    #[tokio::test]
-    pub async fn update_mita_instance_status() {
-        let mita = Mita::new().await;
-        // Clear table
-        let sql = r#"DELETE FROM instances WHERE 1=1"#;
-        sqlx::query(sql)
-            .execute(&mita.ed_pool)
-            .await
-            .expect("Failed to clear isntances table.");
-        // Insert mita
-        insert_or_update_instance_mita(&mita)
-            .await
-            .expect("Failed to insert/update mita.");
-        update_instance_status(
-            &mita.ed_pool,
-            &mita.settings.application.droplet,
-            Some(&mita.exchange.name),
-            &InstanceStatus::Terminated,
-        )
-        .await
-        .expect("Failed to update instance status.");
-    }
+    // #[tokio::test]
+    // pub async fn update_mita_instance_status() {
+    //     let mita = Mita::new().await;
+    //     // Clear table
+    //     let sql = r#"DELETE FROM instances WHERE 1=1"#;
+    //     sqlx::query(sql)
+    //         .execute(&mita.ed_pool)
+    //         .await
+    //         .expect("Failed to clear isntances table.");
+    //     // Insert mita
+    //     insert_or_update_instance_mita(&mita)
+    //         .await
+    //         .expect("Failed to insert/update mita.");
+    //     update_instance_status(
+    //         &mita.ed_pool,
+    //         &mita.settings.application.droplet,
+    //         Some(&mita.exchange.name),
+    //         &InstanceStatus::Terminated,
+    //     )
+    //     .await
+    //     .expect("Failed to update instance status.");
+    // }
 
-    #[tokio::test]
-    pub async fn update_mita_instance_last_update() {
-        let mita = Mita::new().await;
-        // Clear table
-        let sql = r#"DELETE FROM instances WHERE 1=1"#;
-        sqlx::query(sql)
-            .execute(&mita.ed_pool)
-            .await
-            .expect("Failed to clear isntances table.");
-        // Insert mita
-        insert_or_update_instance_mita(&mita)
-            .await
-            .expect("Failed to insert/update mita.");
-        update_instance_last_updated(
-            &mita.ed_pool,
-            &mita.settings.application.droplet,
-            Some(&mita.exchange.name),
-        )
-        .await
-        .expect("Failed to update last upadted.");
-    }
+    // #[tokio::test]
+    // pub async fn update_mita_instance_last_update() {
+    //     let mita = Mita::new().await;
+    //     // Clear table
+    //     let sql = r#"DELETE FROM instances WHERE 1=1"#;
+    //     sqlx::query(sql)
+    //         .execute(&mita.ed_pool)
+    //         .await
+    //         .expect("Failed to clear isntances table.");
+    //     // Insert mita
+    //     insert_or_update_instance_mita(&mita)
+    //         .await
+    //         .expect("Failed to insert/update mita.");
+    //     update_instance_last_updated(
+    //         &mita.ed_pool,
+    //         &mita.settings.application.droplet,
+    //         Some(&mita.exchange.name),
+    //     )
+    //     .await
+    //     .expect("Failed to update last upadted.");
+    // }
 }
