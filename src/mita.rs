@@ -548,6 +548,12 @@ impl ElDorado {
                 .await
                 .expect("Failed to create candle schema."),
         };
+        // Delete metrics for markets
+        for market in self.markets.iter() {
+            MetricAP::delete_by_market(&self.pools[&Database::ElDorado], market)
+                .await
+                .expect("Failed to delete metrics.");
+        }
     }
 
     // Sync by determiniting the last good state and filling trades from that state to the current
@@ -640,6 +646,8 @@ impl ElDorado {
                 .await
             {
                 Some(candles) => {
+                    println!("Inserting {} production candles.", candles.len());
+                    self.insert_production_candles(market, &candles).await;
                     println!("Updating heartbeat.");
                     Some(
                         self.update_heartbeat(market, heartbeat, candles, interval_end)

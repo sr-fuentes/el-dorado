@@ -125,7 +125,10 @@ impl ElDorado {
                 ExchangeName::Ftx | ExchangeName::FtxUs => {
                     channels.push(Channel::Trades(market.market_name.to_owned()));
                 }
-                ExchangeName::Gdax => channels.push(Channel::Ticker(market.market_name.to_owned())),
+                ExchangeName::Gdax => {
+                    channels.push(Channel::Heartbeat(market.market_name.to_owned()));
+                    channels.push(Channel::Ticker(market.market_name.to_owned()));
+                }
             };
         }
         channels
@@ -145,7 +148,9 @@ impl Mita {
                 ExchangeName::Ftx | ExchangeName::FtxUs => {
                     channels.push(Channel::Trades(market.market_name.to_owned()))
                 }
-                ExchangeName::Gdax => channels.push(Channel::Ticker(market.market_name.to_owned())),
+                ExchangeName::Gdax => {
+                    channels.push(Channel::Ticker(market.market_name.to_owned()));
+                }
             };
             market_details.insert(market.market_name.as_str(), market);
         }

@@ -452,6 +452,20 @@ impl MetricAP {
             .await?;
         Ok(())
     }
+
+    pub async fn delete_by_market(pool: &PgPool, market: &MarketDetail) -> Result<(), sqlx::Error> {
+        let sql = r#"
+            DELETE FROM metrics_ap
+            WHERE exchange_name = $1
+            AND market_name = $2
+            "#;
+        sqlx::query(sql)
+            .bind(market.exchange_name.as_str())
+            .bind(&market.market_name)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
 }
 
 impl ElDorado {

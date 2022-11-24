@@ -28,6 +28,7 @@ pub struct WebSocket {
 pub enum Channel {
     Trades(String),
     Ticker(String),
+    Heartbeat(String),
 }
 
 pub enum Response {
@@ -100,6 +101,7 @@ impl WebSocket {
     }
 
     pub async fn subscribe(&mut self, channels: Vec<Channel>) -> Result<(), WsError> {
+        println!("Channels: {:?}", channels);
         for channel in channels.iter() {
             self.channels.push(channel.clone());
         }
@@ -107,6 +109,7 @@ impl WebSocket {
             let (channel, symbol) = match channel {
                 Channel::Trades(s) => ("trades", s),
                 Channel::Ticker(s) => ("ticker", s),
+                Channel::Heartbeat(s) => ("heartbeat", s),
             };
             let message = match self.exchange {
                 ExchangeName::Ftx | ExchangeName::FtxUs => Message::Text(

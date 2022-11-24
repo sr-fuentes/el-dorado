@@ -1732,6 +1732,23 @@ impl ElDorado {
             .unwrap();
         self.create_date_range(&dr_start, &dr_end, &market.candle_timeframe.unwrap())
     }
+
+    pub async fn insert_production_candles(
+        &self,
+        market: &MarketDetail,
+        candles: &[ProductionCandle],
+    ) {
+        let db = match market.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
+            ExchangeName::Gdax => Database::Gdax,
+        };
+        for candle in candles.iter() {
+            candle
+                .insert(&self.pools[&db], market, &market.candle_timeframe.unwrap())
+                .await
+                .expect("Failed to insert candle.");
+        }
+    }
 }
 
 impl Mita {

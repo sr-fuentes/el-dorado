@@ -469,7 +469,11 @@ impl ElDorado {
                 return None;
             }
         };
-        println!("Selecting trades from {} to {}", first, last);
+        println!(
+            "Selecting trades gte {} and lt {}",
+            first,
+            *last + market.candle_timeframe.unwrap().as_dur()
+        );
         let mut trades = Vec::new();
         let days = self.create_date_range(
             &first.duration_trunc(Duration::days(1)).unwrap(),
@@ -479,7 +483,7 @@ impl ElDorado {
         for d in days.iter() {
             // Select trades
             println!(
-                "Selecting {} trades for {} for interval.",
+                "Selecting {} trades on day {} for interval.",
                 market.market_name, d
             );
             let mut db_trades = GdaxTrade::select_gte_and_lt_dts(
@@ -487,7 +491,7 @@ impl ElDorado {
                 market,
                 d,
                 first,
-                last,
+                &(*last + market.candle_timeframe.unwrap().as_dur()),
             )
             .await
             .expect("Failed to select trades.");
