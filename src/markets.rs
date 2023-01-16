@@ -1,10 +1,12 @@
-use crate::candles::{select_first_01d_candle, ResearchCandle};
+use crate::candles::ResearchCandle;
+use crate::configuration::Database;
 use crate::eldorado::ElDorado;
 use crate::exchanges::{client::RestClient, error::RestError, select_exchanges, ExchangeName};
 use crate::inquisidor::Inquisidor;
+use crate::trades::PrIdTi;
 use crate::trades::Trade;
 use crate::utilities::{get_input, TimeFrame};
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, DurationRound, Utc};
 use core::cmp::Reverse;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -191,7 +193,7 @@ impl MarketDetail {
 
     pub async fn select_all(pool: &PgPool) -> Result<Vec<Self>, sqlx::Error> {
         let rows = sqlx::query_as!(
-            MarketDetail,
+            Self,
             r#"
             SELECT market_id,
                 exchange_name as "exchange_name: ExchangeName",
@@ -213,9 +215,9 @@ impl MarketDetail {
         pool: &PgPool,
         exchange: &ExchangeName,
         mita: &str,
-    ) -> Result<Vec<MarketDetail>, sqlx::Error> {
+    ) -> Result<Vec<Self>, sqlx::Error> {
         let rows = sqlx::query_as!(
-            MarketDetail,
+            Self,
             r#"
             SELECT market_id,
                 exchange_name as "exchange_name: ExchangeName",
@@ -236,23 +238,45 @@ impl MarketDetail {
         .await?;
         Ok(rows)
     }
+
+    pub async fn select_by_status(
+        pool: &PgPool,
+        status: &MarketStatus,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        let rows = sqlx::query_as!(
+            Self,
+            r#"
+            SELECT market_id,
+                exchange_name as "exchange_name: ExchangeName",
+                market_name, market_type, base_currency, quote_currency, underlying,
+                market_status as "market_status: MarketStatus",
+                market_data_status as "market_data_status: MarketStatus",
+                mita,
+                candle_timeframe as "candle_timeframe: TimeFrame",
+                last_candle
+                FROM markets
+            WHERE market_data_status = $1
+            "#,
+            status.as_str(),
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(rows)
+    }
 }
 
 impl MarketTradeDetail {
-    pub async fn new(pool: &PgPool, market: &MarketDetail) -> Self {
-        // Create new market trade detail from market detail.
-        // First get the first 01d candle for the market
-        let first_candle = select_first_01d_candle(pool, &market.market_id)
-            .await
-            .expect("Failed to select first candle.");
+    pub async fn new(market: &MarketDetail, first_trade: &PrIdTi) -> Self {
+        // Create new market trade detail from market give the first trade provided.
         Self {
             market_id: market.market_id,
             market_start_ts: None,
-            first_trade_ts: first_candle.first_trade_ts,
-            first_trade_id: first_candle.first_trade_id.clone(),
-            last_trade_ts: first_candle.first_trade_ts, // Duplicate first id/ts as true last id/ts
-            last_trade_id: first_candle.first_trade_id.clone(), // populated with step forward.
-            previous_trade_day: first_candle.datetime - Duration::days(1),
+            first_trade_ts: first_trade.dt,
+            first_trade_id: first_trade.id.to_string(),
+            last_trade_ts: first_trade.dt, // Duplicate first id/ts as true last id/ts
+            last_trade_id: first_trade.id.to_string(), // populated with step forward.
+            previous_trade_day: first_trade.dt.duration_trunc(Duration::days(1)).unwrap()
+                - Duration::days(1),
             previous_status: MarketDataStatus::Get,
             next_trade_day: None,
             next_status: None,
@@ -520,6 +544,23 @@ impl MarketTradeDetail {
 }
 
 impl MarketCandleDetail {
+    pub fn new(market: &MarketDetail, tf: &TimeFrame, candles: &[ResearchCandle]) -> Self {
+        // Assert that there are candles in the given vec slice
+        assert!(!candles.is_empty());
+        let last = candles.last().unwrap();
+        Self {
+            market_id: market.market_id,
+            exchange_name: market.exchange_name,
+            market_name: market.market_name.clone(),
+            time_frame: *tf,
+            first_candle: candles.first().unwrap().datetime,
+            last_candle: last.datetime,
+            last_trade_ts: last.last_trade_ts,
+            last_trade_id: last.last_trade_id.clone(),
+            last_trade_price: last.close,
+        }
+    }
+
     pub async fn insert(&self, pool: &PgPool) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
@@ -909,6 +950,47 @@ impl ElDorado {
             market_ids.insert(md.market_id, md.clone());
         }
         (markets, market_ids)
+    }
+
+    pub async fn select_markets_eligible_for_fill(&self) -> Option<Vec<MarketDetail>> {
+        // Eligibility based on active status and existing last candle
+        // Select active markets from eldorado db
+        let markets =
+            MarketDetail::select_by_status(&self.pools[&Database::ElDorado], &MarketStatus::Active)
+                .await
+                .expect("Failed to select market details.");
+        // Filter for markets with a last candle
+        let eligible_markets: Vec<MarketDetail> = markets
+            .into_iter()
+            .filter(|m| m.last_candle.is_some())
+            .collect();
+        if !eligible_markets.is_empty() {
+            Some(eligible_markets)
+        } else {
+            None
+        }
+    }
+
+    pub async fn select_market_trade_detail(&self, market: &MarketDetail) -> MarketTradeDetail {
+        // Try selecting record from database
+        match MarketTradeDetail::select(&self.pools[&Database::ElDorado], market).await {
+            Ok(mtd) => mtd,
+            Err(sqlx::Error::RowNotFound) => {
+                // First get the first for the market - either production candle or 01d candle if
+                // legacy format. Try the 01d candle first.
+                match self.select_first_eld_trade_as_pridti(market).await {
+                    Some(p) => {
+                        let mtd = MarketTradeDetail::new(market, &p).await;
+                        mtd.insert(&self.pools[&Database::ElDorado])
+                            .await
+                            .expect("Failed to insert mtd.");
+                        mtd
+                    }
+                    None => panic!("No first candle to make market trade detail."),
+                }
+            }
+            Err(e) => panic!("SQLX Error: {:?}", e),
+        }
     }
 }
 

@@ -6,7 +6,7 @@ use crate::exchanges::{
 };
 use crate::inquisidor::Inquisidor;
 use crate::markets::MarketDetail;
-use crate::utilities::TimeFrame;
+use crate::utilities::{DateRange, TimeFrame};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use csv::Reader;
@@ -15,6 +15,7 @@ use sqlx::PgPool;
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::File;
+use std::path::PathBuf;
 
 #[async_trait]
 pub trait Trade {
@@ -33,6 +34,13 @@ pub trait Trade {
     where
         Self: Sized;
     async fn insert(&self, pool: &PgPool, market: &MarketDetail) -> Result<(), sqlx::Error>;
+    async fn drop_table(
+        pool: &PgPool,
+        market: &MarketDetail,
+        dt: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error>
+    where
+        Self: Sized;
 }
 
 // Struct to pack information about last trade - typically used to create a candle from last trade
@@ -158,6 +166,19 @@ impl ElDorado {
         }
     }
 
+    pub async fn select_first_eld_trade_as_pridti(&self, market: &MarketDetail) -> Option<PrIdTi> {
+        // Select the first trade for the market in the eldorado database. For <0.3 markets, this
+        // will be in the 01d_candles table if it exists. For >=0.4 markets, this will be the first
+        // full day production candle for the market.
+        match self.select_first_daily_candle(market).await {
+            Some(c) => Some(c.open_as_pridti()),
+            None => self
+                .select_first_production_candle_full_day(market)
+                .await
+                .map(|c| c.open_as_pridti()),
+        }
+    }
+
     // Return the last trade of the day for a given trade. For example: if the trade given was
     // placed on 14:23:11 on 12/23/2020, return the last trade on 12/23/2020
     pub async fn get_last_gdax_trade_for_day(
@@ -276,18 +297,21 @@ impl ElDorado {
         market: &MarketDetail,
         interval_start: &DateTime<Utc>,
         interval_end: &DateTime<Utc>,
-        last_trade: &PrIdTi,
+        // last_trade: &PrIdTi,
+        mut last_trade_id: i32,
+        last_trade_dt: &DateTime<Utc>,
     ) -> Vec<GdaxTrade> {
         // Start with the last trade prior to the interval start. Get the next 1000 trades, move the
         // last trade to be equal to the last trade received and continue until the timestamp of
         // the last trade is greater than the interval end timestamp
         println!(
-            "Getting trades from {} to {}.\tLast Trade: {}",
-            interval_start, interval_end, last_trade
+            "Getting trades from {} to {}.\tLast Trade Id: {}",
+            interval_start, interval_end, last_trade_id
         );
-        let mut last = *last_trade;
+        // let mut last = *last_trade;
+        let mut last_dt = *last_trade_dt;
         let mut trades: Vec<GdaxTrade> = Vec::new();
-        while last.dt < *interval_end {
+        while last_dt < *interval_end {
             // Prevent 429 errors by only requesting 1 per second
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             let mut new_trades = match self.clients[&market.exchange_name]
@@ -295,7 +319,7 @@ impl ElDorado {
                     &market.market_name,
                     Some(1000),
                     None,
-                    Some(last.id as i32 + 1001),
+                    Some(last_trade_id as i32 + 1001),
                 )
                 .await
             {
@@ -311,14 +335,15 @@ impl ElDorado {
             // Sort the new trades
             new_trades.sort_by_key(|t| t.trade_id);
             // Update the last trade
-            last = new_trades.last().unwrap().as_pridti();
+            last_trade_id = new_trades.last().unwrap().trade_id as i32;
+            last_dt = new_trades.last().unwrap().time;
             println!(
                 "{} trades from API. New Last Trade: {}",
                 new_trades.len(),
-                last
+                last_dt
             );
             // Filter out trades that are beyond the end date
-            let mut filtered_trades = if last.dt >= *interval_end {
+            let mut filtered_trades = if last_dt >= *interval_end {
                 // There are trade to filter
                 let ft: Vec<_> = new_trades
                     .iter()
@@ -337,15 +362,119 @@ impl ElDorado {
             // Add new trades to trades vec
             trades.append(&mut filtered_trades);
         }
-        // Write trades to table
-        println!("Writing {} trades to table.", trades.len());
-        for trade in trades.iter() {
-            trade
-                .insert(&self.pools[&Database::Gdax], market)
+        trades
+    }
+
+    pub async fn get_gdax_trades_for_interval_backward(
+        &self,
+        market: &MarketDetail,
+        interval_start: &DateTime<Utc>,
+        interval_end: &DateTime<Utc>,
+        mut first_trade_id: i32,
+        first_trade_dt: &DateTime<Utc>,
+    ) -> Vec<GdaxTrade> {
+        // Start with the frist trade after the interval end. Get the 1000 trades after the first.
+        // Move the first to be equal to the first that was received and continue until the time
+        // of the first trade is less than the interval start time stamp or the trade id == 1
+        println!(
+            "Getting trades from {} to {}.\t First Trade Id: {}",
+            interval_start, interval_end, first_trade_id
+        );
+        let mut first_dt = *first_trade_dt;
+        let mut trades: Vec<GdaxTrade> = Vec::new();
+        while first_dt >= *interval_start || first_trade_id == 1 {
+            // Prevent 429 errors by only requesting 1 per second
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            let mut new_trades = match self.clients[&market.exchange_name]
+                .get_gdax_trades(&market.market_name, Some(1000), None, Some(first_trade_id))
                 .await
-                .expect("Failed to insert trade.");
+            {
+                Ok(result) => result,
+                Err(e) => {
+                    if self.handle_trade_rest_error(&e).await {
+                        continue;
+                    } else {
+                        panic!("Rest Error: {:?}", e);
+                    }
+                }
+            };
+            // Get the earliest trade from the new trades and add the trades to the trades vec
+            new_trades.sort_by_key(|t| t.trade_id);
+            first_trade_id = new_trades.first().unwrap().trade_id as i32;
+            first_dt = new_trades.first().unwrap().time;
+            println!(
+                "{} trades from API. New First Trade: {}",
+                new_trades.len(),
+                first_dt
+            );
+            // Filter out trades that are before the start date
+            let mut filtered_trades = if first_dt < *interval_end {
+                // There are trade to filter out
+                let ft: Vec<_> = new_trades
+                    .iter()
+                    .filter(|t| t.time >= *interval_start)
+                    .cloned()
+                    .collect();
+                println!(
+                    "First trade before interval start. Filter trades. New # {}",
+                    ft.len()
+                );
+                println!("New First Trade: {}\t{}", first_trade_id, first_dt);
+                ft
+            } else {
+                new_trades
+            };
+            trades.append(&mut filtered_trades);
         }
         trades
+    }
+
+    pub async fn get_gdax_next_trade(
+        &self,
+        market: &MarketDetail,
+        trade: &GdaxTrade,
+    ) -> Option<GdaxTrade> {
+        // Get the next trade after the gdax trade provided
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            match self.clients[&ExchangeName::Gdax]
+                .get_gdax_next_trade(market.market_name.as_str(), trade.trade_id as i32)
+                .await
+            {
+                Ok(result) => return result,
+                Err(e) => {
+                    if self.handle_trade_rest_error(&e).await {
+                        continue;
+                    } else {
+                        panic!("Unhandled Rest Error: {:?}", e);
+                    }
+                }
+            }
+        }
+    }
+
+    pub async fn get_gdax_previous_trade(
+        &self,
+        market: &MarketDetail,
+        trade: &GdaxTrade,
+    ) -> Option<GdaxTrade> {
+        // Get the first trade before the gdax trade provided
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            match self.clients[&ExchangeName::Gdax]
+                .get_gdax_previous_trade(market.market_name.as_str(), trade.trade_id as i32)
+                .await
+            {
+                Ok(result) => return result,
+                Err(e) => {
+                    if self.handle_trade_rest_error(&e).await {
+                        continue;
+                    } else {
+                        panic!("Unhandled Rest Error: {:?}", e);
+                    }
+                }
+            }
+        }
     }
 
     pub async fn handle_trade_rest_error(&self, e: &RestError) -> bool {
@@ -397,55 +526,70 @@ impl ElDorado {
     pub async fn select_gdax_trades_for_interval(
         &self,
         market: &MarketDetail,
-        dr: &Vec<DateTime<Utc>>,
+        dr: &DateRange,
     ) -> Option<Vec<GdaxTrade>> {
         // Assert that the dr has dates and is not empty
-        let (first, last) = match !dr.is_empty() {
-            true => {
-                // Safely unwrap the first and last items of the dr
-                (
-                    dr.first().expect("Expected dates in daterange."),
-                    dr.last().expect("Expected dates in daterange."),
-                )
-            }
-            false => {
-                // No dates in dr, return no trades
-                return None;
-            }
-        };
         println!(
             "Selecting trades gte {} and lt {}",
-            first,
-            *last + market.candle_timeframe.unwrap().as_dur()
+            dr.first,
+            dr.last + market.candle_timeframe.unwrap().as_dur()
         );
         let mut trades = Vec::new();
-        let days = self.create_date_range(
-            &first.duration_trunc(Duration::days(1)).unwrap(),
-            &(last.duration_trunc(Duration::days(1)).unwrap() + Duration::days(1)),
+        match DateRange::new(
+            &dr.first.duration_trunc(Duration::days(1)).unwrap(),
+            &(dr.last.duration_trunc(Duration::days(1)).unwrap() + Duration::days(1)),
             &TimeFrame::D01,
-        );
-        for d in days.iter() {
-            // Select trades
-            println!(
-                "Selecting {} trades on day {} for interval.",
-                market.market_name, d
-            );
-            let mut db_trades = GdaxTrade::select_gte_and_lt_dts(
-                &self.pools[&Database::Gdax],
-                market,
-                d,
-                first,
-                &(*last + market.candle_timeframe.unwrap().as_dur()),
-            )
-            .await
-            .expect("Failed to select trades.");
-            trades.append(&mut db_trades);
+        ) {
+            Some(days) => {
+                for d in days.dts.iter() {
+                    // Select trades
+                    println!(
+                        "Selecting {} trades on day {} for interval.",
+                        market.market_name, d
+                    );
+                    let mut db_trades = GdaxTrade::select_gte_and_lt_dts(
+                        &self.pools[&Database::Gdax],
+                        market,
+                        d,
+                        &dr.first,
+                        &(dr.last + market.candle_timeframe.unwrap().as_dur()),
+                    )
+                    .await
+                    .expect("Failed to select trades.");
+                    trades.append(&mut db_trades);
+                }
+                if !trades.is_empty() {
+                    Some(trades)
+                } else {
+                    None
+                }
+            }
+            None => None,
         }
-        if !trades.is_empty() {
-            Some(trades)
-        } else {
-            None
+    }
+
+    pub fn read_gdax_trades_from_file(&self, pb: &PathBuf) -> Vec<GdaxTrade> {
+        // Read archived file for first and last trades to update
+        let file = File::open(pb).expect("Failed to open file.");
+        let mut trades = Vec::new();
+        let mut rdr = Reader::from_reader(file);
+        for result in rdr.deserialize() {
+            let record: GdaxTrade = result.expect("Failed to deserialize record.");
+            trades.push(record)
         }
+        trades
+    }
+
+    pub fn read_ftx_trades_from_file(&self, pb: &PathBuf) -> Vec<FtxTrade> {
+        // Read archived file for first and last trades to update
+        let file = File::open(pb).expect("Failed to open file.");
+        let mut trades = Vec::new();
+        let mut rdr = Reader::from_reader(file);
+        for result in rdr.deserialize() {
+            let record: FtxTrade = result.expect("Failed to deserialize record.");
+            trades.push(record)
+        }
+        trades
     }
 }
 

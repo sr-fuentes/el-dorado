@@ -169,6 +169,23 @@ impl crate::trades::Trade for Trade {
             .await?;
         Ok(())
     }
+
+    async fn drop_table(
+        pool: &PgPool,
+        market: &MarketDetail,
+        dt: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        let sql = format!(
+            r#"
+            DROP TABLE IF EXISTS trades.{}_{}_{}
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            dt.format("%Y%m%d")
+        );
+        sqlx::query(&sql).execute(pool).await?;
+        Ok(())
+    }
 }
 
 impl Trade {
@@ -269,6 +286,10 @@ impl crate::candles::Candle for Candle {
         self.time
     }
 
+    fn close(&self) -> Decimal {
+        self.close
+    }
+
     fn volume(&self) -> Decimal {
         self.volume
     }
@@ -306,9 +327,11 @@ impl RestClient {
         &self,
         product_name: &str,
         after: i32,
-    ) -> Result<Vec<Trade>, RestError> {
-        self.get_gdax_trades(product_name, Some(1), None, Some(after + 2))
-            .await
+    ) -> Result<Option<Trade>, RestError> {
+        let mut trades = self
+            .get_gdax_trades(product_name, Some(1), None, Some(after + 2))
+            .await?;
+        Ok(trades.pop())
     }
 
     // Get the next trade AFTER the given trade id for a product
@@ -316,9 +339,11 @@ impl RestClient {
         &self,
         product_name: &str,
         after: i32,
-    ) -> Result<Vec<Trade>, RestError> {
-        self.get_gdax_trades(product_name, Some(1), None, Some(after))
-            .await
+    ) -> Result<Option<Trade>, RestError> {
+        let mut trades = self
+            .get_gdax_trades(product_name, Some(1), None, Some(after))
+            .await?;
+        Ok(trades.pop())
     }
 
     // API will return 300 candles maximum, if start and end are used, both fields need to be

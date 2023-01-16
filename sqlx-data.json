@@ -2103,6 +2103,92 @@
       "nullable": []
     }
   },
+  "eff4062e5759e63d02540870245e8dd4ffb2d17391f2bf54bb2c8b6b90babb32": {
+    "query": "\n            SELECT market_id,\n                exchange_name as \"exchange_name: ExchangeName\",\n                market_name, market_type, base_currency, quote_currency, underlying,\n                market_status as \"market_status: MarketStatus\",\n                market_data_status as \"market_data_status: MarketStatus\",\n                mita,\n                candle_timeframe as \"candle_timeframe: TimeFrame\",\n                last_candle\n                FROM markets\n            WHERE market_data_status = $1\n            ",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "market_id",
+          "type_info": "Uuid"
+        },
+        {
+          "ordinal": 1,
+          "name": "exchange_name: ExchangeName",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 2,
+          "name": "market_name",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 3,
+          "name": "market_type",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 4,
+          "name": "base_currency",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 5,
+          "name": "quote_currency",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 6,
+          "name": "underlying",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 7,
+          "name": "market_status: MarketStatus",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 8,
+          "name": "market_data_status: MarketStatus",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 9,
+          "name": "mita",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 10,
+          "name": "candle_timeframe: TimeFrame",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 11,
+          "name": "last_candle",
+          "type_info": "Timestamptz"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true
+      ]
+    }
+  },
   "f30c378d3edc34ea0abc5adc020fc5bc9b0cf6f0600d5b09d4360a15a863c4af": {
     "query": "\n            SELECT EXISTS (\n                SELECT FROM\n                    pg_tables\n                WHERE\n                    schemaname = $1 AND\n                    tablename = $2\n            ) as \"exists!\";\n            ",
     "describe": {

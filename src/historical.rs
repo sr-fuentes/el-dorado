@@ -13,9 +13,8 @@ use crate::trades::{drop_trade_table, PrIdTi, Trade};
 use crate::utilities::{get_input, TimeFrame};
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use csv::{Reader, Writer};
-use std::collections::HashMap;
-use std::convert::TryInto;
-use std::fs::File;
+use rust_decimal_macros::dec;
+use std::{collections::HashMap, convert::TryInto, fs::File, path::Path, path::PathBuf};
 
 impl ElDorado {
     pub async fn sync(&self) -> HashMap<String, Heartbeat> {
@@ -152,7 +151,7 @@ impl ElDorado {
             ExchangeName::Gdax => Database::Gdax,
         };
         // Check for mcd
-        let mcd = MarketCandleDetail::select(&self.pools[&db], market).await;
+        let mcd = MarketCandleDetail::select(&self.pools[&Database::ElDorado], market).await;
         match mcd {
             Ok(m) => {
                 if m.last_trade_ts > *sync_start {
@@ -194,13 +193,29 @@ impl ElDorado {
         )
         .await
         .expect("Failed to select research candles by dr.");
-        // Resample candles if the market time frame is longer than research base of S15
+        // Validate & Resample candles if the market time frame is longer than research base of S15
         let candles: Vec<ProductionCandle> = if archive_candles.is_empty() {
             // Could not select any candles, panic as there is a data integrity issue
             panic!(
                 "Excpected mcd candles for sync. Select dr of {:?} to {:?} returned None.",
                 sync_start,
                 mcd.last_candle + mcd.time_frame.as_dur()
+            );
+        } else if &archive_candles.first().unwrap().datetime > sync_start.max(&mcd.first_candle) {
+            // Research candles are not correctly stored and cannot be used. Panic and fix the data
+            // integrity issue. Research candles returned should be at min the sync start or the
+            // first mcd candle.
+            // Err 1: Sync start on 8/1/22 and MCD First Candle for market is 10/1/22. If the first
+            //        research candle returned is from 12/1/22 then we are missing the research
+            //        candles from 10/1 through 12/1 and the metrics will be flawed.
+            // Err 2: Sync start on 11/1/22 and MCD First Candle for market is 1/1/22. If the first
+            //        research candle returned is from 12/1/11 then we are missing the research
+            //        candles from 11/1 through 12/1 and the metrics will be flawed.
+            panic!(
+                "Expected research candles from {} through {}. First research candle is {}",
+                sync_start.max(&mcd.first_candle),
+                &(mcd.last_candle + mcd.time_frame.as_dur()),
+                archive_candles.first().unwrap().datetime
             );
         } else if market.candle_timeframe.unwrap() == mcd.time_frame {
             // Candles are already in time frame. Convert the candles to prod candles.
@@ -243,11 +258,7 @@ impl ElDorado {
         last_trade: &Option<PrIdTi>,
     ) -> Option<(DateTime<Utc>, PrIdTi, Vec<ProductionCandle>)> {
         println!("Trying MTD start.");
-        let db = match market.exchange_name {
-            ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
-            ExchangeName::Gdax => Database::Gdax,
-        };
-        let mtd = MarketTradeDetail::select(&self.pools[&db], market).await;
+        let mtd = MarketTradeDetail::select(&self.pools[&Database::ElDorado], market).await;
         match mtd {
             Ok(m) => {
                 match m.next_trade_day {
@@ -610,9 +621,18 @@ impl ElDorado {
                         market,
                         interval_start,
                         &interval_end,
-                        &last_trade.unwrap(),
+                        last_trade.unwrap().id as i32,
+                        &last_trade.unwrap().dt,
                     )
                     .await;
+                // Write trades to table
+                println!("Writing {} trades to table.", trades.len());
+                for trade in trades.iter() {
+                    trade
+                        .insert(&self.pools[&Database::Gdax], market)
+                        .await
+                        .expect("Failed to insert trade.");
+                }
                 // Make candles for day
                 let candles = self.make_production_candles_for_dt_from_vec(
                     market,
@@ -702,30 +722,945 @@ impl ElDorado {
         let markets = match market {
             Some(m) => {
                 // Validate that market given is eligible for fill
-                [*m].to_vec(),
+                if self.validate_market_eligible_for_fill(m) {
+                    Some([m.clone()].to_vec())
+                } else {
+                    None
+                }
             }
             None => self.select_markets_eligible_for_fill().await,
         };
-        let automate = automate.unwrap_or(true);
-        // For each market: fill back than forward until either fully synced or manual input to stop
-        for market in markets.iter() {
-            // Get market trade detail
-            let mtd = self.get_market_trade_detail(market).await;
-            // Get next fill event
-            let fill_event = match self.get_fill_event(market, &mtd).await {
-                Some(e) => e,
-                None => {
-                    // No new event, market is up to date and validated to the current day
-                    println!("No fill events for {}.", market.market_name);
-                    println!("Next Date: {}\tNext Status: {}", mtd.next_day, mtd.next_status);
-                    continue;
+        // Check if there are markets to fill
+        match markets {
+            Some(m) => {
+                let automate = automate.unwrap_or(true);
+                // For each market: fill back than forward until either fully synced or manual
+                // input to stop
+                for market in m.iter() {
+                    // Fill the market backward than forward until either the current date or
+                    // there is a manual rejection or if automated - a validation fails
+                    self.fill_market(market, &automate).await;
+                }
+            }
+            None => (),
+        }
+    }
+
+    fn validate_market_eligible_for_fill(&self, market: &MarketDetail) -> bool {
+        // Market detail must contain a last candle value - meaning that it has been initialized
+        // and run. The market must also be active.
+        if market.market_data_status != MarketStatus::Active || market.last_candle.is_none() {
+            println!(
+                "{} not eligible for fill. Status: {:?}\tLast Candle: {:?}",
+                market.market_name, market.market_data_status, market.last_candle
+            );
+            false
+        } else {
+            true
+        }
+    }
+
+    async fn fill_market(&self, market: &MarketDetail, automate: &bool) {
+        // Route based on if it is a forward or backward fill event and the mtd status,
+        // continue processing events until there are no more events to process or validation fail
+        let mut continue_fill = true;
+        while continue_fill {
+            // Get the mtd
+            let mtd = self.select_market_trade_detail(market).await;
+            // Determine fill branch and process next fill step
+            continue_fill = match mtd.previous_status {
+                MarketDataStatus::Completed => {
+                    self.route_fill_forward(market, &mtd, automate).await
+                }
+                MarketDataStatus::Get => {
+                    self.fill_backward_get(market, &mtd).await;
+                    continue_fill
+                }
+                MarketDataStatus::Validate => {
+                    self.fill_backward_validate(market, &mtd).await;
+                    continue_fill
+                }
+                MarketDataStatus::Archive => {
+                    self.fill_backward_archive(market, &mtd).await;
+                    continue_fill
                 }
             };
-            // Process fill event
-            self.fill_market(&fill_event, automate).await;
-        };
-    } 
+        }
+    }
 
+    async fn route_fill_forward(
+        &self,
+        market: &MarketDetail,
+        mtd: &MarketTradeDetail,
+        automate: &bool,
+    ) -> bool {
+        // Backfill is completed, this function will look at the mtd record to determine how to
+        // route the next forward fill event
+        match mtd.next_status {
+            Some(MarketDataStatus::Completed) => {
+                // The forward fill has begun - determine next action
+                match mtd.next_trade_day {
+                    Some(d) => {
+                        // Check that the date is valid - ie it is less than the market last candle
+                        if d < market
+                            .last_candle
+                            .expect("Expected last candle with earlier validation.")
+                            .duration_trunc(Duration::days(1))
+                            .expect("Expected duration trunc for day.")
+                        {
+                            self.fill_forward_validate(market, mtd, d).await;
+                            true
+                        } else {
+                            println!("Market fill complete. Market Last Candle: {:?}\tNext Trade Day: {}",market.last_candle, d);
+                            false
+                        }
+                    }
+                    None => false, // There should be a next trade day if there is a next status
+                }
+            }
+            Some(MarketDataStatus::Get) => self.fill_forward_get(market, mtd, automate).await,
+            Some(MarketDataStatus::Archive) => {
+                self.fill_forward_archive(market, mtd).await;
+                true
+            }
+            Some(MarketDataStatus::Validate) => {
+                self.fill_forward_validate(
+                    market,
+                    mtd,
+                    mtd.next_trade_day.expect("Expected next trade day."),
+                )
+                .await;
+                true
+            }
+            None => {
+                // Next status is null in the db. This occurs when the the backfill is first
+                // completed. The first foward fill is to validate the first trade day
+                self.fill_forward_validate(market, mtd, mtd.previous_trade_day + Duration::days(1))
+                    .await;
+                true
+            }
+        }
+    }
+
+    async fn fill_forward_get(
+        &self,
+        market: &MarketDetail,
+        mtd: &MarketTradeDetail,
+        automate: &bool,
+    ) -> bool {
+        // Get the trades for the day and write to a vec. Then evaluate those trades with the
+        // exchange candle, the trade table for the day, and the _processed _rest tables if they
+        // exist. In addition do the trade id numerical validations if needed by exchange.
+        // If automate is false - get user input and wait for input. If automate - stop fill
+        // process on validation failure. Finally, process the trades if the evaluation is true
+        // by saving the trades, cleaning the tables, writing the file and updating the next status
+        // to validate so that it can move the file to the archive location and move forward in the
+        // fill process
+        let dt = mtd.next_trade_day.expect("Expected next trade day.");
+        println!(
+            "Forward Fill {} for {}. Get: Re-download trades.",
+            market.market_name, dt
+        );
+        match market.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                todo!("Refactor ftx get.")
+            }
+            ExchangeName::Gdax => {
+                // Get the trades for the day
+                let trades = self
+                    .get_gdax_trades_for_interval_forward(
+                        market,
+                        &dt,
+                        &(dt + Duration::days(1)),
+                        mtd.last_trade_id
+                            .parse::<i32>()
+                            .expect("Failed to parse trade id."),
+                        &mtd.last_trade_ts,
+                    )
+                    .await;
+                // Eval auto or manual to existing trades (day table or _rest/_processed)
+                if self
+                    .evaluate_fill_forward_get_gdax(market, &dt, automate, &trades)
+                    .await
+                {
+                    // If acccepted - write trades to file and update mtd
+                    self.process_fill_forward_get_gdax(market, mtd, &dt, &trades)
+                        .await;
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+    }
+
+    // Evaluate the trades retrieved during the Forward Fill Get event.
+    // 1) Check for normal validation of the trades - trade id has no gaps and next/prev trade
+    // 2) If that fails, then display for the user the volume and trade count for:
+    //   a) The trades received from forward fill
+    //   b) The trades stored in the daily trade table (may not exists from legacy process)
+    //   c) The trades stored in the _rest/_processed table (from legacy process)
+    // Volume needs exact match - if automate is True and not matched - fail. if automate is false
+    // get the input from the user to accept the new trades or reject.
+    async fn evaluate_fill_forward_get_gdax(
+        &self,
+        market: &MarketDetail,
+        dt: &DateTime<Utc>,
+        automate: &bool,
+        trades: &[GdaxTrade],
+    ) -> bool {
+        // Run GDAX validation on trades
+        let validated = self.validate_gdax_trades_for_interval(market, trades).await;
+        if validated {
+            // Return true - new trade are validated
+            println!("GDAX validation sucessful.");
+            true
+        } else {
+            // Calc volume for new trades
+            let forward_fill_volume = trades.iter().fold(dec!(0), |v, t| v + t.size());
+            println!(
+                "Forward Volume & Count:\t{}\t\t{}",
+                forward_fill_volume,
+                trades.len()
+            );
+            // Check if there is a trade table for the date and load those trades
+            if self.trade_table_exists(market, dt).await {
+                let trade_date_trades =
+                    GdaxTrade::select_all(&self.pools[&Database::Gdax], market, dt)
+                        .await
+                        .expect("Failed to select trades.");
+                let trade_date_volume = trade_date_trades.iter().fold(dec!(0), |v, t| v + t.size());
+                println!(
+                    "Daily Volume & Count:\t{}\t\t{}",
+                    trade_date_volume,
+                    trade_date_trades.len()
+                );
+            } else {
+                // Trade table does not exist for the day
+                println!("Daily Trade Table Does Not Exist.");
+            }
+            // Get the exchange candle from exchange api to compare volume
+            let validated = match self.get_gdax_daily_candle(market, dt).await {
+                Some(ec) => {
+                    let delta = forward_fill_volume - ec.volume;
+                    println!("Gdax Exchange Volume: {}", ec.volume);
+                    println!(
+                        "Delta: {}\t (%) {:?}%",
+                        delta,
+                        delta / ec.volume * dec!(100)
+                    );
+                    forward_fill_volume == ec.volume
+                }
+                None => {
+                    println!(
+                        "No Gdax exchange candle for {} on {}",
+                        market.market_name, dt
+                    );
+                    false
+                }
+            };
+            // Check for auto approve it automate = true or get manual input to validate
+            if *automate && validated {
+                println!("Volume matches, approve qc.");
+                true
+            } else if *automate && !validated {
+                println!("Volume does not match, fail qc and move to next market.");
+                false
+            } else {
+                let input: Option<String> = self.get_input_with_timer(15, "Volume does not match, what do you want to do? Enter 'Y' to use qc trades:").await;
+                match input {
+                    Some(s) => match s.to_lowercase().as_str() {
+                        "y" | "yes" => {
+                            println!("Accepting QC trades.");
+                            true
+                        }
+                        _ => {
+                            println!("Failing QC and moving to next market.");
+                            false
+                        }
+                    },
+                    None => {
+                        println!(
+                            "No response provided in time. Failing QC and moving to next market."
+                        );
+                        false
+                    }
+                }
+            }
+        }
+    }
+
+    // Write the trades to file and update the mtd forward status to Validate so that the next round
+    // of fill picks up the file as validated and moves forward.
+    async fn process_fill_forward_get_gdax(
+        &self,
+        market: &MarketDetail,
+        mtd: &MarketTradeDetail,
+        dt: &DateTime<Utc>,
+        trades: &[GdaxTrade],
+    ) {
+        let fp = self.prep_trade_archive_path_initial(market, dt);
+        self.write_trades_to_archive_path_gdax(trades, &fp);
+        mtd.update_next_day_next_status(
+            &self.pools[&Database::ElDorado],
+            dt,
+            &MarketDataStatus::Validate,
+        )
+        .await
+        .expect("Failed to update db status.");
+    }
+
+    async fn fill_forward_validate(
+        &self,
+        market: &MarketDetail,
+        mtd: &MarketTradeDetail,
+        dt: DateTime<Utc>,
+    ) {
+        // Locate a trades file if there is one. They can be located in main archive - or in two
+        // other directories. If there is no trade file - update to get
+        println!(
+            "Forward Fill {} for {}. Validate: Check file or trade table.",
+            market.market_name, dt
+        );
+        let f = format!("{}_{}.csv", market.as_strip(), dt.format("%F"));
+        let archive_path = format!(
+            "{}/csv/{}",
+            &self.storage_path,
+            &market.exchange_name.as_str()
+        );
+        let f_path = self.prep_trade_archive_path_initial(market, &dt);
+        // Move files from bad locations if they are there - can remove after cleanup
+        self.fill_forward_validate_file_locations(&archive_path, &f, &f_path);
+        // Check if the file exists - which means the day has been validated
+        if f_path.exists() {
+            // File exists - update mtd to archive and the date to the given data param - it is not
+            // guaranteed to be there prior
+            println!(
+                "Trade file for {} on {} exists in the expected location. Archive it.",
+                market.market_name, dt
+            );
+            mtd.update_next_day_next_status(
+                &self.pools[&Database::ElDorado],
+                &dt,
+                &MarketDataStatus::Archive,
+            )
+            .await
+            .expect("Expected db update.");
+        } else if self.trade_table_exists(market, &dt).await {
+            // Check the trade table for the day if the trades are validated. They would be checked
+            // already in the backfill process if the date is prior to the date when the market
+            // started OR they will not have been checked if the date was created during normal
+            // running of the price feed.
+            println!("Trade file does not exist. Checking trade table.");
+            match market.exchange_name {
+                ExchangeName::Ftx | ExchangeName::FtxUs => todo!(),
+                ExchangeName::Gdax => {
+                    let trades = GdaxTrade::select_all(&self.pools[&Database::Gdax], market, &dt)
+                        .await
+                        .expect("Failed to select GDAX trades.");
+                    if self
+                        .validate_gdax_trades_for_interval(market, &trades)
+                        .await
+                    {
+                        // Trades from trade table are valid - write to file. Do not update the mtd
+                        // As the next iteration will pick up the file and move the status to
+                        // archive.
+                        self.write_trades_to_archive_path_gdax(&trades, &f_path);
+                    } else {
+                        // Trades from trade table are not valid - get qc trades
+                        println!("Trades from Trade table are not valid. Get trades for qc.");
+                        mtd.update_next_day_next_status(
+                            &self.pools[&Database::ElDorado],
+                            &dt,
+                            &MarketDataStatus::Get,
+                        )
+                        .await
+                        .expect("Failed to update db status.");
+                    }
+                }
+            }
+        } else {
+            // File does not exists - and trade table does not exist with validated trades.
+            // update mtd to get and the date to the give date parame - it is
+            // not guaranteed to be there prior
+            println!(
+                "Trade file for {} on {} does not exists. Get trades for day to qc.",
+                market.market_name, dt
+            );
+            mtd.update_next_day_next_status(
+                &self.pools[&Database::ElDorado],
+                &dt,
+                &MarketDataStatus::Get,
+            )
+            .await
+            .expect("Expected db update.");
+        }
+    }
+
+    async fn fill_forward_archive(&self, market: &MarketDetail, mtd: &MarketTradeDetail) -> bool {
+        // Check that the mtd next day is popluated, otherwise return false
+        match mtd.next_trade_day {
+            Some(d) => {
+                println!(
+                    "Forwardfill {} for {}. ARCHIVE: Move trade file to archives.",
+                    market.market_name, mtd.previous_trade_day
+                );
+                // Move file to archive
+                let path = self.fill_forward_archive_move_file(market, &d);
+                // Update mtd to the next day with the last trade price and id
+                self.fill_forward_archive_update_mtd(market, mtd, &d, &path)
+                    .await;
+                // Update archive candles table if within 100 days (only keep 100 days in db, any
+                // more stored in flat files for research and backtesting. 100 days needed for
+                // current price metric calculations. reduces db size)
+                self.fill_forward_archive_process_candles(market, &d, &path)
+                    .await;
+                // Cleanup tables
+                self.fill_forward_archive_cleaup_tables(market, &d).await;
+                true
+            }
+            None => {
+                println!("Expected next trade day for Fill Forward Archive.");
+                false
+            }
+        }
+    }
+
+    fn fill_forward_archive_move_file(&self, market: &MarketDetail, dt: &DateTime<Utc>) -> PathBuf {
+        // Get the current trade file path
+        let f_path = self.prep_trade_archive_path_initial(market, dt);
+        // Set archive file path
+        let a_path = self.prep_trade_archive_path_final(market, dt);
+        // Move trade file to validated location
+        std::fs::rename(f_path, &a_path).expect("Failed to copy file to trade folder.");
+        a_path
+    }
+
+    async fn fill_forward_archive_update_mtd(
+        &self,
+        market: &MarketDetail,
+        mtd: &MarketTradeDetail,
+        d: &DateTime<Utc>,
+        pb: &PathBuf,
+    ) {
+        // Update mtd status and next day
+        mtd.update_next_day_next_status(
+            &self.pools[&Database::ElDorado],
+            &(*d + Duration::days(1)),
+            &MarketDataStatus::Completed,
+        )
+        .await
+        .expect("Failed to update the mtd.");
+        match market.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                // Read file from new location
+                let trades = self.read_ftx_trades_from_file(pb);
+                // Get first and last trades
+                if !trades.is_empty() {
+                    let first_trade = trades.first().unwrap();
+                    let last_trade = trades.last().unwrap();
+                    // Update first and last trade in the mtd
+                    mtd.update_first_and_last_trades(
+                        &self.pools[&Database::ElDorado],
+                        first_trade,
+                        last_trade,
+                    )
+                    .await
+                    .expect("Failed to update first and last trade details.");
+                } else {
+                    println!("Trade file empty. No need to update first and last trades.")
+                }
+            }
+            ExchangeName::Gdax => {
+                // Read file from new location
+                let trades = self.read_gdax_trades_from_file(pb);
+                // Get first and last trades
+                if !trades.is_empty() {
+                    let first_trade = trades.first().unwrap();
+                    let last_trade = trades.last().unwrap();
+                    // Update first and last trade in the mtd
+                    mtd.update_first_and_last_trades(
+                        &self.pools[&Database::ElDorado],
+                        first_trade,
+                        last_trade,
+                    )
+                    .await
+                    .expect("Failed to update first and last trade details.");
+                } else {
+                    println!("Trade file empty. No need to update first and last trades.")
+                }
+            }
+        }
+    }
+
+    // Cleanup the research candles table for the market by
+    // 1) Deleting an candles older than 100 days from now
+    // 2) Creating and Inserting research candles for the market and dt as it has been
+    //    validated and archived
+    // 3) Updated (or creating if it does not exist) the mcd for market with candle details
+    async fn fill_forward_archive_process_candles(
+        &self,
+        market: &MarketDetail,
+        dt: &DateTime<Utc>,
+        pb: &PathBuf,
+    ) {
+        // Delete candles greater than 100 days in the db
+        let cutoff = Utc::now()
+            .duration_trunc(Duration::days(1))
+            .expect("Failed to trunc date.")
+            - Duration::days(100);
+        let db = match market.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
+            ExchangeName::Gdax => Database::Gdax,
+        };
+        ResearchCandle::delete_lt_dt(
+            &self.pools[&db],
+            market,
+            &market.candle_timeframe.expect("Expected candle timeframe."),
+            &cutoff,
+        )
+        .await
+        .expect("Failed to delete candles.");
+        // Get MCD and create if it does not exist
+        let mcd = MarketCandleDetail::select(&self.pools[&Database::ElDorado], market).await;
+        let candles = match mcd {
+            Ok(m) => {
+                // Assert that the mcd last is the previous day and create candles for current day
+                assert_eq!(m.last_candle + TimeFrame::S15.as_dur(), *dt);
+                // Make candles for the dt and update mcd
+                let candles = self
+                    .make_research_candles_for_dt_from_file(market, &Some(m.clone()), dt, pb)
+                    .await;
+                match candles {
+                    Some(c) => {
+                        m.update_last(
+                            &self.pools[&Database::ElDorado],
+                            c.last().expect("Expected last candle."),
+                        )
+                        .await
+                        .expect("Failed to update mcd.");
+                        c
+                    }
+                    None => panic!("Execpted research candles."),
+                }
+            }
+            Err(sqlx::Error::RowNotFound) => {
+                // MCD does not exist for market, create record with todays trades
+                // as the start and with the end of day candle as end with last trade
+                let candles = self
+                    .make_research_candles_for_dt_from_file(market, &None, dt, pb)
+                    .await
+                    .unwrap();
+                let mcd = MarketCandleDetail::new(market, &TimeFrame::S15, &candles);
+                mcd.insert(&self.pools[&Database::ElDorado])
+                    .await
+                    .expect("Failed to insert mcd.");
+                candles
+            }
+            Err(e) => panic!("Sqlx Error: {:?}", e),
+        };
+        // If the dt is within 100 days - add to research table to use when loading market to run
+        if *dt >= cutoff {
+            // Insert candles into research candles table
+            let db = match market.exchange_name {
+                ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
+                ExchangeName::Gdax => Database::Gdax,
+            };
+            for candle in candles.iter() {
+                candle
+                    .insert(&self.pools[&db], market, &TimeFrame::S15)
+                    .await
+                    .expect("Failed to insert candle.");
+            }
+        }
+    }
+
+    async fn fill_forward_archive_cleaup_tables(&self, market: &MarketDetail, dt: &DateTime<Utc>) {
+        // Clean up all the trade tables for the market for the day
+        // Drop the official trade date table.
+        let db = match market.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
+            ExchangeName::Gdax => {
+                GdaxTrade::drop_table(&self.pools[&Database::Gdax], market, *dt)
+                    .await
+                    .expect("Failed to drop table.");
+                Database::Gdax
+            }
+        };
+        // Drop the legacy trade and qc tables
+        let table_pre = format!(
+            "public.trade_{}_{}",
+            market.exchange_name.as_str(),
+            market.as_strip()
+        );
+        let tables = ["_rest", "_ws", "_validated", "_archived", "_qc", "_qc_auto"];
+        for table in tables.iter() {
+            let sql = format!(
+                r#"
+                DROP TABLE IF EXISTS {}{}
+                "#,
+                table_pre, table
+            );
+            sqlx::query(&sql)
+                .execute(&self.pools[&db])
+                .await
+                .expect("Failed to drop table.");
+        }
+    }
+
+    fn fill_forward_validate_file_locations(&self, path: &str, f: &str, fb: &PathBuf) {
+        // Try bad location 1 in a second gdax folder - once cleaned up this can be removed
+        let bad_archive_path = format!("{}/csv/gdax2", &self.storage_path);
+        let bf_path = Path::new(&bad_archive_path).join(f);
+        if bf_path.exists() {
+            println!("File in location 3. Moving to correct location.");
+            // Create directories in the correct location
+            std::fs::create_dir_all(path).expect("Failed to create directories.");
+            // File exists but in wrong location - copy to correct location
+            std::fs::rename(bf_path, &fb).expect("Failed to copy file from location 3.");
+        };
+        // Try location 2
+        let bad_archive_path = format!("{}/csv/gdax/gdax", &self.storage_path,);
+        let bf_path = Path::new(&bad_archive_path).join(f);
+        if bf_path.exists() {
+            println!("File in location 2. Moving to correct location.");
+            // Create directories in the correct location
+            std::fs::create_dir_all(&path).expect("Failed to create directories.");
+            // File exists but in wrong location - copy to correct location
+            std::fs::rename(bf_path, &fb).expect("Failed to copy file from location 2.");
+        };
+    }
+
+    // Fill backward get - Get the trades for the market on the previous trade date. Create the
+    // table if needed and fill with trades from the rest api for the exchange.
+    async fn fill_backward_get(&self, market: &MarketDetail, mtd: &MarketTradeDetail) {
+        println!(
+            "Backfill {} for {}. Get: Create table and get trades.",
+            market.market_name, mtd.previous_trade_day
+        );
+        // Create trade table for market / exchange / date
+        self.create_trade_table(market, mtd.previous_trade_day)
+            .await;
+        match market.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                todo!("Migrate FTX get from Inqui.")
+            }
+            ExchangeName::Gdax => {
+                // Fill trades for day
+                let trades: Vec<GdaxTrade> = self
+                    .get_gdax_trades_for_interval_backward(
+                        market,
+                        &mtd.previous_trade_day,
+                        &(mtd.previous_trade_day + Duration::days(1)),
+                        mtd.first_trade_id.parse::<i32>().unwrap(),
+                        &mtd.first_trade_ts,
+                    )
+                    .await;
+                // Write trades to table
+                println!("Writing {} trades to table.", trades.len());
+                for trade in trades.iter() {
+                    trade
+                        .insert(&self.pools[&Database::Gdax], market)
+                        .await
+                        .expect("Failed to insert trade.");
+                }
+            }
+        };
+        // Update mtd status to validate
+        mtd.update_prev_status(
+            &self.pools[&Database::ElDorado],
+            &MarketDataStatus::Validate,
+        )
+        .await
+        .expect("Failed to update mtd status.");
+    }
+
+    // Fill Backward Validate - Validate the trades in the table for the date. If validated - update
+    // status to Archive, if not validated - update status to Get and update next date.
+    async fn fill_backward_validate(&self, market: &MarketDetail, mtd: &MarketTradeDetail) {
+        println!(
+            "Backfill {} for {}. VALIDATE: Match trade ids and volume against exchange data.",
+            market.market_name, mtd.previous_trade_day
+        );
+        match market.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                todo!("Migrate FTX validate from Inqui.")
+            }
+            ExchangeName::Gdax => {
+                // Get trades from table
+                let trades = GdaxTrade::select_all(
+                    &self.pools[&Database::Gdax],
+                    market,
+                    &mtd.previous_trade_day,
+                )
+                .await
+                .expect("Failed to select trades.");
+                // Perform GDAX specific validations
+                let validated = self
+                    .validate_gdax_trades_for_interval(market, &trades)
+                    .await;
+                // Process validation result
+                self.process_fill_backward_validation_gdax(mtd, validated, &trades)
+                    .await;
+            }
+        }
+    }
+
+    // Fill Backward Archive - Archive the trades in the trade table for the day and update the mtd
+    async fn fill_backward_archive(&self, market: &MarketDetail, mtd: &MarketTradeDetail) {
+        println!(
+            "Backfill {} for {}. ARCHIVE: Save trades to csv file.",
+            market.market_name, mtd.previous_trade_day
+        );
+        let fp = self.prep_trade_archive_path_initial(market, &mtd.previous_trade_day);
+        // Load trades from table and write to file but do not drop table. This will increase db
+        // storage but will simplify process by only dropping tables and cleaning up during the
+        // forward fill as each day is validated and the research candles are created
+        match market.exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                todo!("Migrate FTX archive from Inqui.")
+            }
+            ExchangeName::Gdax => {
+                let trades = GdaxTrade::select_all(
+                    &self.pools[&Database::Gdax],
+                    market,
+                    &mtd.previous_trade_day,
+                )
+                .await
+                .expect("Failed to select trades.");
+                self.write_trades_to_archive_path_gdax(&trades, &fp);
+                self.process_fill_backward_archive_gdax(mtd, &trades).await;
+            }
+        }
+    }
+
+    async fn process_fill_backward_archive_gdax(
+        &self,
+        mtd: &MarketTradeDetail,
+        trades: &[GdaxTrade],
+    ) {
+        // Update mtd
+        if !trades.is_empty() {
+            // Safely unwrap the first trade since it is not empty
+            let first_trade = trades.first().expect("Expected first trade.");
+            // Check if the first trade is trade_id = 1 - then mark backfill compelte or move to
+            // previous day and get
+            if first_trade.trade_id == 1 {
+                // First trade, make backfill as completed
+                mtd.update_prev_day_prev_status(
+                    &self.pools[&Database::ElDorado],
+                    &(mtd.previous_trade_day - Duration::days(1)),
+                    &MarketDataStatus::Completed,
+                )
+                .await
+                .expect("Failed to update mtd status.");
+            } else {
+                // Move to next day
+                mtd.update_prev_day_prev_status(
+                    &self.pools[&Database::ElDorado],
+                    &(mtd.previous_trade_day - Duration::days(1)),
+                    &MarketDataStatus::Get,
+                )
+                .await
+                .expect("Failed to update mtd status.");
+            };
+            // Update the first ftrade in the mtd
+            mtd.update_first_trade(
+                &self.pools[&Database::ElDorado],
+                &first_trade.time,
+                &first_trade.trade_id.to_string(),
+            )
+            .await
+            .expect("Failed to update mtd.");
+        } else {
+            // No trades for the day but update the previous day and status
+            mtd.update_prev_day_prev_status(
+                &self.pools[&Database::ElDorado],
+                &(mtd.previous_trade_day - Duration::days(1)),
+                &MarketDataStatus::Get,
+            )
+            .await
+            .expect("Failed to update mtd status.");
+        }
+    }
+
+    async fn process_fill_backward_validation_gdax(
+        &self,
+        mtd: &MarketTradeDetail,
+        validated: bool,
+        trades: &[GdaxTrade],
+    ) {
+        // Based on validation - update mtd to archive or to validate the next day
+        if validated {
+            mtd.update_prev_status(&self.pools[&Database::ElDorado], &MarketDataStatus::Archive)
+                .await
+                .expect("Failed to update mtd status.");
+        } else if !trades.is_empty() {
+            // Safely unwrap the first trade since it is not empty
+            let first_trade = trades.first().expect("Expected first trade.");
+            // Check if the first trade is trade_id 1 - then either move to next day or mark
+            // the backfill as complete so the forward fill can start
+            if first_trade.trade_id == 1 {
+                // First trade, make backfill as completed
+                mtd.update_prev_day_prev_status(
+                    &self.pools[&Database::ElDorado],
+                    &(mtd.previous_trade_day - Duration::days(1)),
+                    &MarketDataStatus::Completed,
+                )
+                .await
+                .expect("Failed to update mtd status.");
+            } else {
+                // Day not validated, move on to getting the next day
+                mtd.update_prev_day_prev_status(
+                    &self.pools[&Database::ElDorado],
+                    &(mtd.previous_trade_day - Duration::days(1)),
+                    &MarketDataStatus::Get,
+                )
+                .await
+                .expect("Failed to update mtd status.");
+            };
+            // Update the first trade in the mtd
+            mtd.update_first_trade(
+                &self.pools[&Database::ElDorado],
+                &first_trade.time,
+                &first_trade.trade_id.to_string(),
+            )
+            .await
+            .expect("Failed to update mtd.");
+        } else {
+            // Failed validation and there are no trades for the day - move to next day
+            mtd.update_prev_day_prev_status(
+                &self.pools[&Database::ElDorado],
+                &(mtd.previous_trade_day - Duration::days(1)),
+                &MarketDataStatus::Get,
+            )
+            .await
+            .expect("Failed to update mtd status.");
+        }
+    }
+
+    async fn validate_gdax_trades_for_interval(
+        &self,
+        market: &MarketDetail,
+        trades: &[GdaxTrade],
+    ) -> bool {
+        // Check if there are trades, if there are no trades than mark as not validated
+        if !trades.is_empty() {
+            // Unwrap first and last trades given that trades is not empty
+            let first = trades.first().expect("Expected first trade.");
+            let last = trades.last().expect("Expected last trade.");
+            // 3 validations
+            // Validation 1: Trade count matches number of trades
+            let validation_1 = last.trade_id - first.trade_id + 1 == trades.len() as i64;
+            println!(
+                "Trade Count Validation: {}. {} - {} + 1 = {}.",
+                validation_1,
+                last.trade_id,
+                first.trade_id,
+                trades.len()
+            );
+            // Validation 2: Next trade from last is outside interval end
+            let validation_2 = self.validate_next_gdax_trade(market, last).await;
+            println!("Next Trade Validation: {}", validation_2);
+            // Validation 3: Previous trade from first is outside interval start
+            let validation_3 = self.validate_previous_gdax_trade(market, first).await;
+            println!("Previous Trade Validation: {}", validation_3);
+            validation_1 && validation_2 && validation_3
+        } else {
+            false
+        }
+    }
+
+    async fn validate_next_gdax_trade(&self, market: &MarketDetail, trade: &GdaxTrade) -> bool {
+        // Get the next trade for the trade id given
+        let next_trade = self.get_gdax_next_trade(market, trade).await;
+        match next_trade {
+            Some(t) => {
+                // Check that the next trade is greater than the date of the last trade
+                println!("Last Trade: {}\tNext Trade {}", trade.time, t.time);
+                t.time.duration_trunc(Duration::days(1)).unwrap()
+                    > trade.time.duration_trunc(Duration::days(1)).unwrap()
+            }
+            None => {
+                println!("Next trade validation failed. No next trade.");
+                false
+            }
+        }
+    }
+
+    async fn validate_previous_gdax_trade(&self, market: &MarketDetail, trade: &GdaxTrade) -> bool {
+        // Check if trade id == 1 as there would be no next trade and the validation is correct
+        if trade.trade_id == 1 {
+            true
+        } else {
+            // Get the previous trade for the trade id given
+            let previous_trade = self.get_gdax_previous_trade(market, trade).await;
+            match previous_trade {
+                Some(t) => {
+                    // Check taht the previous trade is less than the date of the first trade
+                    println!("First Trade: {}\tPrevious Trade {}", trade.time, t.time);
+                    t.time.duration_trunc(Duration::days(1)).unwrap()
+                        < trade.time.duration_trunc(Duration::days(1)).unwrap()
+                }
+                None => {
+                    println!("Previous trade validation failed. No previous trade.");
+                    false
+                }
+            }
+        }
+    }
+
+    // Takes the trade market and trade day and creates any directories needed creates the path
+    // to where the file will be archived. This is the csv directory where the file is first written
+    // as files are processed forward - the files are moved to the final location in a different
+    // function
+    fn prep_trade_archive_path_initial(
+        &self,
+        market: &MarketDetail,
+        dt: &DateTime<Utc>,
+    ) -> PathBuf {
+        println!(
+            "Creating trade archive path for {} on {}",
+            market.market_name, dt
+        );
+        // Check directory for csv file is created
+        let path = format!(
+            "{}/csv/{}",
+            &self.storage_path,
+            &market.exchange_name.as_str()
+        );
+        std::fs::create_dir_all(&path).expect("Failed to create directories.");
+        let f = format!("{}-{}.csv", market.as_strip(), dt.format("%F"));
+        std::path::Path::new(&path).join(f)
+    }
+
+    fn prep_trade_archive_path_final(&self, market: &MarketDetail, dt: &DateTime<Utc>) -> PathBuf {
+        println!(
+            "Creating trade archive path final for {} on {}",
+            market.market_name, dt
+        );
+        let path = format!(
+            "{}/trades/{}/{}/{}/{}",
+            &self.storage_path,
+            &market.exchange_name.as_str(),
+            &market.as_strip(),
+            dt.format("%Y"),
+            dt.format("%m"),
+        );
+        std::fs::create_dir_all(&path).expect("Failed to create directories.");
+        let f = format!("{}-{}.csv", market.as_strip(), dt.format("%F"));
+        std::path::Path::new(&path).join(f)
+    }
+
+    // Takes Gdax trades and writes to the file path
+    fn write_trades_to_archive_path_gdax(&self, trades: &[GdaxTrade], fp: &PathBuf) {
+        // Write trades to file
+        let mut wtr = Writer::from_path(fp).expect("Failed to open file.");
+        for trade in trades.iter() {
+            wtr.serialize(trade).expect("Failed to serialize trade.");
+        }
+        wtr.flush().expect("Failed to flush wtr.");
+    }
 }
 
 impl Inquisidor {
@@ -849,7 +1784,10 @@ impl Inquisidor {
             Some(mtd) => mtd.clone(),
             None => {
                 // No trade archive exists, create one
-                let mtd = MarketTradeDetail::new(&self.ig_pool, market).await;
+                let first_candle = select_first_01d_candle(&self.ig_pool, &market.market_id)
+                    .await
+                    .expect("Failed to select first candle.");
+                let mtd = MarketTradeDetail::new(market, &first_candle.open_as_pridti()).await;
                 mtd.insert(&self.ig_pool)
                     .await
                     .expect("Failed to insert market trade detail.");
@@ -902,7 +1840,7 @@ impl Inquisidor {
         // Match the exchage and process the event
         let market = select_market_detail(&self.ig_pool, &event.market_id)
             .await
-            .expect("Faile to select market.");
+            .expect("Failed to select market.");
         let mut mtd = MarketTradeDetail::select(&self.ig_pool, &market)
             .await
             .expect("Failed to select market trade detail.");

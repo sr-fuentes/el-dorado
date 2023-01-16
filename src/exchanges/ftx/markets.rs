@@ -180,6 +180,23 @@ impl crate::trades::Trade for Trade {
             .await?;
         Ok(())
     }
+
+    async fn drop_table(
+        pool: &PgPool,
+        market: &MarketDetail,
+        dt: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        let sql = format!(
+            r#"
+            DROP TABLE IF EXISTS trades.{}_{}_{}
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            dt.format("%Y%m%d")
+        );
+        sqlx::query(&sql).execute(pool).await?;
+        Ok(())
+    }
 }
 
 impl Trade {
@@ -254,6 +271,10 @@ pub struct Candle {
 impl crate::candles::Candle for Candle {
     fn datetime(&self) -> DateTime<Utc> {
         self.start_time
+    }
+
+    fn close(&self) -> Decimal {
+        self.close
     }
 
     fn volume(&self) -> Decimal {

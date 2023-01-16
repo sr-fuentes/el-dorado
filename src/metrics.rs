@@ -642,17 +642,13 @@ pub async fn select_metrics_ap_by_exchange_market(
 #[cfg(test)]
 mod tests {
     use crate::{
-        candles::select_candles_gte_datetime,
         configuration::get_configuration,
         exchanges::ExchangeName,
-        metrics::{insert_metric_ap, select_metrics_ap_by_exchange_market, Metric, MetricAP},
-        utilities::TimeFrame,
+        metrics::{select_metrics_ap_by_exchange_market, Metric},
     };
-    use chrono::{TimeZone, Utc};
     use rust_decimal::prelude::*;
     use rust_decimal_macros::dec;
     use sqlx::PgPool;
-    use uuid::Uuid;
 
     // #[tokio::test]
     // pub async fn new_metrics_calculations_and_times() {

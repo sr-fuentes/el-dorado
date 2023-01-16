@@ -10,6 +10,41 @@ use twilio::{OutboundMessage, TwilioClient};
 
 use crate::{eldorado::ElDorado, inquisidor::Inquisidor};
 
+// Collection of data points for a daterange that are frequently used. First and last
+// datetimes are safely unwrapped in creation.
+#[derive(Debug)]
+pub struct DateRange {
+    pub dts: Vec<DateTime<Utc>>,
+    pub first: DateTime<Utc>,
+    pub last: DateTime<Utc>,
+}
+
+impl DateRange {
+    // Create new date range using the timeframe interval given starting with the first
+    // datetime and ending with the last datetime exclusive. If there is no datetime in the vec
+    // return None
+    pub fn new(start: &DateTime<Utc>, end: &DateTime<Utc>, tf: &TimeFrame) -> Option<Self> {
+        let mut next = *start;
+        let mut dr = Vec::new();
+        while next < *end {
+            dr.push(next);
+            next = next + tf.as_dur();
+        }
+        if !dr.is_empty() {
+            let first = dr.first().expect("Expected first dt in dr.");
+            let last = dr.last().expect("Expected last dt in dr.");
+            Some(DateRange {
+                dts: dr.to_owned(),
+                first: *first,
+                last: *last,
+            })
+        } else {
+            // There were no datetimes added to the vec, return None
+            None
+        }
+    }
+}
+
 impl ElDorado {
     // Create a date range using the timeframe interval starting with the start
     // datetime and ending with the ending datetime exclusive. This function will not have the end
@@ -55,6 +90,40 @@ impl ElDorado {
         .fetch_one(pool)
         .await?;
         Ok(result.exists)
+    }
+
+    pub async fn get_input<U: std::str::FromStr>(&self, prompt: &str) -> U {
+        loop {
+            let mut input = String::new();
+
+            // Reads the input from STDIN and places it in the String
+            println!("{}", prompt);
+            // Flush stdout to get on same line as prompt.
+            io::stdout().flush().expect("Failed to flush stdout.");
+            io::stdin()
+                .read_line(&mut input)
+                .expect("Failed to read input.");
+
+            // Convert to another type
+            // If successful, bind to a new variable named input.
+            // If failed, restart loop.
+            let input = match input.trim().parse::<U>() {
+                Ok(parsed_input) => parsed_input,
+                Err(_) => continue,
+            };
+            return input;
+        }
+    }
+
+    pub async fn get_input_with_timer<U: std::str::FromStr>(
+        &self,
+        seconds: u64,
+        prompt: &str,
+    ) -> Option<U> {
+        tokio::select! {
+            _ = tokio::time::sleep(tokio::time::Duration::from_secs(seconds)) => None,
+            res2 = self.get_input(prompt) => Some(res2),
+        }
     }
 }
 

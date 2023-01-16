@@ -1,13 +1,13 @@
-use crate::candles::ProductionCandle;
-use crate::configuration::{Database, Settings};
-use crate::eldorado::ElDorado;
-use crate::exchanges::{Exchange, ExchangeName};
-use crate::markets::MarketDetail;
-use crate::metrics::MetricAP;
-use crate::trades::PrIdTi;
-
-use crate::utilities::TimeFrame;
-use crate::utilities::Twilio;
+use crate::{
+    candles::ProductionCandle,
+    configuration::{Database, Settings},
+    eldorado::ElDorado,
+    exchanges::{Exchange, ExchangeName},
+    markets::MarketDetail,
+    metrics::MetricAP,
+    trades::PrIdTi,
+    utilities::{DateRange, TimeFrame, Twilio},
+};
 use chrono::{DateTime, DurationRound, Utc};
 use sqlx::PgPool;
 use std::collections::HashMap;
@@ -148,42 +148,47 @@ impl ElDorado {
         // Create date range of intervals to process - most of the time this will be for one
         // interval but may involve multiple intervals if the sync is long
         let interval_start = heartbeat.ts + market.candle_timeframe.unwrap().as_dur();
-        let dr = self.create_date_range(
+        match DateRange::new(
             &interval_start,
             interval_end,
             &market.candle_timeframe.expect("No Candle Timefram."),
-        );
-        println!("Process interval dr: {:?}", dr);
-        if !dr.is_empty() {
-            // There are intervals to process, process then run metrics
-            match self
-                .make_production_candles_for_interval(market, &dr, &heartbeat.last)
-                .await
-            {
-                Some(candles) => {
-                    println!("Inserting {} production candles.", candles.len());
-                    self.insert_production_candles(market, &candles).await;
-                    println!("Updating heartbeat.");
-                    Some(
-                        self.update_heartbeat(market, heartbeat, candles, interval_end)
-                            .await,
-                    )
+        ) {
+            Some(dr) => {
+                println!("Process interval dr: {:?}", dr);
+                // There are intervals to process, process then run metrics
+                match self
+                    .make_production_candles_for_interval(market, &dr, &heartbeat.last)
+                    .await
+                {
+                    Some(candles) => {
+                        println!("Inserting {} production candles.", candles.len());
+                        self.insert_production_candles(market, &candles).await;
+                        println!("Updating heartbeat.");
+                        Some(
+                            self.update_heartbeat(market, heartbeat, candles, interval_end)
+                                .await,
+                        )
+                    }
+                    None => None,
                 }
-                None => None,
             }
-        } else if heartbeat.metrics.is_none() {
-            // There are no intervals to process but metrics need to be updated
-            println!("Updating and inserting metrics.");
-            let metrics = self.calc_metrics_all_tfs(market, heartbeat);
-            self.insert_metrics_ap(&metrics).await;
-            Some(Heartbeat {
-                ts: heartbeat.ts,
-                last: heartbeat.last,
-                candles: heartbeat.candles.clone(),
-                metrics: Some(metrics),
-            })
-        } else {
-            None
+            None => {
+                println!("No interval dr to process.");
+                if heartbeat.metrics.is_none() {
+                    // There are no intervals to process but metrics need to be updated
+                    println!("Updating and inserting metrics.");
+                    let metrics = self.calc_metrics_all_tfs(market, heartbeat);
+                    self.insert_metrics_ap(&metrics).await;
+                    Some(Heartbeat {
+                        ts: heartbeat.ts,
+                        last: heartbeat.last,
+                        candles: heartbeat.candles.clone(),
+                        metrics: Some(metrics),
+                    })
+                } else {
+                    None
+                }
+            }
         }
     }
 
