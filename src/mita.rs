@@ -1,30 +1,16 @@
 use crate::{
     candles::ProductionCandle,
-    configuration::{Database, Settings},
+    configuration::{Database},
     eldorado::ElDorado,
-    exchanges::{Exchange, ExchangeName},
+    exchanges::{ExchangeName},
     markets::MarketDetail,
     metrics::MetricAP,
     trades::PrIdTi,
-    utilities::{DateRange, TimeFrame, Twilio},
+    utilities::{DateRange, TimeFrame},
 };
 use chrono::{DateTime, DurationRound, Utc};
-use sqlx::PgPool;
 use std::collections::HashMap;
 
-//#[derive(Debug)]
-pub struct Mita {
-    pub settings: Settings,
-    pub markets: Vec<MarketDetail>,
-    pub exchange: Exchange,
-    pub ed_pool: PgPool,
-    pub trade_pool: PgPool,
-    pub restart: bool,
-    pub last_restart: DateTime<Utc>,
-    pub restart_count: i8,
-    pub hbtf: TimeFrame,
-    pub twilio: Twilio,
-}
 
 #[derive(Debug)]
 pub struct Heartbeat {
@@ -255,19 +241,5 @@ impl ElDorado {
 
 #[cfg(test)]
 mod tests {
-    // use crate::mita::Mita;
-
-    // #[tokio::test]
-    // async fn create_heartbeat_returns_resampled_candles() {
-    //     let mita = Mita::new().await;
-    //     for market in mita.markets.iter() {
-    //         let heartbeat = mita.create_heartbeat(market).await;
-    //         println!("Heartbeat for {:?}", market.market_name);
-    //         println!("TS {:?}", heartbeat.ts);
-    //         println!("Last {:?}", heartbeat.last);
-    //         for (k, v) in heartbeat.candles.iter() {
-    //             println!("K: {:?} L: {:?}", k, v.last().unwrap());
-    //         }
-    //     }
-    // }
+    // TODO: Add unit tests
 }

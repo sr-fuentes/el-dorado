@@ -7,7 +7,6 @@ use crate::{
     },
     inquisidor::Inquisidor,
     markets::{MarketCandleDetail, MarketDetail, MarketTradeDetail},
-    mita::Mita,
     trades::{PrIdTi, Trade},
     utilities::{
         create_date_range, create_monthly_date_range, next_month_datetime, trunc_month_datetime,
@@ -2192,111 +2191,6 @@ impl ElDorado {
         } else {
             // No production candles for market - return None
             None
-        }
-    }
-}
-
-impl Mita {
-    // pub async fn validate_candles<T: Candle + DeserializeOwned>(
-    //     &self,
-    //     client: &RestClient,
-    //     market: &MarketDetail,
-    // ) {
-    //     let unvalidated_candles = select_unvalidated_candles(
-    //         &self.ed_pool,
-    //         &market.exchange_name,
-    //         &market.market_id,
-    //         TimeFrame::T15,
-    //     )
-    //     .await
-    //     .expect("Could not fetch unvalidated candles.");
-    //     // Validate heartbeat candles
-    //     validate_hb_candles::<T>(
-    //         &self.ed_pool,
-    //         &self.trade_pool,
-    //         client,
-    //         &self.exchange.name,
-    //         market,
-    //         &unvalidated_candles,
-    //     )
-    //     .await;
-    //     // Create 01d candles
-    //     create_01d_candles(&self.ed_pool, &self.exchange.name, &market.market_id).await;
-    //     // Validate 01d candles
-    //     validate_01d_candles::<T>(
-    //         &self.ed_pool,
-    //         &self.trade_pool,
-    //         client,
-    //         &self.exchange.name,
-    //         market,
-    //     )
-    //     .await;
-    // }
-
-    pub async fn create_interval_candles<T: Trade + std::clone::Clone>(
-        &self,
-        market: &MarketDetail,
-        date_range: Vec<DateTime<Utc>>,
-        trades: &[T],
-    ) -> Vec<ProductionCandle> {
-        // Takes a vec of trades and a date range and builds candles for each date in the range
-        // Get previous candle - to be used to forward fill if there are no trades
-        let mut previous_candle = match select_previous_candle(
-            &self.ed_pool,
-            &self.exchange.name,
-            &market.market_id,
-            *date_range.first().unwrap(),
-            self.hbtf,
-        )
-        .await
-        {
-            Ok(c) => Some(c),
-            Err(sqlx::Error::RowNotFound) => None,
-            Err(e) => panic!("Sqlx Error: {:?}", e),
-        };
-        let candles = date_range.iter().fold(Vec::new(), |mut v, d| {
-            let mut filtered_trades: Vec<T> = trades
-                .iter()
-                .filter(|t| t.time().duration_trunc(Duration::seconds(900)).unwrap() == *d)
-                .cloned()
-                .collect();
-            let new_candle = match filtered_trades.len() {
-                0 => previous_candle.as_ref().map(|pc| {
-                    ProductionCandle::new_from_last(
-                        market.market_id,
-                        *d,
-                        pc.close,
-                        pc.last_trade_ts,
-                        &pc.last_trade_id.to_string(),
-                    )
-                }),
-                _ => {
-                    filtered_trades.sort_by_key(|t1| t1.trade_id());
-                    Some(ProductionCandle::new_from_trades(
-                        market.market_id,
-                        *d,
-                        &filtered_trades,
-                    ))
-                }
-            };
-            previous_candle = new_candle.clone();
-            v.push(new_candle);
-            v
-        });
-        candles.into_iter().flatten().collect()
-    }
-
-    pub async fn insert_candles(&self, market: &MarketDetail, candles: Vec<ProductionCandle>) {
-        for candle in candles.into_iter() {
-            insert_candle(
-                &self.ed_pool,
-                &self.exchange.name,
-                &market.market_id,
-                candle,
-                false,
-            )
-            .await
-            .expect("Could not insert new candle.");
         }
     }
 }

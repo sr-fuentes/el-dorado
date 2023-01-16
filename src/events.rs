@@ -5,8 +5,6 @@ use crate::markets::{
     select_market_details, select_market_details_by_status_exchange, MarketDataStatus,
     MarketDetail, MarketStatus, MarketTradeDetail,
 };
-use crate::mita::Mita;
-use crate::trades::select_insert_delete_trades;
 use crate::utilities::TimeFrame;
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use sqlx::PgPool;
@@ -560,69 +558,6 @@ impl Inquisidor {
     //         .await
     //         .expect("Failed to update event status to done.");
     // }
-}
-
-impl Mita {
-    pub async fn process_events(&self, events_ts: DateTime<Utc>) -> bool {
-        // Check time versus mita event_ts, if at least 1 minute has not elapsed, return
-        let now = Utc::now();
-        if now - events_ts < Duration::minutes(1) {
-            return false;
-        };
-        // Get any open events for the droplet
-        let open_events = select_open_events_for_droplet_exchange(
-            &self.ed_pool,
-            &self.exchange.name,
-            &self.settings.application.droplet,
-        )
-        .await
-        .expect("Failed to select open events.");
-        // Get all market details - for market id and strip name fn in event processing
-        let markets = select_market_details(&self.ed_pool)
-            .await
-            .expect("Failed to select all market details.");
-        // Process events
-        for event in open_events.iter() {
-            // Get market detail for event
-            let market = markets
-                .iter()
-                .find(|m| m.market_id == event.market_id)
-                .unwrap();
-            match event.event_type {
-                EventType::ProcessTrades => self.process_event_process_trades(event, market).await,
-                EventType::ValidateCandle => continue, // All validations will be for IG
-                EventType::CreateDailyCandles => continue, // All daily creation events will be IG
-                EventType::ValidateDailyCandles => continue, // IG only
-                EventType::ArchiveDailyCandles => continue, // IG only
-                EventType::BackfillTrades => continue, // IG only
-                EventType::ForwardFillTrades => continue, // IG only
-            }
-        }
-        true
-    }
-
-    pub async fn process_event_process_trades(&self, event: &Event, market: &MarketDetail) {
-        // Select insert delete the trades from ws to processed
-        select_insert_delete_trades(
-            &self.trade_pool,
-            &event.exchange_name,
-            market,
-            event.start_ts.unwrap(),
-            event.end_ts.unwrap(),
-            "ws",
-            "processed",
-        )
-        .await
-        .expect("Failed to select insert delete trades.");
-        // Update event status to done
-        update_event_status_processed(&self.ed_pool, event)
-            .await
-            .expect("Failed to update event status to done.");
-        // Add validation event
-        insert_event_validate_candles(&self.ed_pool, "ig", event.start_ts.unwrap(), market)
-            .await
-            .expect("Failed in insert event - validate candle.");
-    }
 }
 
 pub async fn insert_event_process_trades(

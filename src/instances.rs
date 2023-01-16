@@ -2,7 +2,7 @@ use crate::configuration::Settings;
 use crate::markets::{select_market_detail_by_exchange_mita, MarketDetail};
 use crate::metrics::select_metrics_ap_by_exchange_market;
 use crate::utilities::TimeFrame;
-use crate::{exchanges::ExchangeName, inquisidor::Inquisidor, mita::Mita};
+use crate::{exchanges::ExchangeName, inquisidor::Inquisidor};
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use sqlx::PgPool;
 use std::convert::{TryFrom, TryInto};
@@ -289,62 +289,35 @@ impl TryFrom<String> for InstanceStatus {
     }
 }
 
-// impl Mita {
-//     pub async fn insert_instance(&self) {
-//         insert_or_update_instance_mita(self)
-//             .await
-//             .expect("Failed to insert mita instance.");
-//     }
 
-//     pub async fn update_instance_status(&self, status: &InstanceStatus) {
-//         update_instance_status(
-//             &self.ed_pool,
-//             &self.settings.application.droplet,
-//             Some(&self.exchange.name),
-//             status,
-//         )
-//         .await
-//         .expect("Failed to update status.");
-//     }
 
-//     pub async fn update_instance_last(&self) {
-//         update_instance_last_updated(
-//             &self.ed_pool,
-//             &self.settings.application.droplet,
-//             Some(&self.exchange.name),
-//         )
-//         .await
-//         .expect("Failed to update last updated.");
-//     }
+// pub async fn insert_or_update_instance_mita(mita: &Mita) -> Result<(), sqlx::Error> {
+//     let sql = r#"
+//         INSERT INTO instances (
+//             instance_type, droplet, exchange_name, instance_status, restart, last_restart_ts,
+//             restart_count, num_markets, last_update_ts, last_message_ts)
+//         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL)
+//         ON CONFLICT (droplet, exchange_name)
+//         DO
+//             UPDATE SET (instance_status, restart, last_restart_ts, restart_count, num_markets,
+//                 last_update_ts, last_message_ts) = (EXCLUDED.instance_status, EXCLUDED.restart,
+//                 EXCLUDED.last_restart_ts, EXCLUDED.restart_count, EXCLUDED.num_markets,
+//                 EXCLUDED.last_update_ts, EXCLUDED.last_message_ts)
+//         "#;
+//     sqlx::query(sql)
+//         .bind(InstanceType::Mita.as_str())
+//         .bind(&mita.settings.application.droplet)
+//         .bind(mita.exchange.name.as_str())
+//         .bind(InstanceStatus::New.as_str())
+//         .bind(mita.restart)
+//         .bind(mita.last_restart)
+//         .bind(mita.restart_count as i32)
+//         .bind(mita.markets.len() as i32)
+//         .bind(Utc::now())
+//         .execute(&mita.ed_pool)
+//         .await?;
+//     Ok(())
 // }
-
-pub async fn insert_or_update_instance_mita(mita: &Mita) -> Result<(), sqlx::Error> {
-    let sql = r#"
-        INSERT INTO instances (
-            instance_type, droplet, exchange_name, instance_status, restart, last_restart_ts,
-            restart_count, num_markets, last_update_ts, last_message_ts)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL)
-        ON CONFLICT (droplet, exchange_name)
-        DO
-            UPDATE SET (instance_status, restart, last_restart_ts, restart_count, num_markets,
-                last_update_ts, last_message_ts) = (EXCLUDED.instance_status, EXCLUDED.restart,
-                EXCLUDED.last_restart_ts, EXCLUDED.restart_count, EXCLUDED.num_markets,
-                EXCLUDED.last_update_ts, EXCLUDED.last_message_ts)
-        "#;
-    sqlx::query(sql)
-        .bind(InstanceType::Mita.as_str())
-        .bind(&mita.settings.application.droplet)
-        .bind(mita.exchange.name.as_str())
-        .bind(InstanceStatus::New.as_str())
-        .bind(mita.restart)
-        .bind(mita.last_restart)
-        .bind(mita.restart_count as i32)
-        .bind(mita.markets.len() as i32)
-        .bind(Utc::now())
-        .execute(&mita.ed_pool)
-        .await?;
-    Ok(())
-}
 
 pub async fn insert_or_update_instance_ig(
     pool: &PgPool,
