@@ -1,8 +1,8 @@
 use crate::{
     candles::ProductionCandle,
-    configuration::{Database},
+    configuration::Database,
     eldorado::ElDorado,
-    exchanges::{ExchangeName},
+    exchanges::ExchangeName,
     markets::MarketDetail,
     metrics::MetricAP,
     trades::PrIdTi,
@@ -10,7 +10,6 @@ use crate::{
 };
 use chrono::{DateTime, DurationRound, Utc};
 use std::collections::HashMap;
-
 
 #[derive(Debug)]
 pub struct Heartbeat {

@@ -1,7 +1,7 @@
 use crate::{
     configuration::{get_configuration, Settings},
-    exchanges::{client::RestClient, select_exchanges, Exchange, ExchangeName},
-    markets::{select_market_details, MarketDetail},
+    exchanges::{client::RestClient, Exchange, ExchangeName},
+    markets::MarketDetail,
     utilities::TimeFrame,
     utilities::Twilio,
 };
@@ -46,11 +46,9 @@ impl Inquisidor {
         clients.insert(ExchangeName::Gdax, RestClient::new(&ExchangeName::Gdax));
         let client = Twilio::new();
         // Load exchanges
-        let exchanges = select_exchanges(&ig_pool)
-            .await
-            .expect("Failed to select exchanges.");
-        // Load markets
-        let markets = select_market_details(&ig_pool)
+        let exchanges = Vec::new(); // Placeholder to delete
+                                    // Load markets
+        let markets = MarketDetail::select_all(&ig_pool)
             .await
             .expect("Failed to select exchanges.");
         Self {
@@ -64,21 +62,6 @@ impl Inquisidor {
             twilio: client,
             exchanges,
             markets,
-        }
-    }
-
-    pub async fn run(&self) {
-        // Check that a daily event to create candles for each exchange exists and create one if it
-        // does not then start loop to process events and validations.
-        self.set_initial_event().await;
-        println!("Starting INQUI loop.");
-        loop {
-            // Process any events for ig
-            self.process_events().await;
-            // Process any validation events
-            // self.process_candle_validations(ValidationStatus::New).await;
-            // Sleep for 200 ms to give control back to tokio scheduler
-            tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
         }
     }
 

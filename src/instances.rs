@@ -1,5 +1,5 @@
 use crate::configuration::Settings;
-use crate::markets::{select_market_detail_by_exchange_mita, MarketDetail};
+use crate::markets::MarketDetail;
 use crate::metrics::select_metrics_ap_by_exchange_market;
 use crate::utilities::TimeFrame;
 use crate::{exchanges::ExchangeName, inquisidor::Inquisidor};
@@ -132,7 +132,7 @@ impl Instance {
             return im;
         };
         // Get markets for instance
-        let markets = select_market_detail_by_exchange_mita(
+        let markets = MarketDetail::select_by_exchange_mita(
             pool,
             &self.exchange_name.unwrap(),
             &self.droplet,
@@ -288,8 +288,6 @@ impl TryFrom<String> for InstanceStatus {
         }
     }
 }
-
-
 
 // pub async fn insert_or_update_instance_mita(mita: &Mita) -> Result<(), sqlx::Error> {
 //     let sql = r#"

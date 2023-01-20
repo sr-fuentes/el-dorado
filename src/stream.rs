@@ -136,9 +136,9 @@ impl ElDorado {
 #[cfg(test)]
 mod tests {
     use crate::configuration::get_configuration;
-    use crate::exchanges::select_exchanges;
     use crate::exchanges::ws::{Channel, Data, WebSocket};
-    use crate::markets::{select_market_detail, select_market_details};
+    use crate::exchanges::{Exchange, ExchangeName};
+    use crate::markets::MarketDetail;
     use crate::trades::{create_ftx_trade_table, drop_trade_table, insert_ftx_trade};
     use futures::StreamExt;
     use sqlx::PgPool;
@@ -150,21 +150,15 @@ mod tests {
         let pool = PgPool::connect_with(configuration.ftx_db.with_db())
             .await
             .expect("Failed to connect to Postgres.");
-        let exchanges = select_exchanges(&pool)
-            .await
-            .expect("Could not fetch exchanges from db.");
-        let exchange = exchanges
-            .iter()
-            .find(|e| e.name.as_str() == configuration.application.exchange)
-            .unwrap();
-        let market_ids = select_market_details(&pool)
+        let exchange = Exchange::new_sample_exchange(&ExchangeName::Ftx);
+        let market_ids = MarketDetail::select_all(&pool)
             .await
             .expect("Could not fetch markets.");
         let market_id = market_ids
             .iter()
             .find(|m| m.market_name == configuration.application.market)
             .unwrap();
-        let market_detail = select_market_detail(&pool, &market_id.market_id)
+        let market_detail = MarketDetail::select_by_id(&pool, &market_id.market_id)
             .await
             .expect("Could not fetch market detail.");
         drop_trade_table(&pool, &exchange.name, &market_detail, "ws_test")

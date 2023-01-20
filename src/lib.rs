@@ -15,4 +15,3 @@ pub mod monitor;
 pub mod stream;
 pub mod trades;
 pub mod utilities;
-pub mod validation;

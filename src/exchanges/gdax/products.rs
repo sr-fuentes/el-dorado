@@ -296,7 +296,7 @@ impl crate::candles::Candle for Candle {
 }
 
 impl RestClient {
-    pub async fn get_gdax_products<T: DeserializeOwned>(&self) -> Result<Vec<T>, RestError> {
+    pub async fn get_gdax_products(&self) -> Result<Vec<Product>, RestError> {
         self.get("/products", None).await
     }
 
@@ -378,7 +378,7 @@ mod tests {
     async fn get_product_returns_all_products() {
         let client = RestClient::new(&ExchangeName::Gdax);
         let products = client
-            .get_gdax_products::<crate::exchanges::gdax::Product>()
+            .get_gdax_products()
             .await
             .expect("Failed to get all products.");
         println!("Products: {:?}", products)
