@@ -25,7 +25,7 @@ pub struct ElDorado {
 
 impl ElDorado {
     // Initialize new instance of ElDorado based on the configuration settings
-    pub async fn new() -> Self {
+    pub async fn new() -> Option<Self> {
         // Load configuration settings
         let settings = Settings::from_configuration().expect("Failed to read configuration.");
         // Create PgPools to each database in settings
@@ -51,19 +51,41 @@ impl ElDorado {
                     .cloned()
                     .collect()
             }
-            InstanceType::Mita => MarketDetail::select_by_exchange_mita(
-                &pools[&Database::ElDorado],
-                &instance.exchange_name.unwrap(),
-                &instance.droplet,
-            )
-            .await
-            .expect("Failed to select market details."),
+            InstanceType::Mita => {
+                let markets = MarketDetail::select_by_exchange_mita(
+                    &pools[&Database::ElDorado],
+                    &instance.exchange_name.unwrap(),
+                    &instance.droplet,
+                )
+                .await
+                .expect("Failed to select market details.");
+                // Validate mita markets are in the correct status and have a candle timeframe
+                for market in markets.iter() {
+                    if market.candle_timeframe.is_none() {
+                        println!(
+                            "{} missing base candle time frame. Please fix before using market.",
+                            market.market_name
+                        );
+                        return None;
+                    } else if market.market_status != MarketStatus::Active {
+                        println!(
+                            "{} is not in Active status. Current status: {}",
+                            market.market_name,
+                            market.market_status.as_str()
+                        );
+                        return None;
+                    } else {
+                        println!("{} initialized for Mita.", market.market_name);
+                    }
+                }
+                markets
+            }
         };
         // Update instance market number field
         instance.num_markets = markets.len() as i32;
         // Get storage path from config
         let storage_path = settings.application.archive_path.clone();
-        Self {
+        Some(Self {
             pools,
             clients,
             twilio,
@@ -73,7 +95,7 @@ impl ElDorado {
             instance,
             storage_path,
             start_dt: Utc::now(),
-        }
+        })
     }
 
     // Run the default function based on InstanceType and continue restarting until explict exit.

@@ -18,23 +18,29 @@ async fn main() {
     match matches.subcommand_name() {
         Some("refresh") => {
             // Create new admin instance and refresh exchange
-            let eld = ElDorado::new().await;
-            eld.refresh_exchange().await;
+            match ElDorado::new().await {
+                Some(eld) => eld.refresh_exchange().await,
+                None => println!("Could not create El Dorado instance."),
+            }
         }
         Some("run") => {
             // Create new eldorado instance and run the default fn for the instance type
             // For IG => manage the system
             // For MITA => run trade/candle/metrics engine for give markets
-            let mut eld = ElDorado::new().await;
-            eld.run().await;
+            match ElDorado::new().await {
+                Some(mut eld) => eld.run().await,
+                None => println!("Could not create El Dorado instance."),
+            }
         }
         Some("fill") => {
             // Download and archive trades from beginning of normal running sync (min 90 days) to
             // the first trades of exchange.
-            let eld = ElDorado::new().await;
-            match eld.prompt_market_input(&None).await {
-                Some(m) => eld.fill(&Some(m), false).await,
-                None => println!("No valid market to fill."),
+            match ElDorado::new().await {
+                Some(eld) => match eld.prompt_market_input(&None).await {
+                    Some(m) => eld.fill(&Some(m), false).await,
+                    None => println!("No valid market to fill."),
+                },
+                None => println!("Could not create El Dorado insance."),
             }
         }
         // Some("archive") => {
@@ -44,8 +50,12 @@ async fn main() {
         // }
         Some("stream") => {
             // Create new mita instance and run stream until no restart
-            let eld = ElDorado::new().await;
-            eld.stream().await;
+            match ElDorado::new().await {
+                Some(eld) => {
+                    let _restart = eld.stream().await;
+                }
+                None => println!("Could not create El Dorado instance."),
+            }
         }
         // Some("monitor") => {
         //     // Create ig instance and review all existing active processes
