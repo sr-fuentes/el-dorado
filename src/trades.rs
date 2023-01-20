@@ -382,7 +382,7 @@ impl ElDorado {
         );
         let mut first_dt = *first_trade_dt;
         let mut trades: Vec<GdaxTrade> = Vec::new();
-        while first_dt >= *interval_start || first_trade_id == 1 {
+        while first_dt >= *interval_start && first_trade_id != 1 {
             // Prevent 429 errors by only requesting 1 per second
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             let mut new_trades = match self.clients[&market.exchange_name]
@@ -408,7 +408,7 @@ impl ElDorado {
                 first_dt
             );
             // Filter out trades that are before the start date
-            let mut filtered_trades = if first_dt < *interval_end {
+            let mut filtered_trades = if first_dt < *interval_start {
                 // There are trade to filter out
                 let ft: Vec<_> = new_trades
                     .iter()
