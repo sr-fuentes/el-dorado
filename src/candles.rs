@@ -604,8 +604,8 @@ impl ProductionCandle {
     ) -> Result<(), sqlx::Error> {
         let sql = format!(
             r#"
-            DELETE FROM candles.research_{}_{}_{}
-            WHERE datatime < $1
+            DELETE FROM candles.production_{}_{}_{}
+            WHERE datetime < $1
             "#,
             market.exchange_name.as_str(),
             market.as_strip(),
@@ -1611,7 +1611,7 @@ impl ResearchCandle {
             FROM candles.research_{}_{}_{}
             WHERE datetime >= $1
             AND datetime < $2
-            ORDER BY trade_id ASC
+            ORDER BY datetime ASC
             "#,
             market.exchange_name.as_str(),
             market.as_strip(),
@@ -1686,7 +1686,7 @@ impl ResearchCandle {
         let sql = format!(
             r#"
             DELETE FROM candles.research_{}_{}_{}
-            WHERE datatime < $1
+            WHERE datetime < $1
             "#,
             market.exchange_name.as_str(),
             market.as_strip(),

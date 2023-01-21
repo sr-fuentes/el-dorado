@@ -1210,7 +1210,7 @@ impl ElDorado {
         dt: &DateTime<Utc>,
         pb: &PathBuf,
     ) {
-        // Delete candles greater than 100 days in the db - research and prod
+        // Delete candles older than 100 days in the db - research
         let cutoff = Utc::now()
             .duration_trunc(Duration::days(1))
             .expect("Failed to trunc date.")
@@ -1227,11 +1227,12 @@ impl ElDorado {
         )
         .await
         .expect("Failed to delete candles.");
+        // Delete candles older than the day in the db - production
         ProductionCandle::delete_lt_dt(
             &self.pools[&db],
             market,
             &market.candle_timeframe.expect("Expected candle timeframe."),
-            &cutoff,
+            &(*dt + Duration::days(1)),
         )
         .await
         .expect("Failed to delete candles.");
