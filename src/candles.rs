@@ -594,6 +594,26 @@ impl ProductionCandle {
             .await?;
         Ok(row)
     }
+
+    // Delete an trades less than a give date for a give market
+    pub async fn delete_lt_dt(
+        pool: &PgPool,
+        market: &MarketDetail,
+        tf: &TimeFrame,
+        dt: &DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        let sql = format!(
+            r#"
+            DELETE FROM candles.research_{}_{}_{}
+            WHERE datatime < $1
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            tf.as_str(),
+        );
+        sqlx::query(&sql).bind(dt).execute(pool).await?;
+        Ok(())
+    }
 }
 
 impl Candle for ResearchCandle {

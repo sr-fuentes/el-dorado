@@ -1130,8 +1130,15 @@ impl ElDorado {
         let f_path = self.prep_trade_archive_path_initial(market, dt);
         // Set archive file path
         let a_path = self.prep_trade_archive_path_final(market, dt);
-        // Move trade file to validated location
-        std::fs::rename(f_path, &a_path).expect("Failed to copy file to trade folder.");
+        // Move trade file to validated location if it is not already there
+        if f_path.exists() && !a_path.exists() {
+            std::fs::rename(f_path, &a_path).expect("Failed to copy file to trade folder.");
+        } else if a_path.exists() {
+            // File already archived
+            println!("File already archived")
+        } else {
+            panic!("File not found, does not exist in initial or final location.");
+        }
         a_path
     }
 
@@ -1203,7 +1210,7 @@ impl ElDorado {
         dt: &DateTime<Utc>,
         pb: &PathBuf,
     ) {
-        // Delete candles greater than 100 days in the db
+        // Delete candles greater than 100 days in the db - research and prod
         let cutoff = Utc::now()
             .duration_trunc(Duration::days(1))
             .expect("Failed to trunc date.")
@@ -1213,6 +1220,14 @@ impl ElDorado {
             ExchangeName::Gdax => Database::Gdax,
         };
         ResearchCandle::delete_lt_dt(
+            &self.pools[&db],
+            market,
+            &TimeFrame::S15,
+            &cutoff,
+        )
+        .await
+        .expect("Failed to delete candles.");
+        ProductionCandle::delete_lt_dt(
             &self.pools[&db],
             market,
             &market.candle_timeframe.expect("Expected candle timeframe."),
