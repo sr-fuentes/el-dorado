@@ -1101,14 +1101,11 @@ impl ElDorado {
         match mtd.next_trade_day {
             Some(d) => {
                 println!(
-                    "Forwardfill {} for {}. ARCHIVE: Move trade file to archives.",
-                    market.market_name, mtd.previous_trade_day
+                    "Forwardfill {} for {:?}. ARCHIVE: Move trade file to archives.",
+                    market.market_name, mtd.next_trade_day
                 );
                 // Move file to archive
                 let path = self.fill_forward_archive_move_file(market, &d);
-                // Update mtd to the next day with the last trade price and id
-                self.fill_forward_archive_update_mtd(market, mtd, &d, &path)
-                    .await;
                 // Update archive candles table if within 100 days (only keep 100 days in db, any
                 // more stored in flat files for research and backtesting. 100 days needed for
                 // current price metric calculations. reduces db size)
@@ -1116,6 +1113,9 @@ impl ElDorado {
                     .await;
                 // Cleanup tables
                 self.fill_forward_archive_cleaup_tables(market, &d).await;
+                // Update mtd to the next day with the last trade price and id
+                self.fill_forward_archive_update_mtd(market, mtd, &d, &path)
+                    .await;
                 true
             }
             None => {
@@ -1286,7 +1286,7 @@ impl ElDorado {
                 Database::Gdax
             }
         };
-        // Drop the legacy trade and qc tables
+        // Drop the legacy trade and qc tables - remove once prod is cleaned up
         let table_pre = format!(
             "public.trade_{}_{}",
             market.exchange_name.as_str(),
@@ -1305,6 +1305,22 @@ impl ElDorado {
                 .await
                 .expect("Failed to drop table.");
         }
+        let bf_table = format!(
+            "public.trades_{}_{}_bf_{}",
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            dt.format("%Y%m%d")
+        );
+        let sql = format!(
+            r#"
+            DROP TABLE IF EXISTS {}
+            "#,
+            bf_table
+        );
+        sqlx::query(&sql)
+            .execute(&self.pools[&db])
+            .await
+            .expect("Failed to drop table.");
     }
 
     fn fill_forward_validate_file_locations(&self, path: &str, f: &str, fb: &PathBuf) {
@@ -1399,7 +1415,7 @@ impl ElDorado {
                     .validate_gdax_trades_for_interval(market, &trades)
                     .await;
                 // Process validation result
-                self.process_fill_backward_validation_gdax(mtd, validated, &trades)
+                self.process_fill_backward_validation_gdax(market, mtd, validated, &trades)
                     .await;
             }
         }
@@ -1428,13 +1444,15 @@ impl ElDorado {
                 .await
                 .expect("Failed to select trades.");
                 self.write_trades_to_archive_path_gdax(&trades, &fp);
-                self.process_fill_backward_archive_gdax(mtd, &trades).await;
+                self.process_fill_backward_archive_gdax(market, mtd, &trades)
+                    .await;
             }
         }
     }
 
     async fn process_fill_backward_archive_gdax(
         &self,
+        market: &MarketDetail,
         mtd: &MarketTradeDetail,
         trades: &[GdaxTrade],
     ) {
@@ -1453,6 +1471,10 @@ impl ElDorado {
                 )
                 .await
                 .expect("Failed to update mtd status.");
+                // Create the research candle table
+                ResearchCandle::create_table(&self.pools[&Database::Gdax], market, &TimeFrame::S15)
+                    .await
+                    .expect("Failed to create table.")
             } else {
                 // Move to next day
                 mtd.update_prev_day_prev_status(
@@ -1485,6 +1507,7 @@ impl ElDorado {
 
     async fn process_fill_backward_validation_gdax(
         &self,
+        market: &MarketDetail,
         mtd: &MarketTradeDetail,
         validated: bool,
         trades: &[GdaxTrade],
@@ -1508,6 +1531,10 @@ impl ElDorado {
                 )
                 .await
                 .expect("Failed to update mtd status.");
+                // Create the research candle table
+                ResearchCandle::create_table(&self.pools[&Database::Gdax], market, &TimeFrame::S15)
+                    .await
+                    .expect("Failed to create table.");
             } else {
                 // Day not validated, move on to getting the next day
                 mtd.update_prev_day_prev_status(

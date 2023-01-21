@@ -1665,7 +1665,7 @@ impl ResearchCandle {
     ) -> Result<(), sqlx::Error> {
         let sql = format!(
             r#"
-            DELETE FROM candles.research_{}_{}_{} (
+            DELETE FROM candles.research_{}_{}_{}
             WHERE datatime < $1
             "#,
             market.exchange_name.as_str(),
