@@ -1753,11 +1753,107 @@ impl ElDorado {
             .expect("Failed to check table.")
     }
 
-    pub fn resample_and_convert_research_candles(&self, candles: &[ResearchCandle], tf: &TimeFrame) -> Vec<ProductionCandle> {
+    pub fn resample_and_convert_research_candles(
+        &self,
+        candles: &[ResearchCandle],
+        tf: &TimeFrame,
+    ) -> Vec<ProductionCandle> {
         // Different approaches for perfomance. Resample from Vec is slow as it re-filters entire
         // vec for each time frame
         let resampled_candles = self.resample_research_candles(candles, tf);
-        resampled_candles.iter().map(|c| c.as_production_candle()).collect()
+        resampled_candles
+            .iter()
+            .map(|c| c.as_production_candle())
+            .collect()
+    }
+
+    pub fn resample_and_convert_research_candles_by_hashmap(
+        &self,
+        candles: &[ResearchCandle],
+        tf: &TimeFrame,
+    ) -> Vec<ProductionCandle> {
+        // First map research candles into hash map, then resample each hashmap key
+        let mut candle_map: HashMap<DateTime<Utc>, Vec<ResearchCandle>> = HashMap::new();
+        for candle in candles.iter() {
+            candle_map
+                .entry(candle.datetime.duration_trunc(tf.as_dur()).unwrap())
+                .and_modify(|v| v.push(candle.clone()))
+                .or_insert_with(|| vec![candle.clone()]);
+        }
+        // Second create the date range for the resampled candles. If candles passed are S15
+        // research candles then the last candle is 23:59:45. The last dt for the dr should be
+        // for a T15 tf should be 23:45:00 so the end time for the DR:new is 00:00:00
+        // dr can be unwrapped as there will be control on calling this function to make sure there
+        // is at least one date in dr to resample. TODO: Convert to Result<Vec, Err>
+        let dr = DateRange::new(
+            &candles
+                .first()
+                .unwrap()
+                .datetime
+                .duration_trunc(tf.as_dur())
+                .unwrap(),
+            &(candles
+                .last()
+                .unwrap()
+                .datetime
+                .duration_trunc(tf.as_dur())
+                .unwrap()
+                + tf.as_dur()),
+            tf,
+        )
+        .unwrap();
+        // For each date in the daterange - aggregate the candles
+        let resampled_candles = dr.dts.iter().fold(Vec::new(), |mut v, d| {
+            v.push(ResearchCandle::new_from_candles(d, &candle_map[d]));
+            v
+        });
+        // Finally convert to production
+        resampled_candles
+            .iter()
+            .map(|c| c.as_production_candle())
+            .collect()
+    }
+
+    pub fn resample_and_convert_research_candles_by_hashmap_v2(
+        &self,
+        candles: &[ResearchCandle],
+        tf: &TimeFrame,
+    ) -> Vec<ProductionCandle> {
+        // Convert the candle during the maping process to hashmap, then resample already converted
+        let mut candle_map: HashMap<DateTime<Utc>, Vec<ProductionCandle>> = HashMap::new();
+        for candle in candles.iter() {
+            candle_map
+                .entry(candle.datetime.duration_trunc(tf.as_dur()).unwrap())
+                .and_modify(|v| v.push(candle.as_production_candle()))
+                .or_insert_with(|| vec![candle.as_production_candle()]);
+        }
+        // Second create the date range for the resampled candles. If candles passed are S15
+        // research candles then the last candle is 23:59:45. The last dt for the dr should be
+        // for a T15 tf should be 23:45:00 so the end time for the DR:new is 00:00:00
+        // dr can be unwrapped as there will be control on calling this function to make sure there
+        // is at least one date in dr to resample. TODO: Convert to Result<Vec, Err>
+        let dr = DateRange::new(
+            &candles
+                .first()
+                .unwrap()
+                .datetime
+                .duration_trunc(tf.as_dur())
+                .unwrap(),
+            &(candles
+                .last()
+                .unwrap()
+                .datetime
+                .duration_trunc(tf.as_dur())
+                .unwrap()
+                + tf.as_dur()),
+            tf,
+        )
+        .unwrap();
+        // For each dr - aggregate the candles
+        dr.dts.iter().fold(Vec::new(), |mut v, d| {
+            v.push(ProductionCandle::new_from_candles(*d, &candle_map[d]));
+            v
+        })
     }
 
     // Get date range and resample
@@ -2625,12 +2721,14 @@ mod tests {
     use crate::inquisidor::Inquisidor;
     use crate::markets::{MarketCandleDetail, MarketDataStatus, MarketTradeDetail};
     use crate::utilities::{create_date_range, next_month_datetime};
+    use crate::eldorado::ElDorado;
     use chrono::{DateTime, Datelike, Duration, TimeZone, Utc};
-    use csv::Writer;
+    use csv::{Reader, Writer};
     use rust_decimal::prelude::*;
     use rust_decimal_macros::dec;
     use sqlx::PgPool;
     use uuid::Uuid;
+    use std::{fs::File, path::PathBuf};
 
     pub fn sample_trades() -> Vec<FtxTrade> {
         let mut trades: Vec<FtxTrade> = Vec::new();
@@ -2711,6 +2809,47 @@ mod tests {
                 .and_hms(0, id as u32 % 30, 0),
         }
     }
+
+    pub fn read_sample_research_candles(pb: &PathBuf) -> Vec<ResearchCandle> {
+        let file = File::open(pb).expect("Failed to open file.");
+        let mut candles = Vec::new();
+        let mut rdr = Reader::from_reader(file);
+        for result in rdr.deserialize() {
+            let record: ResearchCandle = result.expect("Failed to deserialize record.");
+            candles.push(record);
+        };
+        candles
+    }
+
+    #[tokio::test]
+    pub async fn resample_and_convert_research_to_production_candles() {
+        let eld = ElDorado::new().await.expect("Failed to create eldorado instance.");
+        let fp = std::path::Path::new("tests").join("FTTPERP_2022-01.csv");
+        println!("Loading 1 month of S15 candles.");
+        let start_0 = Utc::now();
+        let candles = read_sample_research_candles(&fp);
+        let end_0 = Utc::now();
+        println!("Candles loaded in {}", end_0 - start_0);
+        let tf = TimeFrame::T15;
+        println!("Candles Len: {}", candles.len());
+        println!("{} Starting Resample 1.", Utc::now());
+        let start_1 = Utc::now();
+        let resampled_1 = eld.resample_and_convert_research_candles(&candles, &tf);
+        let end_1 = Utc::now();
+        println!("{} Starting Resample 2.", Utc::now());
+        let start_2 = Utc::now();
+        let resampled_2 = eld.resample_and_convert_research_candles_by_hashmap(&candles, &tf);
+        let end_2 = Utc::now();
+        println!("{} Starting Resample 3.", Utc::now());
+        let start_3 = Utc::now();
+        let resampled_3 = eld.resample_and_convert_research_candles_by_hashmap_v2(&candles, &tf);
+        let end_3 = Utc::now();
+        println!("Resampled 1: {}", end_1 - start_1);
+        println!("Resampled 2: {}", end_2 - start_2);
+        println!("Resampled 3: {}", end_3 - start_3);
+        println!("First Candles:\n{:?}\n{:?}\n{:?}", resampled_1.first(), resampled_2.first(), resampled_3.first());
+        println!("Last Candles:\n{:?}\n{:?}\n{:?}", resampled_1.last(), resampled_2.last(), resampled_3.last());
+     }
 
     #[test]
     pub fn new_from_last_returns_candle_populated_from_last_trade() {

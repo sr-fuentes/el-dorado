@@ -230,7 +230,10 @@ impl ElDorado {
                 mcd.time_frame,
                 market.candle_timeframe.unwrap()
             );
-            self.resample_and_convert_research_candles(&archive_candles, &market.candle_timeframe.unwrap())
+            self.resample_and_convert_research_candles(
+                &archive_candles,
+                &market.candle_timeframe.unwrap(),
+            )
         };
         // Return the prepped candles ready for sync and new sync start and pridti
         let last = candles.last().unwrap();
@@ -1214,14 +1217,9 @@ impl ElDorado {
             ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
             ExchangeName::Gdax => Database::Gdax,
         };
-        ResearchCandle::delete_lt_dt(
-            &self.pools[&db],
-            market,
-            &TimeFrame::S15,
-            &cutoff,
-        )
-        .await
-        .expect("Failed to delete candles.");
+        ResearchCandle::delete_lt_dt(&self.pools[&db], market, &TimeFrame::S15, &cutoff)
+            .await
+            .expect("Failed to delete candles.");
         // Delete candles older than the day in the db - production
         ProductionCandle::delete_lt_dt(
             &self.pools[&db],
