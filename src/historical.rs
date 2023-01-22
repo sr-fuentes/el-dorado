@@ -230,12 +230,7 @@ impl ElDorado {
                 mcd.time_frame,
                 market.candle_timeframe.unwrap()
             );
-            let resampled_candles =
-                self.resample_research_candles(&archive_candles, &market.candle_timeframe.unwrap());
-            resampled_candles
-                .iter()
-                .map(|c| c.as_production_candle())
-                .collect()
+            self.resample_and_convert_research_candles(&archive_candles, &market.candle_timeframe.unwrap())
         };
         // Return the prepped candles ready for sync and new sync start and pridti
         let last = candles.last().unwrap();

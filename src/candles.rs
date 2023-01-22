@@ -1753,6 +1753,13 @@ impl ElDorado {
             .expect("Failed to check table.")
     }
 
+    pub fn resample_and_convert_research_candles(&self, candles: &[ResearchCandle], tf: &TimeFrame) -> Vec<ProductionCandle> {
+        // Different approaches for perfomance. Resample from Vec is slow as it re-filters entire
+        // vec for each time frame
+        let resampled_candles = self.resample_research_candles(candles, tf);
+        resampled_candles.iter().map(|c| c.as_production_candle()).collect()
+    }
+
     // Get date range and resample
     pub fn resample_research_candles(
         &self,
