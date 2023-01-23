@@ -1353,7 +1353,7 @@ impl ResearchCandle {
                 0,                            // LIQ COUNT SELL
                 *dt,                          // LAST TRADE TS
                 String::new(),                // LAST TRADE ID
-                first.datetime(),             // FIRST TRADE TS
+                first.first_trade_ts,         // FIRST TRADE TS
                 first.first_trade_id.clone(), // FIRST TRADE ID
             ),
             |(
