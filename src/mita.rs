@@ -109,15 +109,17 @@ impl ElDorado {
         let trunc_dt = dt
             .duration_trunc(market.candle_timeframe.unwrap().as_dur())
             .unwrap();
-        println!("Trunc dt: {}\tHeartbeat TS: {}", trunc_dt, heartbeat.ts);
         if trunc_dt > heartbeat.ts + market.candle_timeframe.unwrap().as_dur() {
+            println!("{} - Checking interval.\tTrunc dt: {}\tHeartbeat TS: {}", Utc::now(), trunc_dt, heartbeat.ts);
             println!(
                 "New heartbeat interval for {}: {}",
                 market.market_name, trunc_dt
             );
+            println!("Returning {} for 'process_interval'", trunc_dt);
             Some(trunc_dt)
         } else if heartbeat.metrics.is_none() {
             println!("No metrics, calculating from current heartbeat.");
+            println!("Returning {} for 'process_interval'", trunc_dt);
             Some(trunc_dt)
         } else {
             None
@@ -130,8 +132,18 @@ impl ElDorado {
         heartbeat: &Heartbeat,
         interval_end: &DateTime<Utc>,
     ) -> Option<Heartbeat> {
+        // Check first if the metrics is empty or not - inital run will have empty metric, then
         // Create date range of intervals to process - most of the time this will be for one
         // interval but may involve multiple intervals if the sync is long
+        if heartbeat.metrics.is_some() {
+            self.process_interval_new_interval(market, heartbeat, interval_end).await
+        } else {
+            self.process_interval_no_metrics(market, heartbeat).await
+        }
+    }
+
+    async fn process_interval_new_interval(&self, market: &MarketDetail, heartbeat: &Heartbeat, interval_end: &DateTime<Utc>) -> Option<Heartbeat> {
+        println!("Process new interval for {} with dt {}.", market.market_name, interval_end);
         let interval_start = heartbeat.ts + market.candle_timeframe.unwrap().as_dur();
         match DateRange::new(
             &interval_start,
@@ -154,27 +166,27 @@ impl ElDorado {
                                 .await,
                         )
                     }
-                    None => None,
+                    None => {
+                        println!("No interval dr to process.");
+                        None
+                    }
                 }
             }
-            None => {
-                println!("No interval dr to process.");
-                if heartbeat.metrics.is_none() {
-                    // There are no intervals to process but metrics need to be updated
-                    println!("Updating and inserting metrics.");
-                    let metrics = self.calc_metrics_all_tfs(market, heartbeat);
-                    self.insert_metrics_ap(&metrics).await;
-                    Some(Heartbeat {
-                        ts: heartbeat.ts,
-                        last: heartbeat.last,
-                        candles: heartbeat.candles.clone(),
-                        metrics: Some(metrics),
-                    })
-                } else {
-                    None
-                }
-            }
+            None => None,
         }
+    }
+
+    async fn process_interval_no_metrics(&self, market: &MarketDetail, heartbeat: &Heartbeat) -> Option<Heartbeat> {
+        // There are no intervals to process but metrics need to be updated
+        println!("Updating and inserting metrics.");
+        let metrics = self.calc_metrics_all_tfs(market, heartbeat);
+        self.insert_metrics_ap(&metrics).await;
+        Some(Heartbeat {
+            ts: heartbeat.ts,
+            last: heartbeat.last,
+            candles: heartbeat.candles.clone(),
+            metrics: Some(metrics),
+        })
     }
 
     async fn update_heartbeat(

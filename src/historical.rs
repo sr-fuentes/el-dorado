@@ -230,7 +230,7 @@ impl ElDorado {
                 mcd.time_frame,
                 market.candle_timeframe.unwrap()
             );
-            self.resample_and_convert_research_candles(
+            self.resample_and_convert_research_candles_by_hashmap_v2(
                 &archive_candles,
                 &market.candle_timeframe.unwrap(),
             )
