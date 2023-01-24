@@ -2717,18 +2717,18 @@ impl Inquisidor {
 mod tests {
     use crate::candles::{DailyCandle, ProductionCandle, ResearchCandle, TimeFrame};
     use crate::configuration::get_configuration;
+    use crate::eldorado::ElDorado;
     use crate::exchanges::{ftx::Trade as FtxTrade, ExchangeName};
     use crate::inquisidor::Inquisidor;
     use crate::markets::{MarketCandleDetail, MarketDataStatus, MarketTradeDetail};
     use crate::utilities::{create_date_range, next_month_datetime};
-    use crate::eldorado::ElDorado;
     use chrono::{DateTime, Datelike, Duration, TimeZone, Utc};
     use csv::{Reader, Writer};
     use rust_decimal::prelude::*;
     use rust_decimal_macros::dec;
     use sqlx::PgPool;
-    use uuid::Uuid;
     use std::{fs::File, path::PathBuf};
+    use uuid::Uuid;
 
     pub fn sample_trades() -> Vec<FtxTrade> {
         let mut trades: Vec<FtxTrade> = Vec::new();
@@ -2817,13 +2817,15 @@ mod tests {
         for result in rdr.deserialize() {
             let record: ResearchCandle = result.expect("Failed to deserialize record.");
             candles.push(record);
-        };
+        }
         candles
     }
 
     #[tokio::test]
     pub async fn resample_and_convert_research_to_production_candles() {
-        let eld = ElDorado::new().await.expect("Failed to create eldorado instance.");
+        let eld = ElDorado::new()
+            .await
+            .expect("Failed to create eldorado instance.");
         let fp = std::path::Path::new("tests").join("FTTPERP_2022-01.csv");
         println!("Loading 1 month of S15 candles.");
         let start_0 = Utc::now();
@@ -2847,9 +2849,19 @@ mod tests {
         println!("Resampled 1: {}", end_1 - start_1);
         println!("Resampled 2: {}", end_2 - start_2);
         println!("Resampled 3: {}", end_3 - start_3);
-        println!("First Candles:\n{:?}\n{:?}\n{:?}", resampled_1.first(), resampled_2.first(), resampled_3.first());
-        println!("Last Candles:\n{:?}\n{:?}\n{:?}", resampled_1.last(), resampled_2.last(), resampled_3.last());
-     }
+        println!(
+            "First Candles:\n{:?}\n{:?}\n{:?}",
+            resampled_1.first(),
+            resampled_2.first(),
+            resampled_3.first()
+        );
+        println!(
+            "Last Candles:\n{:?}\n{:?}\n{:?}",
+            resampled_1.last(),
+            resampled_2.last(),
+            resampled_3.last()
+        );
+    }
 
     #[test]
     pub fn new_from_last_returns_candle_populated_from_last_trade() {

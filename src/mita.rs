@@ -110,7 +110,12 @@ impl ElDorado {
             .duration_trunc(market.candle_timeframe.unwrap().as_dur())
             .unwrap();
         if trunc_dt > heartbeat.ts + market.candle_timeframe.unwrap().as_dur() {
-            println!("{} - Checking interval.\tTrunc dt: {}\tHeartbeat TS: {}", Utc::now(), trunc_dt, heartbeat.ts);
+            println!(
+                "{} - Checking interval.\tTrunc dt: {}\tHeartbeat TS: {}",
+                Utc::now(),
+                trunc_dt,
+                heartbeat.ts
+            );
             println!(
                 "New heartbeat interval for {}: {}",
                 market.market_name, trunc_dt
@@ -136,14 +141,23 @@ impl ElDorado {
         // Create date range of intervals to process - most of the time this will be for one
         // interval but may involve multiple intervals if the sync is long
         if heartbeat.metrics.is_some() {
-            self.process_interval_new_interval(market, heartbeat, interval_end).await
+            self.process_interval_new_interval(market, heartbeat, interval_end)
+                .await
         } else {
             self.process_interval_no_metrics(market, heartbeat).await
         }
     }
 
-    async fn process_interval_new_interval(&self, market: &MarketDetail, heartbeat: &Heartbeat, interval_end: &DateTime<Utc>) -> Option<Heartbeat> {
-        println!("Process new interval for {} with dt {}.", market.market_name, interval_end);
+    async fn process_interval_new_interval(
+        &self,
+        market: &MarketDetail,
+        heartbeat: &Heartbeat,
+        interval_end: &DateTime<Utc>,
+    ) -> Option<Heartbeat> {
+        println!(
+            "Process new interval for {} with dt {}.",
+            market.market_name, interval_end
+        );
         let interval_start = heartbeat.ts + market.candle_timeframe.unwrap().as_dur();
         match DateRange::new(
             &interval_start,
@@ -176,7 +190,11 @@ impl ElDorado {
         }
     }
 
-    async fn process_interval_no_metrics(&self, market: &MarketDetail, heartbeat: &Heartbeat) -> Option<Heartbeat> {
+    async fn process_interval_no_metrics(
+        &self,
+        market: &MarketDetail,
+        heartbeat: &Heartbeat,
+    ) -> Option<Heartbeat> {
         // There are no intervals to process but metrics need to be updated
         println!("Updating and inserting metrics.");
         let metrics = self.calc_metrics_all_tfs(market, heartbeat);
@@ -221,6 +239,7 @@ impl ElDorado {
                     .cloned()
                     .collect();
                 let mut resampled_candles = self.resample_production_candles(&new_candles, tf);
+                println!("Filtered new candles for {}: {:?}", tf, new_candles);
                 println!("{} new {} resampled candles.", resampled_candles.len(), tf);
                 let mut candles = heartbeat.candles[tf].clone();
                 candles.append(&mut resampled_candles);
@@ -229,7 +248,9 @@ impl ElDorado {
                 metrics.append(&mut more_metrics);
                 candles_map.insert(*tf, candles);
             } else {
-                // Interval end does not create new interval for timeframe
+                // // Interval end does not create new interval for timeframe
+                // println!("Interval end of {} does not create new interval for {}. Last candle datetime for {}: {}",
+                //     )
                 candles_map.insert(*tf, heartbeat.candles[tf].clone());
             }
         }
