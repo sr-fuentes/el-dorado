@@ -754,14 +754,17 @@ impl ElDorado {
     async fn validate_market_eligible_for_fill(&self, market: &MarketDetail) -> bool {
         // Market detail must contain a last candle value - meaning that it has been initialized
         // and run. The market must also be active.
-        if market.market_data_status != MarketStatus::Active || market.last_candle.is_none() {
+        if market.market_data_status != MarketStatus::Active
+            || market.last_candle.is_none()
+            || market.candle_timeframe.is_none()
+        {
             println!(
                 "{} not eligible for fill. Status: {:?}\tLast Candle: {:?}",
                 market.market_name, market.market_data_status, market.last_candle
             );
             false
         } else {
-            // Check that candles schema is created
+            // Check that candles and trades schema is created
             println!("Creating candle and trade schemas if it does not exist.");
             match market.exchange_name {
                 ExchangeName::Ftx | ExchangeName::FtxUs => {
@@ -781,7 +784,31 @@ impl ElDorado {
                         .expect("Failed to create gdax trade schema.");
                 }
             };
-            // Check that trades schema is created
+            // Check that production candles table is created
+            println!("Checking production candle tables are created.");
+            if !self
+                .candle_table_exists(
+                    market,
+                    &market.candle_timeframe.unwrap(),
+                    &CandleType::Production,
+                )
+                .await
+            {
+                println!("Creating production candle table.");
+                let db = match market.exchange_name {
+                    ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
+                    ExchangeName::Gdax => Database::Gdax,
+                };
+                ProductionCandle::create_table(
+                    &self.pools[&db],
+                    market,
+                    &market.candle_timeframe.unwrap(),
+                )
+                .await
+                .expect("Failed to create candle table.");
+            } else {
+                println!("Table exists.");
+            }
             true
         }
     }
