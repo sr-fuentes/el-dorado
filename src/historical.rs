@@ -728,7 +728,7 @@ impl ElDorado {
         let markets = match market {
             Some(m) => {
                 // Validate that market given is eligible for fill
-                if self.validate_market_eligible_for_fill(m) {
+                if self.validate_market_eligible_for_fill(m).await {
                     Some([m.clone()].to_vec())
                 } else {
                     None
@@ -751,7 +751,7 @@ impl ElDorado {
         }
     }
 
-    fn validate_market_eligible_for_fill(&self, market: &MarketDetail) -> bool {
+    async fn validate_market_eligible_for_fill(&self, market: &MarketDetail) -> bool {
         // Market detail must contain a last candle value - meaning that it has been initialized
         // and run. The market must also be active.
         if market.market_data_status != MarketStatus::Active || market.last_candle.is_none() {
@@ -761,6 +761,27 @@ impl ElDorado {
             );
             false
         } else {
+            // Check that candles schema is created
+            println!("Creating candle and trade schemas if it does not exist.");
+            match market.exchange_name {
+                ExchangeName::Ftx | ExchangeName::FtxUs => {
+                    self.create_candles_schema(&self.pools[&Database::Ftx])
+                        .await
+                        .expect("Failed to create candle schema.");
+                    self.create_trades_schema(&self.pools[&Database::Ftx])
+                        .await
+                        .expect("Failed to create ftx/ftxus trade schema.");
+                }
+                ExchangeName::Gdax => {
+                    self.create_candles_schema(&self.pools[&Database::Gdax])
+                        .await
+                        .expect("Failed to create candle schema.");
+                    self.create_trades_schema(&self.pools[&Database::Gdax])
+                        .await
+                        .expect("Failed to create gdax trade schema.");
+                }
+            };
+            // Check that trades schema is created
             true
         }
     }
