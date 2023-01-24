@@ -74,10 +74,10 @@ impl ElDorado {
     ) -> (DateTime<Utc>, Option<PrIdTi>, Vec<ProductionCandle>) {
         // Set the min date that is needed for start - 92 days prior
         let mut sync_start =
-            self.start_dt.duration_trunc(Duration::days(1)).unwrap() - Duration::days(92);
+            self.start_dt.duration_trunc(Duration::days(1)).unwrap() - Duration::days(self.sync_days);
         let mut last_trade: Option<PrIdTi> = None;
         let mut candles = Vec::new();
-        println!("Initialize start to 92 days prior.");
+        println!("Initialize start to {} days prior.", self.sync_days);
         println!("Sync Start: {}", sync_start);
         // Try checking the mcd record for last candle and confirming candles are in candles table
         let mcd_end = self.try_mcd_start(market, &sync_start).await;
@@ -1268,7 +1268,7 @@ impl ElDorado {
         let cutoff = Utc::now()
             .duration_trunc(Duration::days(1))
             .expect("Failed to trunc date.")
-            - Duration::days(100);
+            - Duration::days(self.sync_days);
         let db = match market.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
             ExchangeName::Gdax => Database::Gdax,
@@ -1721,7 +1721,7 @@ impl ElDorado {
             &market.exchange_name.as_str()
         );
         std::fs::create_dir_all(&path).expect("Failed to create directories.");
-        let f = format!("{}-{}.csv", market.as_strip(), dt.format("%F"));
+        let f = format!("{}_{}.csv", market.as_strip(), dt.format("%F"));
         std::path::Path::new(&path).join(f)
     }
 

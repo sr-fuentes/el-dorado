@@ -21,6 +21,7 @@ pub struct ElDorado {
     pub instance: Instance,
     pub storage_path: String,
     pub start_dt: DateTime<Utc>,
+    pub sync_days: i64,
 }
 
 impl ElDorado {
@@ -95,6 +96,7 @@ impl ElDorado {
             instance,
             storage_path,
             start_dt: Utc::now(),
+            sync_days: 100,
         })
     }
 
