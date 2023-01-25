@@ -6,7 +6,6 @@ pub struct Settings {
     pub ed_db: DatabaseSettings,
     pub ftx_db: DatabaseSettings,
     pub gdax_db: DatabaseSettings,
-    pub archive_db: DatabaseSettings,
     pub application: ApplicationSettings,
 }
 

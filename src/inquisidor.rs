@@ -37,7 +37,7 @@ impl Inquisidor {
         let gdax_pool = PgPool::connect_with(settings.gdax_db.with_db())
             .await
             .expect("Failed to connect to postgres db.");
-        let archive_pool = PgPool::connect_with(settings.archive_db.with_db())
+        let archive_pool = PgPool::connect_with(settings.ed_db.with_db())
             .await
             .expect("Failed to connect to postgres db.");
         let mut clients = HashMap::new();
