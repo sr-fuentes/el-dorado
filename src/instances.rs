@@ -1,8 +1,8 @@
 use crate::configuration::Settings;
+use crate::exchanges::ExchangeName;
 use crate::markets::MarketDetail;
 use crate::metrics::select_metrics_ap_by_exchange_market;
 use crate::utilities::TimeFrame;
-use crate::{exchanges::ExchangeName};
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use sqlx::PgPool;
 use std::convert::{TryFrom, TryInto};

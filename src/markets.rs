@@ -1016,7 +1016,11 @@ impl ElDorado {
         // Filter for markets with a last candle
         let eligible_markets: Vec<MarketDetail> = markets
             .into_iter()
-            .filter(|m| m.last_candle.is_some())
+            .filter(|m| {
+                m.last_candle.is_some()
+                    && m.candle_timeframe.is_some()
+                    && m.exchange_name == ExchangeName::Gdax
+            })
             .collect();
         if !eligible_markets.is_empty() {
             Some(eligible_markets)

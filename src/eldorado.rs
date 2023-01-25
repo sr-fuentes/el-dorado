@@ -108,7 +108,7 @@ impl ElDorado {
         while self.instance.restart {
             self.start_dt = Utc::now();
             let restart = match self.instance.instance_type {
-                InstanceType::Ig => false, //todo!(),
+                InstanceType::Ig => self.inquisidor().await,
                 InstanceType::Mita => self.mita().await,
             };
             (

@@ -73,8 +73,8 @@ impl ElDorado {
         market: &MarketDetail,
     ) -> (DateTime<Utc>, Option<PrIdTi>, Vec<ProductionCandle>) {
         // Set the min date that is needed for start - 92 days prior
-        let mut sync_start =
-            self.start_dt.duration_trunc(Duration::days(1)).unwrap() - Duration::days(self.sync_days);
+        let mut sync_start = self.start_dt.duration_trunc(Duration::days(1)).unwrap()
+            - Duration::days(self.sync_days);
         let mut last_trade: Option<PrIdTi> = None;
         let mut candles = Vec::new();
         println!("Initialize start to {} days prior.", self.sync_days);
@@ -1357,7 +1357,15 @@ impl ElDorado {
             market.exchange_name.as_str(),
             market.as_strip()
         );
-        let tables = ["_rest", "_ws", "_validated", "_archived", "_processed", "_qc", "_qc_auto"];
+        let tables = [
+            "_rest",
+            "_ws",
+            "_validated",
+            "_archived",
+            "_processed",
+            "_qc",
+            "_qc_auto",
+        ];
         for table in tables.iter() {
             let sql = format!(
                 r#"
