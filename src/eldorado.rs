@@ -116,10 +116,10 @@ impl ElDorado {
                 self.instance.restart_count,
                 self.instance.last_restart_ts,
             ) = self.process_restart(restart).await;
-            match self.instance.restart {
-                true => todo!(),  // self.update_instance_status(&InstanceStatus::Restart).await,
-                false => todo!(), // self.update_instance_status(&InstanceStatus::Shutdown).await,
-            }
+            // match self.instance.restart {
+            //     true => self.update_instance_status(&InstanceStatus::Restart).await,
+            //     false => self.update_instance_status(&InstanceStatus::Shutdown).await,
+            // }
         }
     }
 

@@ -2,7 +2,7 @@ use crate::configuration::Settings;
 use crate::markets::MarketDetail;
 use crate::metrics::select_metrics_ap_by_exchange_market;
 use crate::utilities::TimeFrame;
-use crate::{exchanges::ExchangeName, inquisidor::Inquisidor};
+use crate::{exchanges::ExchangeName};
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use sqlx::PgPool;
 use std::convert::{TryFrom, TryInto};
@@ -317,122 +317,122 @@ impl TryFrom<String> for InstanceStatus {
 //     Ok(())
 // }
 
-pub async fn insert_or_update_instance_ig(
-    pool: &PgPool,
-    ig: &Inquisidor,
-    n: i32,
-) -> Result<(), sqlx::Error> {
-    let sql = r#"
-        INSERT INTO instances (
-            instance_type, droplet, instance_status, restart, num_markets, last_update_ts)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        ON CONFLICT (droplet)
-        DO UPDATE
-        SET (instance_status, num_markets, last_update_ts) = (EXCLUDED.instance_status,
-            EXCLUDED.num_markets, EXCLUDED.last_update_ts)
-        "#;
-    sqlx::query(sql)
-        .bind(InstanceType::Ig.as_str())
-        .bind(&ig.settings.application.droplet)
-        .bind(InstanceStatus::Sync.as_str())
-        .bind(false)
-        .bind(n)
-        .bind(Utc::now())
-        .execute(pool)
-        .await?;
-    Ok(())
-}
+// pub async fn insert_or_update_instance_ig(
+//     pool: &PgPool,
+//     ig: &Inquisidor,
+//     n: i32,
+// ) -> Result<(), sqlx::Error> {
+//     let sql = r#"
+//         INSERT INTO instances (
+//             instance_type, droplet, instance_status, restart, num_markets, last_update_ts)
+//         VALUES ($1, $2, $3, $4, $5, $6, $7)
+//         ON CONFLICT (droplet)
+//         DO UPDATE
+//         SET (instance_status, num_markets, last_update_ts) = (EXCLUDED.instance_status,
+//             EXCLUDED.num_markets, EXCLUDED.last_update_ts)
+//         "#;
+//     sqlx::query(sql)
+//         .bind(InstanceType::Ig.as_str())
+//         .bind(&ig.settings.application.droplet)
+//         .bind(InstanceStatus::Sync.as_str())
+//         .bind(false)
+//         .bind(n)
+//         .bind(Utc::now())
+//         .execute(pool)
+//         .await?;
+//     Ok(())
+// }
 
-pub async fn update_instance_status(
-    pool: &PgPool,
-    droplet: &str,
-    exchange_name: Option<&ExchangeName>,
-    status: &InstanceStatus,
-) -> Result<(), sqlx::Error> {
-    match exchange_name {
-        Some(e) => {
-            let sql = r#"
-            UPDATE instances
-            SET (instance_status, last_update_ts) = ($1, $2)
-            WHERE droplet = $3 AND exchange_name = $4
-            "#;
-            sqlx::query(sql)
-                .bind(status.as_str())
-                .bind(Utc::now())
-                .bind(droplet)
-                .bind(e.as_str())
-                .execute(pool)
-                .await?;
-        }
-        None => {
-            let sql = r#"
-            UPDATE instances
-            SET (instance_status, last_update_ts) = ($1, $2)
-            WHERE droplet = $3
-            "#;
-            sqlx::query(sql)
-                .bind(status.as_str())
-                .bind(Utc::now())
-                .bind(droplet)
-                .execute(pool)
-                .await?;
-        }
-    }
-    Ok(())
-}
+// pub async fn update_instance_status(
+//     pool: &PgPool,
+//     droplet: &str,
+//     exchange_name: Option<&ExchangeName>,
+//     status: &InstanceStatus,
+// ) -> Result<(), sqlx::Error> {
+//     match exchange_name {
+//         Some(e) => {
+//             let sql = r#"
+//             UPDATE instances
+//             SET (instance_status, last_update_ts) = ($1, $2)
+//             WHERE droplet = $3 AND exchange_name = $4
+//             "#;
+//             sqlx::query(sql)
+//                 .bind(status.as_str())
+//                 .bind(Utc::now())
+//                 .bind(droplet)
+//                 .bind(e.as_str())
+//                 .execute(pool)
+//                 .await?;
+//         }
+//         None => {
+//             let sql = r#"
+//             UPDATE instances
+//             SET (instance_status, last_update_ts) = ($1, $2)
+//             WHERE droplet = $3
+//             "#;
+//             sqlx::query(sql)
+//                 .bind(status.as_str())
+//                 .bind(Utc::now())
+//                 .bind(droplet)
+//                 .execute(pool)
+//                 .await?;
+//         }
+//     }
+//     Ok(())
+// }
 
-pub async fn update_instance_last_updated(
-    pool: &PgPool,
-    droplet: &str,
-    exchange_name: Option<&ExchangeName>,
-) -> Result<(), sqlx::Error> {
-    match exchange_name {
-        Some(e) => {
-            let sql = r#"
-            UPDATE instances
-            SET last_update_ts = $1
-            WHERE droplet = $2 AND exchange_name = $3
-            "#;
-            sqlx::query(sql)
-                .bind(Utc::now())
-                .bind(droplet)
-                .bind(e.as_str())
-                .execute(pool)
-                .await?;
-        }
-        None => {
-            let sql = r#"
-            UPDATE instances
-            SET last_update_ts = $1
-            WHERE droplet = $2
-            "#;
-            sqlx::query(sql)
-                .bind(Utc::now())
-                .bind(droplet)
-                .execute(pool)
-                .await?;
-        }
-    }
-    Ok(())
-}
+// pub async fn update_instance_last_updated(
+//     pool: &PgPool,
+//     droplet: &str,
+//     exchange_name: Option<&ExchangeName>,
+// ) -> Result<(), sqlx::Error> {
+//     match exchange_name {
+//         Some(e) => {
+//             let sql = r#"
+//             UPDATE instances
+//             SET last_update_ts = $1
+//             WHERE droplet = $2 AND exchange_name = $3
+//             "#;
+//             sqlx::query(sql)
+//                 .bind(Utc::now())
+//                 .bind(droplet)
+//                 .bind(e.as_str())
+//                 .execute(pool)
+//                 .await?;
+//         }
+//         None => {
+//             let sql = r#"
+//             UPDATE instances
+//             SET last_update_ts = $1
+//             WHERE droplet = $2
+//             "#;
+//             sqlx::query(sql)
+//                 .bind(Utc::now())
+//                 .bind(droplet)
+//                 .execute(pool)
+//                 .await?;
+//         }
+//     }
+//     Ok(())
+// }
 
-pub async fn select_instances(pool: &PgPool) -> Result<Vec<Instance>, sqlx::Error> {
-    let rows = sqlx::query_as!(
-        Instance,
-        r#"
-        SELECT instance_type as "instance_type: InstanceType",
-            droplet,
-            exchange_name as "exchange_name: Option<ExchangeName>",
-            instance_status as "instance_status: InstanceStatus",
-            restart, last_restart_ts, restart_count, num_markets, last_update_ts,
-            last_message_ts
-        FROM instances
-        "#
-    )
-    .fetch_all(pool)
-    .await?;
-    Ok(rows)
-}
+// pub async fn select_instances(pool: &PgPool) -> Result<Vec<Instance>, sqlx::Error> {
+//     let rows = sqlx::query_as!(
+//         Instance,
+//         r#"
+//         SELECT instance_type as "instance_type: InstanceType",
+//             droplet,
+//             exchange_name as "exchange_name: Option<ExchangeName>",
+//             instance_status as "instance_status: InstanceStatus",
+//             restart, last_restart_ts, restart_count, num_markets, last_update_ts,
+//             last_message_ts
+//         FROM instances
+//         "#
+//     )
+//     .fetch_all(pool)
+//     .await?;
+//     Ok(rows)
+// }
 
 #[cfg(test)]
 mod tests {
