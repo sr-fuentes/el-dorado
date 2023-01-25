@@ -354,7 +354,12 @@ impl ElDorado {
                     "Last trade beyond interval end. Filter trades. New # {}",
                     ft.len()
                 );
-                println!("New Last Trade: {}", ft.last().unwrap().as_pridti());
+                if !ft.is_empty() {
+                    // Edge case where all trades are filtered out and there is no trade to unwrap
+                    println!("New Last Trade: {}", ft.last().unwrap().as_pridti());
+                } else {
+                    println!("All trades filtered.");
+                }
                 ft
             } else {
                 new_trades
