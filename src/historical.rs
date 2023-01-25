@@ -1353,7 +1353,7 @@ impl ElDorado {
         };
         // Drop the legacy trade and qc tables - remove once prod is cleaned up
         let table_pre = format!(
-            "public.trade_{}_{}",
+            "public.trades_{}_{}",
             market.exchange_name.as_str(),
             market.as_strip()
         );
