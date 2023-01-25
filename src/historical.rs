@@ -1357,7 +1357,7 @@ impl ElDorado {
             market.exchange_name.as_str(),
             market.as_strip()
         );
-        let tables = ["_rest", "_ws", "_validated", "_archived", "_qc", "_qc_auto"];
+        let tables = ["_rest", "_ws", "_validated", "_archived", "_processed", "_qc", "_qc_auto"];
         for table in tables.iter() {
             let sql = format!(
                 r#"
