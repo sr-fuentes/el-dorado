@@ -93,7 +93,7 @@ impl ElDorado {
             }
             // Reload heartbeats if needed (ie when a candle validation is updated)
             // Sleep for 200 ms to give control back to tokio scheduler
-            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
         }
     }
 
