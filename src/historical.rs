@@ -1233,7 +1233,7 @@ impl ElDorado {
             }
             ExchangeName::Gdax => {
                 // Read file from new location
-                let trades = self.read_gdax_trades_from_file(pb);
+                let trades = self.read_gdax_trades_from_file_into_vec(pb);
                 // Get first and last trades
                 if !trades.is_empty() {
                     let first_trade = trades.first().unwrap();

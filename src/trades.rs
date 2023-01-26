@@ -573,7 +573,7 @@ impl ElDorado {
         }
     }
 
-    pub fn read_gdax_trades_from_file(&self, pb: &PathBuf) -> Vec<GdaxTrade> {
+    pub fn read_gdax_trades_from_file_into_vec(&self, pb: &PathBuf) -> Vec<GdaxTrade> {
         // Read archived file for first and last trades to update
         let file = File::open(pb).expect("Failed to open file.");
         let mut trades = Vec::new();
@@ -583,6 +583,45 @@ impl ElDorado {
             trades.push(record)
         }
         trades
+    }
+
+    pub fn read_gdax_trades_from_file_into_hashmap(
+        &self,
+        pb: &PathBuf,
+        tf: &TimeFrame,
+    ) -> HashMap<DateTime<Utc>, Vec<GdaxTrade>> {
+        // Read archived file and load trades into a hashmap with keys of the time frame buckets
+        let mut trades: HashMap<DateTime<Utc>, Vec<GdaxTrade>> = HashMap::new();
+        let file = File::open(pb).expect("Failed to open file.");
+        let mut rdr = Reader::from_reader(file);
+        for result in rdr.deserialize() {
+            let record: GdaxTrade = result.expect("Failed to deserialize record.");
+            trades
+                .entry(record.time.duration_trunc(tf.as_dur()).unwrap())
+                .and_modify(|v| v.push(record.clone()))
+                .or_insert_with(|| vec![record.clone()]);
+        }
+        trades
+    }
+
+    pub fn read_gdax_trades_from_file(
+        &self,
+        pb: &PathBuf,
+        tf: &TimeFrame,
+    ) -> (Vec<GdaxTrade>, HashMap<DateTime<Utc>, Vec<GdaxTrade>>) {
+        let mut trades_hm: HashMap<DateTime<Utc>, Vec<GdaxTrade>> = HashMap::new();
+        let mut trades_vec = Vec::new();
+        let file = File::open(pb).expect("Failed to open file.");
+        let mut rdr = Reader::from_reader(file);
+        for result in rdr.deserialize() {
+            let record: GdaxTrade = result.expect("Failed to deserialize record.");
+            trades_hm
+                .entry(record.time.duration_trunc(tf.as_dur()).unwrap())
+                .and_modify(|v| v.push(record.clone()))
+                .or_insert_with(|| vec![record.clone()]);
+            trades_vec.push(record)
+        }
+        (trades_vec, trades_hm)
     }
 
     pub fn read_ftx_trades_from_file(&self, pb: &PathBuf) -> Vec<FtxTrade> {

@@ -129,7 +129,7 @@ impl ElDorado {
     // the vec of markets passed in as a param
     pub async fn prompt_exchange_input(&self) -> Option<Exchange> {
         // Get user input
-        let exchange: String = self.get_input("Please enter market: ").await;
+        let exchange: String = self.get_input("Please enter exchange: ").await;
         // Parse input to check if it is a valid exchange name
         let exchange: ExchangeName = match exchange.try_into() {
             Ok(x) => x,

@@ -1026,7 +1026,7 @@ impl ResearchCandle {
     }
 
     // Reduces the number of if statements in each iteration
-    pub fn from_trades_v2<T: Trade>(datetime: DateTime<Utc>, trades: &[&T]) -> Self {
+    pub fn from_trades_v2<T: Trade>(datetime: DateTime<Utc>, trades: &[T]) -> Self {
         let candle_tuple = trades.iter().fold(
             (
                 trades.first().expect("No first trade for candle.").price(), // open
@@ -1468,25 +1468,16 @@ impl ResearchCandle {
         }
     }
 
-    // Give as vec of trades and a dr and timeframe - iterate through the dr vec to filter for
-    // trades for time period and make candle from last or trades depending on if there are filtered
-    // trades to build candle from
-    pub fn from_trades_for_dr<T: Trade>(
-        trades: &[T],
+    pub fn from_trades_hm_for_dr<T: Trade>(
+        trades: &HashMap<DateTime<Utc>, Vec<T>>,
         mut last_trade: Option<PrIdTi>,
-        tf: &TimeFrame,
         dr: &[DateTime<Utc>],
     ) -> Vec<Self> {
-        // TODO - Add validation that dr start interval has trades if the last trade is None to
-        // prevent panic on unwrap of last trade foo ::from_last() call
         let candles = dr.iter().fold(Vec::new(), |mut v, d| {
-            let filtered_trades: Vec<_> = trades
-                .iter()
-                .filter(|t| t.time().duration_trunc(tf.as_dur()).unwrap() == *d)
-                .collect();
-            let new_candle = match filtered_trades.is_empty() {
-                true => Self::from_last(*d, &last_trade.unwrap()),
-                false => Self::from_trades_v2(*d, &filtered_trades),
+            let new_candle = if !trades.contains_key(d) {
+                ResearchCandle::from_last(*d, &last_trade.unwrap())
+            } else {
+                ResearchCandle::from_trades_v2(*d, trades[d].as_slice())
             };
             last_trade = Some(new_candle.close_as_pridti());
             v.push(new_candle);
@@ -1923,8 +1914,8 @@ impl ElDorado {
         match market.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => None,
             ExchangeName::Gdax => {
-                let trades = self.read_gdax_trades_from_file(pb);
-                if trades.is_empty() {
+                let (trades_vec, trades_hm) = self.read_gdax_trades_from_file(pb, &TimeFrame::S15);
+                if trades_vec.is_empty() {
                     // TODO: Handle case where there are not trades for the day
                     None
                 } else {
@@ -1937,7 +1928,7 @@ impl ElDorado {
                         &TimeFrame::S15,
                         dt,
                         last_trade,
-                        trades.first().unwrap(),
+                        trades_vec.first().unwrap(),
                     );
                     println!(
                         "Candle date range for {}: {} to {}",
@@ -1945,11 +1936,8 @@ impl ElDorado {
                         dr.first().unwrap(),
                         dr.last().unwrap()
                     );
-                    Some(ResearchCandle::from_trades_for_dr(
-                        &trades,
-                        last_trade,
-                        &TimeFrame::S15,
-                        &dr,
+                    Some(ResearchCandle::from_trades_hm_for_dr(
+                        &trades_hm, last_trade, &dr,
                     ))
                 }
             }
