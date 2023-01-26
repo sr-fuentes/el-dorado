@@ -375,6 +375,8 @@ impl MarketDetail {
 
 impl MarketTradeDetail {
     pub async fn new(market: &MarketDetail, first_trade: &PrIdTi) -> Self {
+        // TODO: Fix edge case where first candle for day has 0 volume and first_trade is from
+        // previous day
         // Create new market trade detail from market give the first trade provided.
         Self {
             market_id: market.market_id,

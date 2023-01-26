@@ -1,10 +1,8 @@
 use crate::configuration::Database;
 use crate::eldorado::ElDorado;
-use crate::events::Event;
 use crate::exchanges::{
     error::RestError, ftx::Trade as FtxTrade, gdax::Trade as GdaxTrade, ExchangeName,
 };
-use crate::inquisidor::Inquisidor;
 use crate::markets::MarketDetail;
 use crate::utilities::{DateRange, TimeFrame};
 use async_trait::async_trait;
@@ -637,283 +635,283 @@ impl ElDorado {
     }
 }
 
-impl Inquisidor {
-    // Takes in a start and end time to get trades from FTX REST API and inserts those trades in
-    // the trades table ftx.trades_{market_name}_{table_suf} one day at a time
-    // This is used in trade fill and sync.
-    // For trade sync, this function is called for each day in the daterange from the start
-    // ie: ftx.trades_btcperp_20221020
-    // For trade fill qc, this is used for one off trade day to qc with stored range
-    // ie: ftx.trades_btc_perp_20221020_qc
-    pub async fn get_ftx_trades_dr_into_table(
-        &self,
-        event: &Event,
-        table_suf: &str,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
-    ) {
-        let market = self.market(&event.market_id);
-        create_ftx_trade_table(&self.ftx_pool, &event.exchange_name, market, table_suf)
-            .await
-            .expect("Failed to create trade table.");
-        // Fill trade table with trades
-        let mut end_or_last_trade = end;
-        let mut total_trades: usize = 0;
-        while start < end_or_last_trade {
-            // Prevent 429 errors by only requesting 4 per second
-            tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
-            let mut new_trades = match self.clients[&event.exchange_name]
-                .get_ftx_trades(
-                    market.market_name.as_str(),
-                    Some(5000),
-                    Some(start),
-                    Some(end_or_last_trade),
-                )
-                .await
-            {
-                Err(RestError::Reqwest(e)) => {
-                    if e.is_timeout() || e.is_connect() || e.is_request() {
-                        println!("{:?} error. Waiting 30 seconds before retry.", e);
-                        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                        continue;
-                    } else if e.is_status() {
-                        match e.status() {
-                            Some(s) => match s.as_u16() {
-                                500 | 502 | 503 | 504 | 520 | 522 | 530 => {
-                                    println!(
-                                        "{} status code. Waiting 30 seconds before retry {:?}",
-                                        s, e
-                                    );
-                                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                                    continue;
-                                }
-                                _ => {
-                                    panic!("Status code not handled: {:?} {:?}", s, e)
-                                }
-                            },
-                            None => panic!("No status code for request error: {:?}", e),
-                        }
-                    } else {
-                        panic!("Error (not timeout / connect / request): {:?}", e)
-                    }
-                }
-                Err(e) => panic!("Other RestError: {:?}", e),
-                Ok(result) => result,
-            };
-            let num_trades = new_trades.len();
-            total_trades += num_trades; // Add to running total of trades
-            if num_trades > 0 {
-                new_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
-                end_or_last_trade = new_trades.first().unwrap().time;
-                let first_trade = new_trades.last().unwrap().time;
-                println!(
-                    "{} trade returned. First: {}, Last: {}",
-                    num_trades, end_or_last_trade, first_trade
-                );
-                insert_ftx_trades(
-                    &self.ftx_pool,
-                    &event.exchange_name,
-                    market,
-                    table_suf,
-                    new_trades,
-                )
-                .await
-                .expect("Failed to insert backfill ftx trades.");
-            };
-            if num_trades < 5000 && total_trades > 0 {
-                // Trades returned less than REST API limit. No more trades to retreive.
-                break;
-            };
-        }
-    }
+// impl Inquisidor {
+//     // Takes in a start and end time to get trades from FTX REST API and inserts those trades in
+//     // the trades table ftx.trades_{market_name}_{table_suf} one day at a time
+//     // This is used in trade fill and sync.
+//     // For trade sync, this function is called for each day in the daterange from the start
+//     // ie: ftx.trades_btcperp_20221020
+//     // For trade fill qc, this is used for one off trade day to qc with stored range
+//     // ie: ftx.trades_btc_perp_20221020_qc
+//     pub async fn get_ftx_trades_dr_into_table(
+//         &self,
+//         event: &Event,
+//         table_suf: &str,
+//         start: DateTime<Utc>,
+//         end: DateTime<Utc>,
+//     ) {
+//         let market = self.market(&event.market_id);
+//         create_ftx_trade_table(&self.ftx_pool, &event.exchange_name, market, table_suf)
+//             .await
+//             .expect("Failed to create trade table.");
+//         // Fill trade table with trades
+//         let mut end_or_last_trade = end;
+//         let mut total_trades: usize = 0;
+//         while start < end_or_last_trade {
+//             // Prevent 429 errors by only requesting 4 per second
+//             tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
+//             let mut new_trades = match self.clients[&event.exchange_name]
+//                 .get_ftx_trades(
+//                     market.market_name.as_str(),
+//                     Some(5000),
+//                     Some(start),
+//                     Some(end_or_last_trade),
+//                 )
+//                 .await
+//             {
+//                 Err(RestError::Reqwest(e)) => {
+//                     if e.is_timeout() || e.is_connect() || e.is_request() {
+//                         println!("{:?} error. Waiting 30 seconds before retry.", e);
+//                         tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+//                         continue;
+//                     } else if e.is_status() {
+//                         match e.status() {
+//                             Some(s) => match s.as_u16() {
+//                                 500 | 502 | 503 | 504 | 520 | 522 | 530 => {
+//                                     println!(
+//                                         "{} status code. Waiting 30 seconds before retry {:?}",
+//                                         s, e
+//                                     );
+//                                     tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+//                                     continue;
+//                                 }
+//                                 _ => {
+//                                     panic!("Status code not handled: {:?} {:?}", s, e)
+//                                 }
+//                             },
+//                             None => panic!("No status code for request error: {:?}", e),
+//                         }
+//                     } else {
+//                         panic!("Error (not timeout / connect / request): {:?}", e)
+//                     }
+//                 }
+//                 Err(e) => panic!("Other RestError: {:?}", e),
+//                 Ok(result) => result,
+//             };
+//             let num_trades = new_trades.len();
+//             total_trades += num_trades; // Add to running total of trades
+//             if num_trades > 0 {
+//                 new_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
+//                 end_or_last_trade = new_trades.first().unwrap().time;
+//                 let first_trade = new_trades.last().unwrap().time;
+//                 println!(
+//                     "{} trade returned. First: {}, Last: {}",
+//                     num_trades, end_or_last_trade, first_trade
+//                 );
+//                 insert_ftx_trades(
+//                     &self.ftx_pool,
+//                     &event.exchange_name,
+//                     market,
+//                     table_suf,
+//                     new_trades,
+//                 )
+//                 .await
+//                 .expect("Failed to insert backfill ftx trades.");
+//             };
+//             if num_trades < 5000 && total_trades > 0 {
+//                 // Trades returned less than REST API limit. No more trades to retreive.
+//                 break;
+//             };
+//         }
+//     }
 
-    pub async fn get_ftx_trades_dr_into_vec(
-        &self,
-        event: &Event,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
-    ) -> Vec<FtxTrade> {
-        let market = self.market(&event.market_id);
-        // create_ftx_trade_table(&self.ftx_pool, &event.exchange_name, market, table_suf)
-        //     .await
-        //     .expect("Failed to create trade table.");
-        let mut trades = Vec::new();
-        // Fill trade table with trades
-        let mut end_or_last_trade = end;
-        let mut total_trades: usize = 0;
-        while start < end_or_last_trade {
-            // Prevent 429 errors by only requesting 4 per second
-            tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
-            let mut new_trades = match self.clients[&event.exchange_name]
-                .get_ftx_trades(
-                    market.market_name.as_str(),
-                    Some(5000),
-                    Some(start),
-                    Some(end_or_last_trade),
-                )
-                .await
-            {
-                Err(RestError::Reqwest(e)) => {
-                    if e.is_timeout() || e.is_connect() || e.is_request() {
-                        println!("{:?} error. Waiting 30 seconds before retry.", e);
-                        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                        continue;
-                    } else if e.is_status() {
-                        match e.status() {
-                            Some(s) => match s.as_u16() {
-                                500 | 502 | 503 | 504 | 520 | 522 | 530 => {
-                                    println!(
-                                        "{} status code. Waiting 30 seconds before retry {:?}",
-                                        s, e
-                                    );
-                                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                                    continue;
-                                }
-                                _ => {
-                                    panic!("Status code not handled: {:?} {:?}", s, e)
-                                }
-                            },
-                            None => panic!("No status code for request error: {:?}", e),
-                        }
-                    } else {
-                        panic!("Error (not timeout / connect / request): {:?}", e)
-                    }
-                }
-                Err(e) => panic!("Other RestError: {:?}", e),
-                Ok(result) => result,
-            };
-            let num_trades = new_trades.len();
-            total_trades += num_trades; // Add to running total of trades
-            if num_trades > 0 {
-                new_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
-                end_or_last_trade = new_trades.first().unwrap().time;
-                let first_trade = new_trades.last().unwrap().time;
-                println!(
-                    "{} trade returned. First: {}, Last: {}",
-                    num_trades, end_or_last_trade, first_trade
-                );
-                // insert_ftx_trades(
-                //     &self.ftx_pool,
-                //     &event.exchange_name,
-                //     market,
-                //     table_suf,
-                //     new_trades,
-                // )
-                // .await
-                // .expect("Failed to insert backfill ftx trades.");
-                trades.append(&mut new_trades)
-            };
-            if num_trades < 5000 && total_trades > 0 {
-                // Trades returned less than REST API limit. No more trades to retreive.
-                break;
-            };
-        }
-        trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
-        trades.dedup_by(|c1, c2| c1.id == c2.id);
-        trades
-    }
+//     pub async fn get_ftx_trades_dr_into_vec(
+//         &self,
+//         event: &Event,
+//         start: DateTime<Utc>,
+//         end: DateTime<Utc>,
+//     ) -> Vec<FtxTrade> {
+//         let market = self.market(&event.market_id);
+//         // create_ftx_trade_table(&self.ftx_pool, &event.exchange_name, market, table_suf)
+//         //     .await
+//         //     .expect("Failed to create trade table.");
+//         let mut trades = Vec::new();
+//         // Fill trade table with trades
+//         let mut end_or_last_trade = end;
+//         let mut total_trades: usize = 0;
+//         while start < end_or_last_trade {
+//             // Prevent 429 errors by only requesting 4 per second
+//             tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
+//             let mut new_trades = match self.clients[&event.exchange_name]
+//                 .get_ftx_trades(
+//                     market.market_name.as_str(),
+//                     Some(5000),
+//                     Some(start),
+//                     Some(end_or_last_trade),
+//                 )
+//                 .await
+//             {
+//                 Err(RestError::Reqwest(e)) => {
+//                     if e.is_timeout() || e.is_connect() || e.is_request() {
+//                         println!("{:?} error. Waiting 30 seconds before retry.", e);
+//                         tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+//                         continue;
+//                     } else if e.is_status() {
+//                         match e.status() {
+//                             Some(s) => match s.as_u16() {
+//                                 500 | 502 | 503 | 504 | 520 | 522 | 530 => {
+//                                     println!(
+//                                         "{} status code. Waiting 30 seconds before retry {:?}",
+//                                         s, e
+//                                     );
+//                                     tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+//                                     continue;
+//                                 }
+//                                 _ => {
+//                                     panic!("Status code not handled: {:?} {:?}", s, e)
+//                                 }
+//                             },
+//                             None => panic!("No status code for request error: {:?}", e),
+//                         }
+//                     } else {
+//                         panic!("Error (not timeout / connect / request): {:?}", e)
+//                     }
+//                 }
+//                 Err(e) => panic!("Other RestError: {:?}", e),
+//                 Ok(result) => result,
+//             };
+//             let num_trades = new_trades.len();
+//             total_trades += num_trades; // Add to running total of trades
+//             if num_trades > 0 {
+//                 new_trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
+//                 end_or_last_trade = new_trades.first().unwrap().time;
+//                 let first_trade = new_trades.last().unwrap().time;
+//                 println!(
+//                     "{} trade returned. First: {}, Last: {}",
+//                     num_trades, end_or_last_trade, first_trade
+//                 );
+//                 // insert_ftx_trades(
+//                 //     &self.ftx_pool,
+//                 //     &event.exchange_name,
+//                 //     market,
+//                 //     table_suf,
+//                 //     new_trades,
+//                 // )
+//                 // .await
+//                 // .expect("Failed to insert backfill ftx trades.");
+//                 trades.append(&mut new_trades)
+//             };
+//             if num_trades < 5000 && total_trades > 0 {
+//                 // Trades returned less than REST API limit. No more trades to retreive.
+//                 break;
+//             };
+//         }
+//         trades.sort_by(|t1, t2| t1.id.cmp(&t2.id));
+//         trades.dedup_by(|c1, c2| c1.id == c2.id);
+//         trades
+//     }
 
-    pub async fn migrate_ftx_trades_for_date(
-        &self,
-        event: &Event,
-        to_table: &str,
-        from_table: &str,
-        date: DateTime<Utc>,
-    ) {
-        let market = self.market(&event.market_id);
-        // Select trades from the _processed and _validated tables and put in the new table
-        create_ftx_trade_table(&self.ftx_pool, &event.exchange_name, market, to_table)
-            .await
-            .expect("Failed to create trade table.");
-        let mut trades = Vec::new();
-        let mut from_trades = select_ftx_trades_by_time(
-            &self.ftx_pool,
-            &event.exchange_name,
-            market,
-            from_table,
-            date,
-            date + Duration::days(1),
-        )
-        .await
-        .expect("Failed to select ftx trades.");
-        trades.append(&mut from_trades);
-        trades.sort_by_key(|t| t.trade_id());
-        insert_ftx_trades(
-            &self.ftx_pool,
-            &event.exchange_name,
-            market,
-            to_table,
-            trades,
-        )
-        .await
-        .expect("Failed to insert trades.");
-        // Delete trades from processed and validated tables
-        delete_trades_by_time(
-            &self.ftx_pool,
-            &event.exchange_name,
-            market,
-            from_table,
-            date,
-            date + Duration::days(1),
-        )
-        .await
-        .expect("Failed to delete trades.");
-    }
+//     pub async fn migrate_ftx_trades_for_date(
+//         &self,
+//         event: &Event,
+//         to_table: &str,
+//         from_table: &str,
+//         date: DateTime<Utc>,
+//     ) {
+//         let market = self.market(&event.market_id);
+//         // Select trades from the _processed and _validated tables and put in the new table
+//         create_ftx_trade_table(&self.ftx_pool, &event.exchange_name, market, to_table)
+//             .await
+//             .expect("Failed to create trade table.");
+//         let mut trades = Vec::new();
+//         let mut from_trades = select_ftx_trades_by_time(
+//             &self.ftx_pool,
+//             &event.exchange_name,
+//             market,
+//             from_table,
+//             date,
+//             date + Duration::days(1),
+//         )
+//         .await
+//         .expect("Failed to select ftx trades.");
+//         trades.append(&mut from_trades);
+//         trades.sort_by_key(|t| t.trade_id());
+//         insert_ftx_trades(
+//             &self.ftx_pool,
+//             &event.exchange_name,
+//             market,
+//             to_table,
+//             trades,
+//         )
+//         .await
+//         .expect("Failed to insert trades.");
+//         // Delete trades from processed and validated tables
+//         delete_trades_by_time(
+//             &self.ftx_pool,
+//             &event.exchange_name,
+//             market,
+//             from_table,
+//             date,
+//             date + Duration::days(1),
+//         )
+//         .await
+//         .expect("Failed to delete trades.");
+//     }
 
-    pub async fn select_ftx_trades_by_table(
-        &self,
-        table: &str,
-    ) -> Result<Vec<FtxTrade>, sqlx::Error> {
-        // Cannot user query_as! macro because table may not exist at compile time
-        let sql = format!(
-            r#"
-            SELECT trade_id as id, price, size, side, liquidation, time
-            FROM {}
-            ORDER BY trade_id
-            "#,
-            table
-        );
-        let rows = sqlx::query_as::<_, FtxTrade>(&sql)
-            .fetch_all(&self.ftx_pool)
-            .await?;
-        Ok(rows)
-    }
+//     pub async fn select_ftx_trades_by_table(
+//         &self,
+//         table: &str,
+//     ) -> Result<Vec<FtxTrade>, sqlx::Error> {
+//         // Cannot user query_as! macro because table may not exist at compile time
+//         let sql = format!(
+//             r#"
+//             SELECT trade_id as id, price, size, side, liquidation, time
+//             FROM {}
+//             ORDER BY trade_id
+//             "#,
+//             table
+//         );
+//         let rows = sqlx::query_as::<_, FtxTrade>(&sql)
+//             .fetch_all(&self.ftx_pool)
+//             .await?;
+//         Ok(rows)
+//     }
 
-    pub async fn load_trades_for_dr(
-        &self,
-        market: &MarketDetail,
-        dr: &[DateTime<Utc>],
-    ) -> HashMap<DateTime<Utc>, Vec<FtxTrade>> {
-        // For each date - load the trades and append to vec of trades
-        // Create hashmap of candle datetimes to store trades
-        let mut candle_dr_map: HashMap<DateTime<Utc>, Vec<FtxTrade>> = HashMap::new();
-        for d in dr.iter() {
-            // Load trades for day
-            println!("{:?} - Loading trades for {:?}", Utc::now(), d);
-            let archive_path = format!(
-                "{}/trades/{}/{}/{}/{}",
-                &self.settings.application.archive_path,
-                &market.exchange_name.as_str(),
-                &market.as_strip(),
-                d.format("%Y"),
-                d.format("%m")
-            );
-            let f = format!("{}_{}.csv", market.as_strip(), d.format("%F"));
-            let a_path = std::path::Path::new(&archive_path).join(f.clone());
-            // Set file
-            let file = File::open(a_path).expect("Failed to open file.");
-            let mut rdr = Reader::from_reader(file);
-            for result in rdr.deserialize() {
-                let record: FtxTrade = result.expect("Faile to deserialize record.");
-                candle_dr_map
-                    .entry(record.time.duration_trunc(TimeFrame::S15.as_dur()).unwrap())
-                    .and_modify(|v| v.push(record.clone()))
-                    .or_insert_with(|| vec![record.clone()]);
-            }
-        }
-        candle_dr_map
-    }
-}
+//     pub async fn load_trades_for_dr(
+//         &self,
+//         market: &MarketDetail,
+//         dr: &[DateTime<Utc>],
+//     ) -> HashMap<DateTime<Utc>, Vec<FtxTrade>> {
+//         // For each date - load the trades and append to vec of trades
+//         // Create hashmap of candle datetimes to store trades
+//         let mut candle_dr_map: HashMap<DateTime<Utc>, Vec<FtxTrade>> = HashMap::new();
+//         for d in dr.iter() {
+//             // Load trades for day
+//             println!("{:?} - Loading trades for {:?}", Utc::now(), d);
+//             let archive_path = format!(
+//                 "{}/trades/{}/{}/{}/{}",
+//                 &self.settings.application.archive_path,
+//                 &market.exchange_name.as_str(),
+//                 &market.as_strip(),
+//                 d.format("%Y"),
+//                 d.format("%m")
+//             );
+//             let f = format!("{}_{}.csv", market.as_strip(), d.format("%F"));
+//             let a_path = std::path::Path::new(&archive_path).join(f.clone());
+//             // Set file
+//             let file = File::open(a_path).expect("Failed to open file.");
+//             let mut rdr = Reader::from_reader(file);
+//             for result in rdr.deserialize() {
+//                 let record: FtxTrade = result.expect("Faile to deserialize record.");
+//                 candle_dr_map
+//                     .entry(record.time.duration_trunc(TimeFrame::S15.as_dur()).unwrap())
+//                     .and_modify(|v| v.push(record.clone()))
+//                     .or_insert_with(|| vec![record.clone()]);
+//             }
+//         }
+//         candle_dr_map
+//     }
+// }
 
 // ALTER, DROP, MIGRATE actions are the same regardless of exchange
 // CREATE, INSERT, SELECT actions are unique to each exchange trades struct

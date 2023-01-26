@@ -2280,7 +2280,7 @@ impl ElDorado {
             };
             match ProductionCandle::select_first(&self.pools[&db], market).await {
                 Ok(c) => {
-                    // Validate candle is start of day
+                    // Validate candle is start of day and has volume
                     if c.datetime == c.datetime.duration_trunc(Duration::days(1)).unwrap() {
                         Some(c)
                     } else {
