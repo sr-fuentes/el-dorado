@@ -74,6 +74,23 @@ pub struct MarketCandleDetail {
     pub last_trade_price: Decimal,
 }
 
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct MarketArchiveDetail {
+    pub market_id: Uuid,
+    pub exchange_name: ExchangeName,
+    pub market_name: String,
+    pub first_candle_dt: DateTime<Utc>,
+    pub first_trade_dt: DateTime<Utc>,
+    pub first_trade_price: Decimal,
+    pub first_trade_id: String,
+    pub last_candle_dt: DateTime<Utc>,
+    pub last_trade_dt: DateTime<Utc>,
+    pub last_trade_price: Decimal,
+    pub last_trade_id: String,
+    pub next_month: DateTime<Utc>,
+    pub tf: TimeFrame,
+}
+
 impl MarketDetail {
     pub fn as_strip(&self) -> String {
         self.market_name.replace(&['/', '-'][..], "")
@@ -265,6 +282,30 @@ impl MarketDetail {
                 candle_timeframe as "candle_timeframe: TimeFrame",
                 last_candle
                 FROM markets
+            "#,
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(rows)
+    }
+
+    pub async fn select_all_join_candle_detail(pool: &PgPool) -> Result<Vec<Self>, sqlx::Error> {
+        let rows = sqlx::query_as!(
+            Self,
+            r#"
+            SELECT m.market_id as "market_id!",
+                m.exchange_name as "exchange_name!: ExchangeName",
+                m.market_name as "market_name!", 
+                m.market_type as "market_type!", 
+                m.base_currency, m.quote_currency, m.underlying,
+                m.market_status as "market_status!: MarketStatus",
+                m.market_data_status as "market_data_status!: MarketStatus",
+                m.mita,
+                m.candle_timeframe as "candle_timeframe: TimeFrame",
+                m.last_candle
+                FROM markets m
+                INNER JOIN market_candle_details mcd
+                ON m.market_id = mcd.market_id
             "#,
         )
         .fetch_all(pool)
@@ -726,9 +767,9 @@ impl MarketCandleDetail {
         })
     }
 
-    pub async fn select_all(pool: &PgPool) -> Result<Vec<MarketCandleDetail>, sqlx::Error> {
+    pub async fn select_all(pool: &PgPool) -> Result<Vec<Self>, sqlx::Error> {
         let rows = sqlx::query_as!(
-            MarketCandleDetail,
+            Self,
             r#"
             SELECT market_id,
                 exchange_name as "exchange_name: ExchangeName",
@@ -745,7 +786,7 @@ impl MarketCandleDetail {
 
     pub async fn select(pool: &PgPool, market: &MarketDetail) -> Result<Self, sqlx::Error> {
         let row = sqlx::query_as!(
-            MarketCandleDetail,
+            Self,
             r#"
             SELECT market_id,
                 exchange_name as "exchange_name: ExchangeName",
@@ -763,6 +804,78 @@ impl MarketCandleDetail {
     }
 }
 
+impl MarketArchiveDetail {
+    // pub fn new() -> Self {}
+
+    pub async fn insert(&self, pool: &PgPool) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"
+            INSERT INTO market_archive_details (
+                market_id, exchange_name, market_name, tf, first_candle_dt, first_trade_dt,
+                first_trade_price, first_trade_id, last_candle_dt, last_trade_dt, last_trade_price,
+                last_trade_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            "#,
+            self.market_id,
+            self.exchange_name.as_str(),
+            self.market_name,
+            self.tf.as_str(),
+            self.first_candle_dt,
+            self.first_trade_dt,
+            self.first_trade_price,
+            self.first_trade_id,
+            self.last_candle_dt,
+            self.last_trade_dt,
+            self.last_trade_price,
+            self.last_trade_id,
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn select(pool: &PgPool, market: &MarketDetail) -> Result<Self, sqlx::Error> {
+        let row = sqlx::query_as!(
+            Self,
+            r#"
+            SELECT
+                market_id,
+                exchange_name as "exchange_name: ExchangeName",
+                market_name,
+                tf as "tf: TimeFrame",
+                first_candle_dt, first_trade_dt, first_trade_price, first_trade_id,
+                last_candle_dt, last_trade_dt, last_trade_price, last_trade_id,
+                next_month
+            FROM market_archive_details
+            WHERE market_id = $1
+            "#,
+            market.market_id
+        )
+        .fetch_one(pool)
+        .await?;
+        Ok(row)
+    }
+
+    pub async fn select_all(pool: &PgPool) -> Result<Vec<Self>, sqlx::Error> {
+        let rows = sqlx::query_as!(
+            Self,
+            r#"
+            SELECT
+                market_id,
+                exchange_name as "exchange_name: ExchangeName",
+                market_name,
+                tf as "tf: TimeFrame",
+                first_candle_dt, first_trade_dt, first_trade_price, first_trade_id,
+                last_candle_dt, last_trade_dt, last_trade_price, last_trade_id,
+                next_month
+            FROM market_archive_details
+            "#,
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(rows)
+    }
+}
 // impl Inquisidor {
 //     pub fn list_markets(&self, exchange: Option<&ExchangeName>) -> Vec<String> {
 //         // Takes the markets in ig and returns a vec of strings of the market names
@@ -1023,6 +1136,24 @@ impl ElDorado {
                     && m.candle_timeframe.is_some()
                     && m.exchange_name == ExchangeName::Gdax
             })
+            .collect();
+        if !eligible_markets.is_empty() {
+            Some(eligible_markets)
+        } else {
+            None
+        }
+    }
+
+    pub async fn select_markets_eligible_for_archive(&self) -> Option<Vec<MarketDetail>> {
+        // Eligibility based on if there is a market candle detail record created for market
+        // Select markets with market candle detail
+        let markets = MarketDetail::select_all_join_candle_detail(&self.pools[&Database::ElDorado])
+            .await
+            .expect("Failed to select markets.");
+        // Filter for markets that are currently active
+        let eligible_markets: Vec<MarketDetail> = markets
+            .into_iter()
+            .filter(|m| m.market_status == MarketStatus::Active)
             .collect();
         if !eligible_markets.is_empty() {
             Some(eligible_markets)
