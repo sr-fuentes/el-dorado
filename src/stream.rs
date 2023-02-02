@@ -1,7 +1,9 @@
-use crate::configuration::Database;
-use crate::eldorado::ElDorado;
-use crate::exchanges::{error::WsError, ws::Channel, ws::Data, ws::WebSocket, ExchangeName};
-use crate::trades::Trade;
+use crate::{
+    configuration::Database,
+    eldorado::ElDorado,
+    exchanges::{error::WsError, ws::Channel, ws::Data, ws::WebSocket, ExchangeName},
+    trades::Trade,
+};
 use chrono::{DateTime, Utc};
 use futures::StreamExt;
 use std::io::ErrorKind;
@@ -133,56 +135,55 @@ impl ElDorado {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::configuration::get_configuration;
-    use crate::exchanges::ws::{Channel, Data, WebSocket};
-    use crate::exchanges::{Exchange, ExchangeName};
-    use crate::markets::MarketDetail;
-    use crate::trades::{create_ftx_trade_table, drop_trade_table, insert_ftx_trade};
-    use futures::StreamExt;
-    use sqlx::PgPool;
+// #[cfg(test)]
+// mod tests {
+//     use crate::configuration::get_configuration;
+//     use crate::exchanges::ws::{Channel, Data, WebSocket};
+//     use crate::exchanges::{Exchange, ExchangeName};
+//     use crate::markets::MarketDetail;
+//     use futures::StreamExt;
+//     use sqlx::PgPool;
 
-    #[tokio::test]
-    async fn stream_trades_to_db() {
-        // Grab config settings and stream those trades to db table
-        let configuration = get_configuration().expect("Could not get configuration.");
-        let pool = PgPool::connect_with(configuration.ftx_db.with_db())
-            .await
-            .expect("Failed to connect to Postgres.");
-        let exchange = Exchange::new_sample_exchange(&ExchangeName::Ftx);
-        let market_ids = MarketDetail::select_all(&pool)
-            .await
-            .expect("Could not fetch markets.");
-        let market_id = market_ids
-            .iter()
-            .find(|m| m.market_name == configuration.application.market)
-            .unwrap();
-        let market_detail = MarketDetail::select_by_id(&pool, &market_id.market_id)
-            .await
-            .expect("Could not fetch market detail.");
-        drop_trade_table(&pool, &exchange.name, &market_detail, "ws_test")
-            .await
-            .expect("Could not drop test ws table.");
-        create_ftx_trade_table(&pool, &exchange.name, &market_detail, "ws_test")
-            .await
-            .expect("Could not create test ws table.");
-        let mut ws = WebSocket::connect(&exchange.name)
-            .await
-            .expect("Failed to connect to ws.");
-        ws.subscribe(vec![Channel::Trades(market_id.market_name.to_owned())])
-            .await
-            .expect("Could not subscribe to market.");
-        loop {
-            let data = ws.next().await.expect("No data received.");
-            match data {
-                Ok((_, Data::FtxTrade(trade))) => {
-                    insert_ftx_trade(&pool, &exchange.name, &market_detail, "ws_test", trade)
-                        .await
-                        .expect("Could not insert trade into db.");
-                }
-                _ => panic!("Unexpected data type."),
-            }
-        }
-    }
-}
+//     // #[tokio::test]
+//     // async fn stream_trades_to_db() {
+//     //     // Grab config settings and stream those trades to db table
+//     //     let configuration = get_configuration().expect("Could not get configuration.");
+//     //     let pool = PgPool::connect_with(configuration.ftx_db.with_db())
+//     //         .await
+//     //         .expect("Failed to connect to Postgres.");
+//     //     let exchange = Exchange::new_sample_exchange(&ExchangeName::Ftx);
+//     //     let market_ids = MarketDetail::select_all(&pool)
+//     //         .await
+//     //         .expect("Could not fetch markets.");
+//     //     let market_id = market_ids
+//     //         .iter()
+//     //         .find(|m| m.market_name == configuration.application.market)
+//     //         .unwrap();
+//     //     let market_detail = MarketDetail::select_by_id(&pool, &market_id.market_id)
+//     //         .await
+//     //         .expect("Could not fetch market detail.");
+//     //     drop_trade_table(&pool, &exchange.name, &market_detail, "ws_test")
+//     //         .await
+//     //         .expect("Could not drop test ws table.");
+//     //     create_ftx_trade_table(&pool, &exchange.name, &market_detail, "ws_test")
+//     //         .await
+//     //         .expect("Could not create test ws table.");
+//     //     let mut ws = WebSocket::connect(&exchange.name)
+//     //         .await
+//     //         .expect("Failed to connect to ws.");
+//     //     ws.subscribe(vec![Channel::Trades(market_id.market_name.to_owned())])
+//     //         .await
+//     //         .expect("Could not subscribe to market.");
+//     //     loop {
+//     //         let data = ws.next().await.expect("No data received.");
+//     //         match data {
+//     //             Ok((_, Data::FtxTrade(trade))) => {
+//     //                 insert_ftx_trade(&pool, &exchange.name, &market_detail, "ws_test", trade)
+//     //                     .await
+//     //                     .expect("Could not insert trade into db.");
+//     //             }
+//     //             _ => panic!("Unexpected data type."),
+//     //         }
+//     //     }
+//     // }
+// }

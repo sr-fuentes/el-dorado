@@ -5,23 +5,18 @@ use crate::{
         error::RestError, ftx::Trade as FtxTrade, gdax::Candle as GdaxCandle,
         gdax::Trade as GdaxTrade, ExchangeName,
     },
-    inquisidor::Inquisidor,
-    markets::{MarketCandleDetail, MarketDetail, MarketTradeDetail},
+    markets::{MarketArchiveDetail, MarketCandleDetail, MarketDetail},
     trades::{PrIdTi, Trade},
-    utilities::{
-        create_date_range, create_monthly_date_range, next_month_datetime, trunc_month_datetime,
-        DateRange, TimeFrame,
-    },
+    utilities::{DateRange, TimeFrame},
 };
 use chrono::{DateTime, Duration, DurationRound, Utc};
-use csv::{Reader, Writer};
+use csv::Writer;
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::fs::File;
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -1744,6 +1739,10 @@ impl ElDorado {
             .expect("Failed to check table.")
     }
 
+    pub fn convert_research_candles(&self, candles: &[ResearchCandle]) -> Vec<ProductionCandle> {
+        candles.iter().map(|c| c.as_production_candle()).collect()
+    }
+
     pub fn resample_and_convert_research_candles(
         &self,
         candles: &[ResearchCandle],
@@ -1752,10 +1751,7 @@ impl ElDorado {
         // Different approaches for perfomance. Resample from Vec is slow as it re-filters entire
         // vec for each time frame
         let resampled_candles = self.resample_research_candles(candles, tf);
-        resampled_candles
-            .iter()
-            .map(|c| c.as_production_candle())
-            .collect()
+        self.convert_research_candles(&resampled_candles)
     }
 
     pub fn resample_and_convert_research_candles_by_hashmap(
@@ -1763,46 +1759,9 @@ impl ElDorado {
         candles: &[ResearchCandle],
         tf: &TimeFrame,
     ) -> Vec<ProductionCandle> {
-        // First map research candles into hash map, then resample each hashmap key
-        let mut candle_map: HashMap<DateTime<Utc>, Vec<ResearchCandle>> = HashMap::new();
-        for candle in candles.iter() {
-            candle_map
-                .entry(candle.datetime.duration_trunc(tf.as_dur()).unwrap())
-                .and_modify(|v| v.push(candle.clone()))
-                .or_insert_with(|| vec![candle.clone()]);
-        }
-        // Second create the date range for the resampled candles. If candles passed are S15
-        // research candles then the last candle is 23:59:45. The last dt for the dr should be
-        // for a T15 tf should be 23:45:00 so the end time for the DR:new is 00:00:00
-        // dr can be unwrapped as there will be control on calling this function to make sure there
-        // is at least one date in dr to resample. TODO: Convert to Result<Vec, Err>
-        let dr = DateRange::new(
-            &candles
-                .first()
-                .unwrap()
-                .datetime
-                .duration_trunc(tf.as_dur())
-                .unwrap(),
-            &(candles
-                .last()
-                .unwrap()
-                .datetime
-                .duration_trunc(tf.as_dur())
-                .unwrap()
-                + tf.as_dur()),
-            tf,
-        )
-        .unwrap();
-        // For each date in the daterange - aggregate the candles
-        let resampled_candles = dr.dts.iter().fold(Vec::new(), |mut v, d| {
-            v.push(ResearchCandle::new_from_candles(d, &candle_map[d]));
-            v
-        });
+        let resampled_candles = self.resample_research_candles_by_hashmap(candles, tf);
         // Finally convert to production
-        resampled_candles
-            .iter()
-            .map(|c| c.as_production_candle())
-            .collect()
+        self.convert_research_candles(&resampled_candles)
     }
 
     pub fn resample_and_convert_research_candles_by_hashmap_v2(
@@ -1843,6 +1802,48 @@ impl ElDorado {
         // For each dr - aggregate the candles
         dr.dts.iter().fold(Vec::new(), |mut v, d| {
             v.push(ProductionCandle::new_from_candles(*d, &candle_map[d]));
+            v
+        })
+    }
+
+    pub fn resample_research_candles_by_hashmap(
+        &self,
+        candles: &[ResearchCandle],
+        tf: &TimeFrame,
+    ) -> Vec<ResearchCandle> {
+        // First map research candles into hash map, then resample each hashmap key
+        let mut candle_map: HashMap<DateTime<Utc>, Vec<ResearchCandle>> = HashMap::new();
+        for candle in candles.iter() {
+            candle_map
+                .entry(candle.datetime.duration_trunc(tf.as_dur()).unwrap())
+                .and_modify(|v| v.push(candle.clone()))
+                .or_insert_with(|| vec![candle.clone()]);
+        }
+        // Second create the date range for the resampled candles. If candles passed are S15
+        // research candles then the last candle is 23:59:45. The last dt for the dr should be
+        // for a T15 tf should be 23:45:00 so the end time for the DR:new is 00:00:00
+        // dr can be unwrapped as there will be control on calling this function to make sure there
+        // is at least one date in dr to resample. TODO: Convert to Result<Vec, Err>
+        let dr = DateRange::new(
+            &candles
+                .first()
+                .unwrap()
+                .datetime
+                .duration_trunc(tf.as_dur())
+                .unwrap(),
+            &(candles
+                .last()
+                .unwrap()
+                .datetime
+                .duration_trunc(tf.as_dur())
+                .unwrap()
+                + tf.as_dur()),
+            tf,
+        )
+        .unwrap();
+        // For each date in the daterange - aggregate the candles
+        dr.dts.iter().fold(Vec::new(), |mut v, d| {
+            v.push(ResearchCandle::new_from_candles(d, &candle_map[d]));
             v
         })
     }
@@ -1903,6 +1904,20 @@ impl ElDorado {
         }
     }
 
+    pub fn make_research_candles_for_month(
+        &self,
+        market: &MarketDetail,
+        mad: &Option<MarketArchiveDetail>,
+        cdr: &DateRange,
+        tdr: &DateRange,
+    ) -> Vec<ResearchCandle> {
+        // For each day in the dr, read trades from file and create candles
+        let trades = self.read_gdax_trades_for_dr(market, &TimeFrame::S15, &tdr.dts);
+        // Make candles for the candle dr
+        let last_trade = mad.as_ref().map(|m| m.last_as_pridti());
+        ResearchCandle::from_trades_hm_for_dr(&trades, last_trade, &cdr.dts)
+    }
+
     pub async fn make_research_candles_for_dt_from_file(
         &self,
         market: &MarketDetail,
@@ -1926,9 +1941,15 @@ impl ElDorado {
                                 id: m.last_trade_id.parse::<i64>().unwrap(),
                                 price: m.last_trade_price,
                             });
-                            let dr = self.create_date_range(dt, &(*dt + Duration::days(1)), &TimeFrame::S15);
-                            Some(ResearchCandle::from_trades_hm_for_dr(&trades_hm, last_trade, &dr))
-                        },
+                            let dr = self.create_date_range(
+                                dt,
+                                &(*dt + Duration::days(1)),
+                                &TimeFrame::S15,
+                            );
+                            Some(ResearchCandle::from_trades_hm_for_dr(
+                                &trades_hm, last_trade, &dr,
+                            ))
+                        }
                         None => None,
                     }
                 } else {
@@ -2317,402 +2338,61 @@ impl ElDorado {
             None
         }
     }
+
+    pub fn write_research_candles_to_file_for_month(
+        &self,
+        market: &MarketDetail,
+        dt: &DateTime<Utc>,
+        candles: &[ResearchCandle],
+    ) {
+        // Create file path
+        let pb = self.prep_candle_archive_path(market, dt, &TimeFrame::S15);
+        // Create file and write candles
+        println!("Writing S15 candles for the month.");
+        self.write_research_candles_to_file(&pb, candles);
+        let mut resampled_candles = candles.to_owned();
+        // Resample and write for other time frames
+        for tf in TimeFrame::all_time_frames().iter().skip(1) {
+            resampled_candles = self.resample_research_candles_by_hashmap(&resampled_candles, tf);
+            let pb = self.prep_candle_archive_path(market, dt, tf);
+            println!("Writing {} candles for the month.", tf.as_str());
+            self.write_research_candles_to_file(&pb, candles);
+        }
+    }
+
+    fn write_research_candles_to_file(&self, pb: &PathBuf, candles: &[ResearchCandle]) {
+        let mut wtr = Writer::from_path(pb).expect("Failed to open file.");
+        for candle in candles.iter() {
+            wtr.serialize(candle).expect("Failed to serialize candle.");
+        }
+        wtr.flush().expect("Failed to flush wtr.");
+    }
+
+    fn prep_candle_archive_path(
+        &self,
+        market: &MarketDetail,
+        dt: &DateTime<Utc>,
+        tf: &TimeFrame,
+    ) -> PathBuf {
+        println!("Created candle archive path for {}.", market.market_name);
+        let path = format!(
+            "{}/candles/{}/{}/{}",
+            &self.storage_path,
+            &market.exchange_name.as_str(),
+            &market.as_strip(),
+            dt.format("%Y"),
+        );
+        std::fs::create_dir_all(&path).expect("Failed to create directories.");
+        let f = format!(
+            "{}_{}{}_{}.csv",
+            market.as_strip(),
+            dt.format("%Y"),
+            dt.format("%m"),
+            tf.as_str()
+        );
+        std::path::Path::new(&path).join(f)
+    }
 }
-
-// impl Inquisidor {
-//     pub async fn load_candles(&self) {
-//         // Load the market candle details table. For each entry check that the candles have been
-//         // loaded in the archive db. Load any monthly candles that have not.
-
-//         // Load market candle details
-//         let mcds = MarketCandleDetail::select_all(&self.ig_pool)
-//             .await
-//             .expect("Failed to load market candle details.");
-//         // Check each record
-//         for mcd in mcds.iter() {
-//             println!(
-//                 "Checking {:?} for candles to load to archive db.",
-//                 mcd.market_name
-//             );
-//             let months_to_load = self.check_mcd_for_months_to_load(mcd).await;
-//             if !months_to_load.is_empty() {
-//                 println!("Loading {:?} for {:?}", months_to_load, mcd.market_name);
-//                 self.load_candles_for_months(mcd, &months_to_load).await;
-//             } else {
-//                 println!(
-//                     "All candle files loaded into archive for {:?}",
-//                     mcd.market_name
-//                 );
-//             }
-//         }
-//     }
-
-//     pub async fn check_mcd_for_months_to_load(
-//         &self,
-//         mcd: &MarketCandleDetail,
-//     ) -> Vec<DateTime<Utc>> {
-//         // Check if archive table exists
-//         let market = self
-//             .markets
-//             .iter()
-//             .find(|m| m.market_name == mcd.market_name)
-//             .unwrap();
-//         let schema = "candles";
-//         let table = format!(
-//             "research_{}_{}_{}",
-//             mcd.exchange_name.as_str(),
-//             market.as_strip(),
-//             mcd.time_frame.as_str()
-//         );
-//         let table_exists = self
-//             .table_exists(&self.archive_pool, schema, &table)
-//             .await
-//             .expect("Failed to check if table exists.");
-//         let first_month = match table_exists {
-//             true => {
-//                 // Archive table exists, check last candle
-//                 println!(
-//                     "Archive table exists for {:?}. Checking next month for dr.",
-//                     mcd.market_name
-//                 );
-//                 let last_candle =
-//                     ResearchCandle::select_last(&self.archive_pool, market, &mcd.time_frame).await;
-//                 match last_candle {
-//                     Ok(lc) => next_month_datetime(lc.datetime),
-//                     Err(sqlx::Error::RowNotFound) => trunc_month_datetime(mcd.first_candle),
-//                     Err(e) => panic!("Sqlx Error: {:?}", e),
-//                 }
-//             }
-//             false => {
-//                 // Archive table does not exist, create archive table then check last candle
-//                 println!(
-//                     "Archive table does not exist for {:?}. Creating table.",
-//                     mcd.market_name
-//                 );
-//                 ResearchCandle::create_table(&self.archive_pool, market, &mcd.time_frame)
-//                     .await
-//                     .expect("Failed to create archive table.");
-//                 trunc_month_datetime(mcd.first_candle)
-//             }
-//         };
-//         // Build daterange from first month to last month
-//         create_monthly_date_range(
-//             first_month,
-//             trunc_month_datetime(mcd.last_candle + mcd.time_frame.as_dur()),
-//         )
-//     }
-
-//     pub async fn load_candles_for_months(&self, mcd: &MarketCandleDetail, dr: &[DateTime<Utc>]) {
-//         // Get market from mcd
-//         let market = self
-//             .markets
-//             .iter()
-//             .find(|m| m.market_name == mcd.market_name)
-//             .unwrap();
-//         let _schema = "archive";
-//         let _table = format!(
-//             "candles_{}_{}_{}",
-//             mcd.exchange_name.as_str(),
-//             market.as_strip(),
-//             mcd.time_frame.as_str()
-//         );
-//         // For each month in the dr, read the csv file of candles and insert into the database
-//         for month in dr.iter() {
-//             // Create file path
-//             let f = format!(
-//                 "{}_{}-{}.csv",
-//                 market.as_strip(),
-//                 month.format("%Y"),
-//                 month.format("%m")
-//             );
-//             let archive_path = format!(
-//                 "{}/candles/{}/{}/{}",
-//                 &self.settings.application.archive_path,
-//                 &market.exchange_name.as_str(),
-//                 &market.as_strip(),
-//                 month.format("%Y"),
-//             );
-//             let fp = std::path::Path::new(&archive_path).join(f);
-//             println!("Opening file: {:?}", fp);
-//             let file = File::open(fp).expect("Failed to open file.");
-//             // Read file
-//             let mut rdr = Reader::from_reader(file);
-//             for result in rdr.deserialize() {
-//                 let candle: ResearchCandle = result.expect("Faile to deserialize candle record.");
-//                 // Write file to db
-//                 candle
-//                     .insert(&self.archive_pool, market, &mcd.time_frame)
-//                     .await
-//                     .expect("Failed to insert candle.");
-//             }
-//         }
-//     }
-
-//     // pub async fn make_candles(&self) {
-//     //     // Aggregate trades for a market into timeframe buckets. Track the latest trade details to
-//     //     // determine if the month has been completed and can be aggregated
-//     //     // Get market to aggregate trades
-//     //     let market = match self.get_valid_market().await {
-//     //         Some(m) => m,
-//     //         None => return,
-//     //     };
-//     //     // Get the market candle detail
-//     //     let mcd = self.get_market_candle_detail(&market).await;
-//     //     match mcd {
-//     //         Some(m) => {
-//     //             // Start from last candle
-//     //             println!(
-//     //                 "MCD found for {:?} starting to build from last candle {:?}",
-//     //                 market.market_name, m.last_candle
-//     //             );
-//     //             self.make_candles_from_last_candle(&market, &m).await;
-//     //         }
-//     //         None => {
-//     //             // Create mcd and start from first trade month
-//     //             println!(
-//     //                 "MCD not found for {:?}. Validating market and making mcd.",
-//     //                 market.market_name
-//     //             );
-//     //             let mcd = self.validate_and_make_mcd_and_first_candle(&market).await;
-//     //             if mcd.is_some() {
-//     //                 println!("MCD created, making candles from last.");
-//     //                 self.make_candles_from_last_candle(&market, &mcd.unwrap())
-//     //                     .await;
-//     //             };
-//     //         }
-//     //     }
-//     // }
-
-//     pub async fn validate_market_eligibility_for_candles(
-//         &self,
-//         market: &MarketDetail,
-//         mtd: &Option<MarketTradeDetail>,
-//     ) -> bool {
-//         // Check there is a market trade detail
-//         match mtd {
-//             Some(mtd) => {
-//                 // Check there are trades validated and archived
-//                 if mtd.next_trade_day.is_none() {
-//                     println!(
-//                         "{:?} market has not completed backfill. Cannot make candles.",
-//                         market.market_name
-//                     );
-//                     return false;
-//                 };
-//                 // Check that there are at least first month of trades to make into candles
-//                 if mtd.next_trade_day.unwrap() <= next_month_datetime(mtd.first_trade_ts) {
-//                     println!(
-//                         "Less than one full months of trades for {:?}. Cannot make candles.",
-//                         market.market_name
-//                     );
-//                     false
-//                 } else {
-//                     true
-//                 }
-//             }
-//             None => {
-//                 println!(
-//                     "Market trade detail does not exist for {:?}. Cannot make candes.",
-//                     market.market_name
-//                 );
-//                 false
-//             }
-//         }
-//     }
-
-//     pub async fn validate_and_make_mcd_and_first_candle(
-//         &self,
-//         market: &MarketDetail,
-//     ) -> Option<MarketCandleDetail> {
-//         // Get the market trade details and check if one exists for market
-//         let market_trade_details = MarketTradeDetail::select_all(&self.ig_pool)
-//             .await
-//             .expect("Failed to select market trade details.");
-//         let mtd = market_trade_details
-//             .iter()
-//             .find(|mtd| mtd.market_id == market.market_id)
-//             .cloned();
-//         // Validate that the market is in a state to make candles - ie trades have been
-//         // archived, a market_trade_detail record exists, and that there are trades through
-//         // the end of the first month
-//         if !self
-//             .validate_market_eligibility_for_candles(market, &mtd)
-//             .await
-//         {
-//             return None;
-//         };
-//         // Safe to unwrap as None would fail eligibility
-//         println!("Market validated, making mcd and first candle.");
-//         let mtd = mtd.unwrap();
-//         Some(self.make_mcd_and_first_candle(market, &mtd).await)
-//     }
-
-//     pub async fn make_mcd_and_first_candle(
-//         &self,
-//         market: &MarketDetail,
-//         mtd: &MarketTradeDetail,
-//     ) -> MarketCandleDetail {
-//         // Create candle daterange from first trade to end of first month
-//         let candle_dr = create_date_range(
-//             mtd.first_trade_ts
-//                 .duration_trunc(TimeFrame::S15.as_dur())
-//                 .unwrap(),
-//             next_month_datetime(mtd.first_trade_ts),
-//             TimeFrame::S15.as_dur(),
-//         );
-//         // Create trade file daterange
-//         let trades_dr = create_date_range(
-//             mtd.first_trade_ts
-//                 .duration_trunc(Duration::days(1))
-//                 .unwrap(),
-//             next_month_datetime(mtd.first_trade_ts),
-//             Duration::days(1),
-//         );
-//         // Make the candle and write to file
-//         let candles = self
-//             .make_candle_for_month(market, &None, &candle_dr, &trades_dr)
-//             .await;
-//         // Create the mcd
-//         let mcd = MarketCandleDetail {
-//             market_id: market.market_id,
-//             exchange_name: market.exchange_name,
-//             market_name: market.market_name.clone(),
-//             time_frame: TimeFrame::S15,
-//             first_candle: candles.first().unwrap().datetime,
-//             last_candle: candles.last().unwrap().datetime,
-//             last_trade_ts: candles.last().unwrap().last_trade_ts,
-//             last_trade_id: candles.last().unwrap().last_trade_id.clone(),
-//             last_trade_price: candles.last().unwrap().close,
-//         };
-//         // Insert the mcd
-//         mcd.insert(&self.ig_pool)
-//             .await
-//             .expect("Failed to insert market candle detail.");
-//         // Return the mcd
-//         mcd
-//     }
-
-//     pub async fn make_candle_for_month(
-//         &self,
-//         market: &MarketDetail,
-//         mcd: &Option<MarketCandleDetail>,
-//         candle_dr: &[DateTime<Utc>],
-//         trades_dr: &[DateTime<Utc>],
-//     ) -> Vec<ResearchCandle> {
-//         // Load the trades
-//         println!("Loading trades.");
-//         let trades: HashMap<DateTime<Utc>, Vec<FtxTrade>> =
-//             self.load_trades_for_dr(market, trades_dr).await;
-//         // Create the first months candles
-//         println!("Making candles dr.");
-//         let candles = self.make_candles_for_dr(mcd, candle_dr, &trades).await;
-//         // Write candles to file
-//         let f = format!(
-//             "{}_{}-{}.csv",
-//             market.as_strip(),
-//             candle_dr.first().unwrap().format("%Y"),
-//             candle_dr.first().unwrap().format("%m")
-//         );
-//         let archive_path = format!(
-//             "{}/candles/{}/{}/{}",
-//             &self.settings.application.archive_path,
-//             &market.exchange_name.as_str(),
-//             &market.as_strip(),
-//             candle_dr.first().unwrap().format("%Y"),
-//         );
-//         // Create directories if not exists
-//         std::fs::create_dir_all(&archive_path).expect("Failed to create directories.");
-//         let c_path = std::path::Path::new(&archive_path).join(f);
-//         // Write trades to file
-//         println!("Writing candles for month.");
-//         let mut wtr = Writer::from_path(c_path).expect("Failed to open file.");
-//         for candle in candles.iter() {
-//             wtr.serialize(candle).expect("Failed to serialize trade.");
-//         }
-//         wtr.flush().expect("Failed to flush wtr.");
-//         candles
-//     }
-
-//     pub async fn make_candles_for_dr<T: Trade + std::clone::Clone>(
-//         &self,
-//         mcd: &Option<MarketCandleDetail>,
-//         dr: &[DateTime<Utc>],
-//         trades: &HashMap<DateTime<Utc>, Vec<T>>,
-//     ) -> Vec<ResearchCandle> {
-//         // TRADES MUST BE SORTED
-//         let (mut last_price, mut last_id, mut last_ts) = match mcd {
-//             Some(mcd) => (
-//                 mcd.last_trade_price,
-//                 mcd.last_trade_id.clone(),
-//                 mcd.last_trade_ts,
-//             ),
-//             None => (dec!(-1), String::new(), Utc::now()),
-//         };
-//         let candles = dr.iter().fold(Vec::new(), |mut v, d| {
-//             println!("{:?} - Make candle for {:?}", Utc::now(), d);
-//             let new_candle = if !trades.contains_key(d) {
-//                 ResearchCandle::new_from_last(*d, last_price, last_ts, &last_id)
-//             } else {
-//                 ResearchCandle::new_from_trades_v2(*d, &trades[d])
-//             };
-//             last_price = new_candle.close;
-//             last_ts = new_candle.last_trade_ts;
-//             last_id = new_candle.last_trade_id.clone();
-//             v.push(new_candle);
-//             v
-//         });
-//         candles
-//     }
-
-//     pub async fn make_candles_from_last_candle(
-//         &self,
-//         market: &MarketDetail,
-//         mcd: &MarketCandleDetail,
-//     ) {
-//         // Get mtd for the market - it must exist to have a mcd existing
-//         let mtd = MarketTradeDetail::select(&self.ig_pool, market)
-//             .await
-//             .expect("Expected mtd.");
-//         // Get month date range for candle build
-//         let months_dr = create_monthly_date_range(
-//             mcd.last_candle + mcd.time_frame.as_dur(),
-//             trunc_month_datetime(mtd.next_trade_day.unwrap() - Duration::days(1)),
-//         );
-//         // Get mcd for modification
-//         let mut mcd = mcd.clone();
-//         println!("Months dr for candles: {:?}", months_dr);
-//         // For each month, make candles and update the mcd
-//         for month in months_dr.iter() {
-//             let candle_dr =
-//                 create_date_range(*month, next_month_datetime(*month), mcd.time_frame.as_dur());
-//             let trades_dr =
-//                 create_date_range(*month, next_month_datetime(*month), Duration::days(1));
-//             let candles = self
-//                 .make_candle_for_month(market, &Some(mcd.clone()), &candle_dr, &trades_dr)
-//                 .await;
-//             // Update the mcd
-//             if !candles.is_empty() {
-//                 mcd = mcd
-//                     .update_last(&self.ig_pool, candles.last().unwrap())
-//                     .await
-//                     .expect("Failed to update last market candle detail.");
-//             }
-//         }
-//     }
-
-//     pub async fn get_market_candle_detail(
-//         &self,
-//         market: &MarketDetail,
-//     ) -> Option<MarketCandleDetail> {
-//         let market_candle_details = MarketCandleDetail::select_all(&self.ig_pool)
-//             .await
-//             .expect("Failed to select market candle details.");
-//         market_candle_details
-//             .iter()
-//             .find(|m| m.market_id == market.market_id)
-//             .cloned()
-//     }
-// }
 
 // #[cfg(test)]
 // mod tests {

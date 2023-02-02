@@ -1528,6 +1528,23 @@
       "nullable": []
     }
   },
+  "e86663a8aeded6330b9a43f89fded256b2e25b07665bf1e2e2d7d4c2d76516ef": {
+    "query": "\n            UPDATE market_archive_details\n            SET (last_candle_dt, last_trade_dt, last_trade_price, last_trade_id, next_month) = ($1, $2, $3, $4, $5)\n            WHERE market_id = $6\n            ",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Timestamptz",
+          "Timestamptz",
+          "Numeric",
+          "Text",
+          "Timestamptz",
+          "Uuid"
+        ]
+      },
+      "nullable": []
+    }
+  },
   "ecb8228350caa3a7af343b434d19e04b5be25d1e93d9068457ca3fa9485a6199": {
     "query": "\n            SELECT\n                market_id,\n                exchange_name as \"exchange_name: ExchangeName\",\n                market_name,\n                tf as \"tf: TimeFrame\",\n                first_candle_dt, first_trade_dt, first_trade_price, first_trade_id,\n                last_candle_dt, last_trade_dt, last_trade_price, last_trade_id,\n                next_month\n            FROM market_archive_details\n            WHERE market_id = $1\n            ",
     "describe": {

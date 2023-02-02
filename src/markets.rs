@@ -802,10 +802,39 @@ impl MarketCandleDetail {
         .await?;
         Ok(row)
     }
+
+    pub fn last_as_pridti(&self) -> PrIdTi {
+        PrIdTi {
+            id: self.last_trade_id.parse::<i64>().unwrap(),
+            dt: self.last_trade_ts,
+            price: self.last_trade_price,
+        }
+    }
 }
 
 impl MarketArchiveDetail {
-    // pub fn new() -> Self {}
+    pub fn new(
+        market: &MarketDetail,
+        tf: &TimeFrame,
+        first_candle: &ResearchCandle,
+        last_candle: &ResearchCandle,
+    ) -> Self {
+        Self {
+            market_id: market.market_id,
+            exchange_name: market.exchange_name,
+            market_name: market.market_name.clone(),
+            tf: *tf,
+            first_candle_dt: first_candle.datetime,
+            first_trade_dt: first_candle.first_trade_ts,
+            first_trade_price: first_candle.open,
+            first_trade_id: first_candle.first_trade_id.clone(),
+            last_candle_dt: last_candle.datetime,
+            last_trade_dt: last_candle.last_trade_ts,
+            last_trade_price: last_candle.close,
+            last_trade_id: last_candle.last_trade_id.clone(),
+            next_month: last_candle.datetime + tf.as_dur(),
+        }
+    }
 
     pub async fn insert(&self, pool: &PgPool) -> Result<(), sqlx::Error> {
         sqlx::query!(
@@ -875,26 +904,54 @@ impl MarketArchiveDetail {
         .await?;
         Ok(rows)
     }
+
+    pub fn last_as_pridti(&self) -> PrIdTi {
+        PrIdTi {
+            id: self.last_trade_id.parse::<i64>().unwrap(),
+            dt: self.last_trade_dt,
+            price: self.last_trade_price,
+        }
+    }
+
+    pub async fn update(
+        &self,
+        pool: &PgPool,
+        next_month: &DateTime<Utc>,
+        last_candle: &ResearchCandle,
+    ) -> Result<Self, sqlx::Error> {
+        sqlx::query!(
+            r#"
+            UPDATE market_archive_details
+            SET (last_candle_dt, last_trade_dt, last_trade_price, last_trade_id, next_month) = ($1, $2, $3, $4, $5)
+            WHERE market_id = $6
+            "#,
+            last_candle.datetime,
+            last_candle.last_trade_ts,
+            last_candle.close,
+            last_candle.last_trade_id,
+            next_month,
+            self.market_id,
+        )
+        .execute(pool)
+        .await?;
+        Ok(Self {
+            market_id: self.market_id,
+            exchange_name: self.exchange_name,
+            market_name: self.market_name.clone(),
+            tf: self.tf,
+            first_candle_dt: self.first_candle_dt,
+            first_trade_dt: self.first_trade_dt,
+            first_trade_price: self.first_trade_price,
+            first_trade_id: self.first_trade_id.clone(),
+            last_candle_dt: last_candle.datetime,
+            last_trade_dt: last_candle.last_trade_ts,
+            last_trade_price: last_candle.close,
+            last_trade_id: last_candle.last_trade_id.clone(),
+            next_month: *next_month,
+        })
+    }
 }
 // impl Inquisidor {
-//     pub fn list_markets(&self, exchange: Option<&ExchangeName>) -> Vec<String> {
-//         // Takes the markets in ig and returns a vec of strings of the market names
-//         // Output = ['BTC-PERP','ETH-PERP'...]
-//         match exchange {
-//             Some(e) => {
-//                 // Filter only for markets for exchange
-//                 self.markets
-//                     .iter()
-//                     .filter(|m| m.exchange_name == *e)
-//                     .map(|m| m.market_name.clone())
-//                     .collect()
-//             }
-//             None => {
-//                 // No exchange filter, list all markets
-//                 self.markets.iter().map(|m| m.market_name.clone()).collect()
-//             }
-//         }
-//     }
 
 // pub async fn update_market_ranks(&self) {
 //     // Get user input for exchange to add
@@ -1235,91 +1292,9 @@ impl ElDorado {
     }
 }
 
-// pub async fn get_ftx_usd_markets<T: crate::utilities::Market + DeserializeOwned>(
-//     client: &RestClient,
-// ) -> Result<Vec<T>, RestError> {
-//     // Get markets from exchange
-//     let mut markets = client.get_ftx_markets().await?;
-//     // Filter for USD based markets
-//     markets.retain(|m: &T| {
-//         m.quote_currency() == Some("USD".to_string()) || m.market_type() == *"future"
-//     });
-//     Ok(markets)
-// }
-
-// pub async fn create_market_ranks_table(
-//     pool: &PgPool,
-//     exchange_name: &ExchangeName,
-// ) -> Result<(), sqlx::Error> {
-//     let sql = format!(
-//         r#"
-//         CREATE TABLE IF NOT EXISTS market_ranks_{} (
-//             market_id UUID NOT NULL,
-//             market_name TEXT NOT NULL,
-//             rank BIGINT NOT NULL,
-//             rank_prev BIGINT,
-//             mita_current TEXT,
-//             mita_proposed TEXT,
-//             usd_volume_24h NUMERIC NOT NULL,
-//             usd_volume_15t NUMERIC NOT NULL,
-//             ats_v1 NUMERIC NOT NULL,
-//             ats_v2 NUMERIC NOT NULL,
-//             mps NUMERIC NOT NULL,
-//             dp_quantity INT NOT NULL,
-//             dp_price INT NOT NULL,
-//             min_quantity NUMERIC NOT NULL,
-//             PRIMARY KEY (market_id)
-//         )
-//         "#,
-//         exchange_name.as_str(),
-//     );
-//     sqlx::query(&sql).execute(pool).await?;
-//     Ok(())
-// }
-
-// pub async fn insert_market_rank(
-//     pool: &PgPool,
-//     exchange_name: &ExchangeName,
-//     rank: &MarketRank,
-// ) -> Result<(), sqlx::Error> {
-//     // Cannot use sqlx query! macro because table is dynamic and may not be created
-//     let sql = format!(
-//         r#"
-//         INSERT INTO market_ranks_{} (
-//             market_id, market_name, rank, rank_prev, mita_current, mita_proposed, usd_volume_24h,
-//             usd_volume_15t, ats_v1, ats_v2, mps, dp_quantity, dp_price, min_quantity)
-//         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-//         ON CONFLICT (market_id) DO NOTHING
-//         "#,
-//         exchange_name.as_str(),
-//     );
-//     sqlx::query(&sql)
-//         .bind(rank.market_id)
-//         .bind(&rank.market_name)
-//         .bind(rank.rank)
-//         .bind(rank.rank_prev)
-//         .bind(&rank.mita_current)
-//         .bind(&rank.mita_proposed)
-//         .bind(rank.usd_volume_24h)
-//         .bind(rank.usd_volume_15t)
-//         .bind(rank.ats_v1)
-//         .bind(rank.ats_v2)
-//         .bind(rank.mps)
-//         .bind(rank.dp_quantity)
-//         .bind(rank.dp_price)
-//         .bind(rank.min_quantity)
-//         .execute(pool)
-//         .await?;
-//     Ok(())
-// }
-
 #[cfg(test)]
 mod tests {
-    use crate::{
-        configuration::get_configuration,
-        inquisidor::Inquisidor,
-        markets::{MarketDetail, MarketStatus},
-    };
+    use crate::{configuration::get_configuration, markets::MarketDetail};
     use sqlx::PgPool;
 
     #[tokio::test]
@@ -1348,19 +1323,12 @@ mod tests {
         println!("Stripped Market: {}", stripped_market);
     }
 
-    #[tokio::test]
-    async fn select_active_markets_returns_active_markets() {
-        let ig = Inquisidor::new().await;
-        let markets = MarketDetail::select_by_status(&ig.ig_pool, &MarketStatus::Active)
-            .await
-            .expect("Failed to select markets.");
-        println!("Acive markets: {:?}", markets);
-    }
-
     // #[tokio::test]
-    // async fn mita_proposal_creates_map() {
+    // async fn select_active_markets_returns_active_markets() {
     //     let ig = Inquisidor::new().await;
-    //     let mita_map = ig.mita_proposal();
-    //     println!("Mita map: {:?}", mita_map);
+    //     let markets = MarketDetail::select_by_status(&ig.ig_pool, &MarketStatus::Active)
+    //         .await
+    //         .expect("Failed to select markets.");
+    //     println!("Acive markets: {:?}", markets);
     // }
 }

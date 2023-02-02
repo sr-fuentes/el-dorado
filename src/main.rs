@@ -9,7 +9,7 @@ async fn main() {
         .subcommand(App::new("refresh").about("refresh markets for exchange"))
         .subcommand(App::new("run").about("run el-dorado instance"))
         .subcommand(App::new("fill").about("fill from first candle to start"))
-        // .subcommand(App::new("archive").about("archive trade for valid candles"))
+        .subcommand(App::new("archive").about("archive trade for valid candles"))
         .subcommand(App::new("stream").about("stream trades to db"))
         // .subcommand(App::new("monitor").about("monitor active processes"))
         .get_matches();
@@ -43,11 +43,16 @@ async fn main() {
                 None => println!("Could not create El Dorado insance."),
             }
         }
-        // Some("archive") => {
-        //     // Create new admin instance and add new exchange
-        //     let ig = Inquisidor::new().await;
-        //     ig.archive_validated_trades().await;
-        // }
+        Some("archive") => {
+            // Archive any monthly trades into candle archives, update market archive table
+            match ElDorado::new().await {
+                Some(eld) => match eld.prompt_market_input(&None).await {
+                    Some(m) => eld.archive(&Some(m)).await,
+                    None => println!("No valid market to archive."),
+                },
+                None => println!("Could not create El Dorado instance."),
+            }
+        }
         Some("stream") => {
             // Create new mita instance and run stream until no restart
             match ElDorado::new().await {
