@@ -281,7 +281,7 @@ impl TimeFrame {
             TimeFrame::T15 => "t15",
             TimeFrame::T30 => "t30",
             TimeFrame::H01 => "h01",
-            TimeFrame::H02 => "h01",
+            TimeFrame::H02 => "h02",
             TimeFrame::H03 => "h03",
             TimeFrame::H04 => "h04",
             TimeFrame::H06 => "h06",

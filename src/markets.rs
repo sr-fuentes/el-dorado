@@ -842,8 +842,8 @@ impl MarketArchiveDetail {
             INSERT INTO market_archive_details (
                 market_id, exchange_name, market_name, tf, first_candle_dt, first_trade_dt,
                 first_trade_price, first_trade_id, last_candle_dt, last_trade_dt, last_trade_price,
-                last_trade_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                last_trade_id, next_month)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             "#,
             self.market_id,
             self.exchange_name.as_str(),
@@ -857,6 +857,7 @@ impl MarketArchiveDetail {
             self.last_trade_dt,
             self.last_trade_price,
             self.last_trade_id,
+            self.next_month,
         )
         .execute(pool)
         .await?;

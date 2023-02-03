@@ -161,29 +161,6 @@
       ]
     }
   },
-  "0b135fc78584650b1174c37950b3c394c8f816eebef0f8723a7372691525e2a4": {
-    "query": "\n            INSERT INTO market_archive_details (\n                market_id, exchange_name, market_name, tf, first_candle_dt, first_trade_dt,\n                first_trade_price, first_trade_id, last_candle_dt, last_trade_dt, last_trade_price,\n                last_trade_id)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)\n            ",
-    "describe": {
-      "columns": [],
-      "parameters": {
-        "Left": [
-          "Uuid",
-          "Text",
-          "Text",
-          "Text",
-          "Timestamptz",
-          "Timestamptz",
-          "Numeric",
-          "Text",
-          "Timestamptz",
-          "Timestamptz",
-          "Numeric",
-          "Text"
-        ]
-      },
-      "nullable": []
-    }
-  },
   "239035bebec684fdc32757a888b9d08839c31ac744e9d186f44ab5945078db0b": {
     "query": "\n            SELECT market_id,\n                exchange_name as \"exchange_name: ExchangeName\",\n                market_name,\n                time_frame as \"time_frame: TimeFrame\",\n                first_candle, last_candle, last_trade_ts, last_trade_id, last_trade_price\n            FROM market_candle_details\n            ",
     "describe": {
@@ -1257,6 +1234,30 @@
         "Left": [
           "Text",
           "Uuid"
+        ]
+      },
+      "nullable": []
+    }
+  },
+  "c3eac7c219196d7aa254b94f49a02600f65b638d36769eceea29f6e05e7dc3ae": {
+    "query": "\n            INSERT INTO market_archive_details (\n                market_id, exchange_name, market_name, tf, first_candle_dt, first_trade_dt,\n                first_trade_price, first_trade_id, last_candle_dt, last_trade_dt, last_trade_price,\n                last_trade_id, next_month)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)\n            ",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Text",
+          "Text",
+          "Text",
+          "Timestamptz",
+          "Timestamptz",
+          "Numeric",
+          "Text",
+          "Timestamptz",
+          "Timestamptz",
+          "Numeric",
+          "Text",
+          "Timestamptz"
         ]
       },
       "nullable": []

@@ -2355,8 +2355,8 @@ impl ElDorado {
         for tf in TimeFrame::all_time_frames().iter().skip(1) {
             resampled_candles = self.resample_research_candles_by_hashmap(&resampled_candles, tf);
             let pb = self.prep_candle_archive_path(market, dt, tf);
-            println!("Writing {} candles for the month.", tf.as_str());
-            self.write_research_candles_to_file(&pb, candles);
+            println!("Writing {} {} candles for the month.", resampled_candles.len(), tf.as_str());
+            self.write_research_candles_to_file(&pb, &resampled_candles);
         }
     }
 
@@ -2384,11 +2384,11 @@ impl ElDorado {
         );
         std::fs::create_dir_all(&path).expect("Failed to create directories.");
         let f = format!(
-            "{}_{}{}_{}.csv",
+            "{}_{}_{}{}.csv",
             market.as_strip(),
+            tf.as_str(),
             dt.format("%Y"),
             dt.format("%m"),
-            tf.as_str()
         );
         std::path::Path::new(&path).join(f)
     }
