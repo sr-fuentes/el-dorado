@@ -260,6 +260,7 @@ pub enum TimeFrame {
     H03,
     H04,
     H06,
+    H08,
     H12,
     D01,
 }
@@ -285,6 +286,7 @@ impl TimeFrame {
             TimeFrame::H03 => "h03",
             TimeFrame::H04 => "h04",
             TimeFrame::H06 => "h06",
+            TimeFrame::H08 => "h08",
             TimeFrame::H12 => "h12",
             TimeFrame::D01 => "d01",
         }
@@ -304,6 +306,7 @@ impl TimeFrame {
             TimeFrame::H03 => 10800,
             TimeFrame::H04 => 14400,
             TimeFrame::H06 => 21600,
+            TimeFrame::H08 => 28800,
             TimeFrame::H12 => 43200,
             TimeFrame::D01 => 86400,
         }
@@ -323,6 +326,7 @@ impl TimeFrame {
             TimeFrame::H03 => Duration::hours(3),
             TimeFrame::H04 => Duration::hours(4),
             TimeFrame::H06 => Duration::hours(6),
+            TimeFrame::H08 => Duration::hours(8),
             TimeFrame::H12 => Duration::hours(12),
             TimeFrame::D01 => Duration::days(1),
         }
@@ -353,6 +357,7 @@ impl TimeFrame {
             TimeFrame::H03,
             TimeFrame::H04,
             TimeFrame::H06,
+            TimeFrame::H08,
             TimeFrame::H12,
             TimeFrame::D01,
         ];
@@ -385,6 +390,7 @@ impl TryFrom<String> for TimeFrame {
             "h03" => Ok(Self::H03),
             "h04" => Ok(Self::H04),
             "h06" => Ok(Self::H06),
+            "h08" => Ok(Self::H08),
             "h12" => Ok(Self::H12),
             "d01" => Ok(Self::D01),
             other => Err(format!("{} is not a supported TimeFrame.", other)),
