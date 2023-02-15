@@ -365,7 +365,7 @@ impl ElDorado {
             // Add new trades to trades vec
             trades.append(&mut filtered_trades);
         }
-        trades
+        trades.iter().filter(|t| t.time >= *interval_start).cloned().collect()
     }
 
     pub async fn get_gdax_trades_for_interval_backward(
