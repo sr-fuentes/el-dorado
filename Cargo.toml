@@ -24,10 +24,10 @@ rust_decimal = { version = "1.15.0", features = ["maths"] }
 rust_decimal_macros = "1.15.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.64"
-sqlx = { version = "0.5.7", features = ["runtime-tokio-rustls", "postgres", "macros", "uuid", "chrono", "ipnetwork", "migrate", "decimal", "offline"] }
+sqlx = { version = "0.6.2", features = ["runtime-tokio-rustls", "postgres", "macros", "uuid", "chrono", "ipnetwork", "migrate", "decimal", "offline"] }
 thiserror = "1.0.29"
 tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = {version = "0.16.0", features = ["rustls-tls-native-roots"]}
-uuid = { version = "0.8.2", features = ["v4", "serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
 twilio = { git = "https://github.com/sr-fuentes/twilio-rs" }
 async-trait = "0.1.58"
