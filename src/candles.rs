@@ -589,6 +589,25 @@ impl ProductionCandle {
             .await?;
         Ok(row)
     }
+    pub async fn select_last_non_zero(pool: &PgPool, market: &MarketDetail) -> Result<Self, sqlx::Error> {
+        let sql = format!(
+            r#"
+            SELECT datetime, open, high, low, close, volume, volume_net, volume_liquidation, value,
+                trade_count, liquidation_count, last_trade_ts, last_trade_id, first_trade_ts,
+                first_trade_id
+            FROM candles.production_{}_{}_{}
+            WHERE volume > 0
+            ORDER BY datetime DESC
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            market.candle_timeframe.unwrap().as_str(),
+        );
+        let row = sqlx::query_as::<_, ProductionCandle>(&sql)
+            .fetch_one(pool)
+            .await?;
+        Ok(row)
+    }
 
     // Delete an trades less than a give date for a give market
     pub async fn delete_lt_dt(
@@ -605,6 +624,24 @@ impl ProductionCandle {
             market.exchange_name.as_str(),
             market.as_strip(),
             tf.as_str(),
+        );
+        sqlx::query(&sql).bind(dt).execute(pool).await?;
+        Ok(())
+    }
+
+    pub async fn delete_gt_dt(
+        pool: &PgPool,
+        market: &MarketDetail,
+        dt: &DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        let sql = format!(
+            r#"
+            DELETE FROM candles.production_{}_{}_{}
+            WHERE datetime > $1
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            market.candle_timeframe.unwrap().as_str(),
         );
         sqlx::query(&sql).bind(dt).execute(pool).await?;
         Ok(())

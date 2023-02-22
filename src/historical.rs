@@ -386,6 +386,9 @@ impl ElDorado {
             ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
             ExchangeName::Gdax => Database::Gdax,
         };
+        // Clean up production candles - remove any 0 volume candles
+        let last_non_zero_candle = ProductionCandle::select_last_non_zero(&self.pools[&db], market).await.expect("Failed to select.");
+        ProductionCandle::delete_gt_dt(&self.pools[&db], market, &last_non_zero_candle.datetime).await.expect("Failed to delete candle.");
         let candles = ProductionCandle::select_gte_dt(&self.pools[&db], market, sync_start)
             .await
             .expect("Failed to select candles.");
