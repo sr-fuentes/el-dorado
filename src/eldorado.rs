@@ -44,7 +44,7 @@ impl ElDorado {
         let (market_names, market_ids) = ElDorado::map_markets(&market_details);
         // Get markets for the system instance
         let markets = match instance.instance_type {
-            InstanceType::Ig => {
+            InstanceType::Ig | InstanceType::Conqui => {
                 // Filter for all active markets
                 market_details
                     .iter()
@@ -110,6 +110,7 @@ impl ElDorado {
             let restart = match self.instance.instance_type {
                 InstanceType::Ig => self.inquisidor().await,
                 InstanceType::Mita => self.mita().await,
+                InstanceType::Conqui => return,
             };
             (
                 self.instance.restart,
@@ -166,7 +167,7 @@ impl ElDorado {
             .expect("Failed to parse instance type.");
         let pools = match instance_type {
             InstanceType::Mita => Self::create_pgpools_mita(settings).await,
-            InstanceType::Ig => Self::create_pgpools_ig(settings).await,
+            InstanceType::Ig | InstanceType::Conqui => Self::create_pgpools_ig(settings).await,
         };
         pools
     }

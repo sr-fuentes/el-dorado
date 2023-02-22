@@ -40,11 +40,13 @@ impl Instance {
                     .try_into()
                     .expect("Failed to parse exchange from settings."),
             ),
+            InstanceType::Conqui => None,
         };
         // Check the database for an entry for the instance to get the last restart and message info
         let instance = match instance_type {
             InstanceType::Ig => Self::select_ig(pool).await,
             InstanceType::Mita => Self::select_mita(pool, &exchange_name.unwrap(), &droplet).await,
+            InstanceType::Conqui => Self::select_conqui(pool).await,
         };
         let (last_restart_ts, restart_count, last_message_ts) = match instance {
             Ok(i) => (i.last_restart_ts, i.restart_count, i.last_message_ts),
@@ -79,6 +81,26 @@ impl Instance {
             WHERE instance_type = $1
             "#,
             InstanceType::Ig.as_str()
+        )
+        .fetch_one(pool)
+        .await?;
+        Ok(row)
+    }
+
+    async fn select_conqui(pool: &PgPool) -> Result<Self, sqlx::Error> {
+        let row = sqlx::query_as!(
+            Instance,
+            r#"
+            SELECT instance_type as "instance_type: InstanceType",
+                droplet,
+                exchange_name as "exchange_name: Option<ExchangeName>",
+                instance_status as "instance_status: InstanceStatus",
+                restart, last_restart_ts, restart_count, num_markets, last_update_ts,
+                last_message_ts
+            FROM instances
+            WHERE instance_type = $1
+            "#,
+            InstanceType::Conqui.as_str()
         )
         .fetch_one(pool)
         .await?;
@@ -226,6 +248,7 @@ impl Instance {
 pub enum InstanceType {
     Mita,
     Ig,
+    Conqui,
 }
 
 impl InstanceType {
@@ -233,6 +256,7 @@ impl InstanceType {
         match self {
             InstanceType::Mita => "mita",
             InstanceType::Ig => "ig",
+            InstanceType::Conqui => "conqui",
         }
     }
 }
@@ -244,6 +268,7 @@ impl TryFrom<String> for InstanceType {
         match s.to_lowercase().as_str() {
             "mita" => Ok(Self::Mita),
             "ig" => Ok(Self::Ig),
+            "conqui" => Ok(Self::Conqui),
             other => Err(format!("{} is not a supported instance.", other)),
         }
     }
