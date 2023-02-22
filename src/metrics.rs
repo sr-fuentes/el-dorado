@@ -485,6 +485,7 @@ impl ElDorado {
     ) -> Vec<MetricAP> {
         let mut metrics = Vec::new();
         for tf in TimeFrame::time_frames().iter() {
+            println!("Calculating metrics for {} - {}", market.market_name, tf);
             let mut tf_metrics = MetricAP::new(market, *tf, &heartbeat.candles[tf]);
             metrics.append(&mut tf_metrics);
         }
