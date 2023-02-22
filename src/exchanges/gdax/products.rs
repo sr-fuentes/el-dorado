@@ -503,8 +503,8 @@ mod tests {
             .get_gdax_candles::<crate::exchanges::gdax::Candle>(
                 &product_name,
                 Some(900),
-                Some(Utc.ymd(2021, 11, 15).and_hms(21, 0, 0)),
-                Some(Utc.ymd(2021, 11, 15).and_hms(21, 0, 0)),
+                Some(Utc.with_ymd_and_hms(2021, 11, 15, 21, 0, 0).unwrap()),
+                Some(Utc.with_ymd_and_hms(2021, 11, 15, 21, 0, 0).unwrap()),
             )
             .await
             .expect("Failed to get BTC-USD product.");

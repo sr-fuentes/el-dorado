@@ -589,7 +589,10 @@ impl ProductionCandle {
             .await?;
         Ok(row)
     }
-    pub async fn select_last_non_zero(pool: &PgPool, market: &MarketDetail) -> Result<Self, sqlx::Error> {
+    pub async fn select_last_non_zero(
+        pool: &PgPool,
+        market: &MarketDetail,
+    ) -> Result<Self, sqlx::Error> {
         let sql = format!(
             r#"
             SELECT datetime, open, high, low, close, volume, volume_net, volume_liquidation, value,
@@ -2392,7 +2395,11 @@ impl ElDorado {
         for tf in TimeFrame::all_time_frames().iter().skip(1) {
             resampled_candles = self.resample_research_candles_by_hashmap(&resampled_candles, tf);
             let pb = self.prep_candle_archive_path(market, dt, tf);
-            println!("Writing {} {} candles for the month.", resampled_candles.len(), tf.as_str());
+            println!(
+                "Writing {} {} candles for the month.",
+                resampled_candles.len(),
+                tf.as_str()
+            );
             self.write_research_candles_to_file(&pb, &resampled_candles);
         }
     }

@@ -529,7 +529,7 @@ mod tests {
                 "SOL/USD",
                 Some(100),
                 None,
-                Some(Utc.timestamp(1631666701, 0)),
+                Some(Utc.timestamp_opt(1631666701, 0).unwrap()),
             )
             .await
             .expect("Failed to get last 10 BTC/USD trades.");

@@ -152,15 +152,17 @@ impl ElDorado {
         // Example: 11/23/2022 12:33:00 -> 12/01/2022
         let next_month = dt.month() + 1;
         if next_month > 12 {
-            Utc.ymd(dt.year() + 1, 1, 1).and_hms(0, 0, 0)
+            Utc.with_ymd_and_hms(dt.year() + 1, 1, 1, 0, 0, 0).unwrap()
         } else {
-            Utc.ymd(dt.year(), next_month, 1).and_hms(0, 0, 0)
+            Utc.with_ymd_and_hms(dt.year(), next_month, 1, 0, 0, 0)
+                .unwrap()
         }
     }
 
     // Return the first of the month for a give datetime
     pub fn trunc_month_dt(dt: &DateTime<Utc>) -> DateTime<Utc> {
-        Utc.ymd(dt.year(), dt.month(), 1).and_hms(0, 0, 0)
+        Utc.with_ymd_and_hms(dt.year(), dt.month(), 1, 0, 0, 0)
+            .unwrap()
     }
 }
 
@@ -449,7 +451,7 @@ mod tests {
             size: Decimal::new(23, 1),
             side: "sell".to_string(),
             liquidation: false,
-            time: Utc.timestamp(1524886322, 0),
+            time: Utc.timestamp_opt(1524886322, 0).unwrap(),
         });
         trades.push(Trade {
             id: 2,
@@ -457,7 +459,7 @@ mod tests {
             size: Decimal::new(64, 1),
             side: "buy".to_string(),
             liquidation: false,
-            time: Utc.timestamp(1524887322, 0),
+            time: Utc.timestamp_opt(1524887322, 0).unwrap(),
         });
         trades.push(Trade {
             id: 3,
@@ -465,7 +467,7 @@ mod tests {
             size: Decimal::new(4, 1),
             side: "buy".to_string(),
             liquidation: true,
-            time: Utc.timestamp(1524888322, 0),
+            time: Utc.timestamp_opt(1524888322, 0).unwrap(),
         });
         trades.push(Trade {
             id: 4,
@@ -473,7 +475,7 @@ mod tests {
             size: Decimal::new(13, 1),
             side: "sell".to_string(),
             liquidation: false,
-            time: Utc.timestamp(1524892322, 0),
+            time: Utc.timestamp_opt(1524892322, 0).unwrap(),
         });
         // Sort trades by time
         trades.sort_by(|t1, t2| t1.time.cmp(&t2.time));
@@ -544,8 +546,8 @@ mod tests {
     #[test]
     pub fn is_gt_timeframe() {
         // Assert that a given datetime is in a greate timeframe than first datetime
-        let dt1 = Utc.ymd(2021, 6, 27).and_hms(2, 29, 59);
-        let dt2 = Utc.ymd(2021, 6, 27).and_hms(2, 30, 01);
+        let dt1 = Utc.with_ymd_and_hms(2021, 6, 27, 2, 29, 59).unwrap();
+        let dt2 = Utc.with_ymd_and_hms(2021, 6, 27, 2, 30, 01).unwrap();
         assert!(super::TimeFrame::T15.is_gt_timeframe(dt1, dt2));
     }
 
