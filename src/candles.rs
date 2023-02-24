@@ -2094,9 +2094,13 @@ impl ElDorado {
         interval_end: &DateTime<Utc>,
         trades: &[T],
     ) -> Option<Vec<ProductionCandle>> {
-        let dr = if trades.is_empty() {
+        let dr = if trades.is_empty() && (*interval_end - *interval_start) == Duration::days(1) {
+            // Zero trades can exist in two scenarios -
+            // 1) There are no trades in last timeframe - common as tf decreases
+            // 2) There are no trades for the entire day - rare but exists in hist
             // Rare edge case where there are not trades on the day - can happen with
-            // exchange outages like Kraken in Jan 2018
+            // exchange outages like Kraken in Jan 2018 create a date range for day
+            // so that 0 volume candles are created
             self.create_date_range(
                 dt,
                 &(*dt + Duration::days(1)),
