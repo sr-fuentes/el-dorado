@@ -412,6 +412,30 @@ impl MarketDetail {
         .await?;
         Ok(row)
     }
+
+    pub async fn map_markets(
+        pool: &PgPool,
+    ) -> (
+        HashMap<Uuid, Self>,
+        HashMap<ExchangeName, HashMap<String, MarketDetail>>,
+    ) {
+        let mut markets_by_id = HashMap::new();
+        let mut markets_by_exchange_name: HashMap<ExchangeName, HashMap<String, MarketDetail>> =
+            HashMap::new();
+        let markets = Self::select_all(pool)
+            .await
+            .expect("Failed to select markets.");
+        for market in markets.iter() {
+            markets_by_id.insert(market.market_id, market.clone());
+            markets_by_exchange_name
+                .entry(market.exchange_name)
+                .and_modify(|hm| {
+                    hm.insert(market.market_name.clone(), market.clone());
+                })
+                .or_insert_with(|| HashMap::from([(market.market_name.clone(), market.clone())]));
+        }
+        (markets_by_id, markets_by_exchange_name)
+    }
 }
 
 impl MarketTradeDetail {
