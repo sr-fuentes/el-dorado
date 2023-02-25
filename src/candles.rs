@@ -2106,6 +2106,13 @@ impl ElDorado {
                 &(*dt + Duration::days(1)),
                 &market.candle_timeframe.unwrap(),
             )
+        } else if trades.is_empty() {
+            // Handle scenario 1 with no trades but interval is not 1 day
+            self.create_date_range(
+                interval_start,
+                interval_end,
+                &market.candle_timeframe.unwrap(),
+            )
         } else {
             // Set last trade to start if start is None
             self.create_fill_candles_dr(
