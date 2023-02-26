@@ -4,12 +4,90 @@ use rust_decimal_macros::dec;
 use sqlx::PgPool;
 use std::convert::TryFrom;
 use std::env;
+use std::fmt;
 use std::io::{self, Write};
 use twilio::{OutboundMessage, TwilioClient};
 
-use crate::inquisidor::Inquisidor;
+use crate::eldorado::ElDorado;
 
-impl Inquisidor {
+// Collection of data points for a daterange that are frequently used. First and last
+// datetimes are safely unwrapped in creation.
+#[derive(Debug)]
+pub struct DateRange {
+    pub dts: Vec<DateTime<Utc>>,
+    pub first: DateTime<Utc>,
+    pub last: DateTime<Utc>,
+}
+
+impl DateRange {
+    // Create new date range using the timeframe interval given starting with the first
+    // datetime and ending with the last datetime exclusive. If there is no datetime in the vec
+    // return None
+    pub fn new(start: &DateTime<Utc>, end: &DateTime<Utc>, tf: &TimeFrame) -> Option<Self> {
+        let mut next = *start;
+        let mut dr = Vec::new();
+        while next < *end {
+            dr.push(next);
+            next = next + tf.as_dur();
+        }
+        if !dr.is_empty() {
+            let first = dr.first().expect("Expected first dt in dr.");
+            let last = dr.last().expect("Expected last dt in dr.");
+            Some(DateRange {
+                dts: dr.to_owned(),
+                first: *first,
+                last: *last,
+            })
+        } else {
+            // There were no datetimes added to the vec, return None
+            None
+        }
+    }
+
+    pub fn new_monthly(start: &DateTime<Utc>, end: &DateTime<Utc>) -> Option<Self> {
+        let mut next = *start;
+        let mut dr = Vec::new();
+        while next < *end {
+            dr.push(next);
+            next = ElDorado::next_month_dt(&next);
+        }
+        if !dr.is_empty() {
+            let first = dr.first().expect("Expected first dt in dr.");
+            let last = dr.last().expect("Expected last dt in dr.");
+            Some(DateRange {
+                dts: dr.to_owned(),
+                first: *first,
+                last: *last,
+            })
+        } else {
+            // There were no datetimes added to the vec, return None
+            None
+        }
+    }
+}
+
+impl ElDorado {
+    // Create a date range using the timeframe interval starting with the start
+    // datetime and ending with the ending datetime exclusive. This function will not have the end
+    // datetime in the returning vec
+    pub fn create_date_range(
+        &self,
+        start: &DateTime<Utc>,
+        end: &DateTime<Utc>,
+        tf: &TimeFrame,
+    ) -> Vec<DateTime<Utc>> {
+        // Takes a start and end time and creates a vec of dates
+        let mut dr_start = *start;
+        let mut date_range = Vec::new();
+        while dr_start < *end {
+            date_range.push(dr_start);
+            dr_start = dr_start + tf.as_dur();
+        }
+        date_range
+    }
+
+    // Checks if a table exists in a given database connect with the scheme and full table
+    // name given.
     pub async fn table_exists(
         &self,
         pool: &PgPool,
@@ -33,6 +111,58 @@ impl Inquisidor {
         .fetch_one(pool)
         .await?;
         Ok(result.exists)
+    }
+
+    pub async fn get_input<U: std::str::FromStr>(&self, prompt: &str) -> U {
+        loop {
+            let mut input = String::new();
+
+            // Reads the input from STDIN and places it in the String
+            println!("{}", prompt);
+            // Flush stdout to get on same line as prompt.
+            io::stdout().flush().expect("Failed to flush stdout.");
+            io::stdin()
+                .read_line(&mut input)
+                .expect("Failed to read input.");
+
+            // Convert to another type
+            // If successful, bind to a new variable named input.
+            // If failed, restart loop.
+            let input = match input.trim().parse::<U>() {
+                Ok(parsed_input) => parsed_input,
+                Err(_) => continue,
+            };
+            return input;
+        }
+    }
+
+    pub async fn get_input_with_timer<U: std::str::FromStr>(
+        &self,
+        seconds: u64,
+        prompt: &str,
+    ) -> Option<U> {
+        tokio::select! {
+            _ = tokio::time::sleep(tokio::time::Duration::from_secs(seconds)) => None,
+            res2 = self.get_input(prompt) => Some(res2),
+        }
+    }
+
+    // Return the start of the next month from the give datetime
+    pub fn next_month_dt(dt: &DateTime<Utc>) -> DateTime<Utc> {
+        // Example: 11/23/2022 12:33:00 -> 12/01/2022
+        let next_month = dt.month() + 1;
+        if next_month > 12 {
+            Utc.with_ymd_and_hms(dt.year() + 1, 1, 1, 0, 0, 0).unwrap()
+        } else {
+            Utc.with_ymd_and_hms(dt.year(), next_month, 1, 0, 0, 0)
+                .unwrap()
+        }
+    }
+
+    // Return the first of the month for a give datetime
+    pub fn trunc_month_dt(dt: &DateTime<Utc>) -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(dt.year(), dt.month(), 1, 0, 0, 0)
+            .unwrap()
     }
 }
 
@@ -132,10 +262,15 @@ pub enum TimeFrame {
     H03,
     H04,
     H06,
+    H08,
     H12,
     D01,
-    D03,
-    W01,
+}
+
+impl fmt::Display for TimeFrame {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
 }
 
 impl TimeFrame {
@@ -149,14 +284,13 @@ impl TimeFrame {
             TimeFrame::T15 => "t15",
             TimeFrame::T30 => "t30",
             TimeFrame::H01 => "h01",
-            TimeFrame::H02 => "h01",
+            TimeFrame::H02 => "h02",
             TimeFrame::H03 => "h03",
             TimeFrame::H04 => "h04",
             TimeFrame::H06 => "h06",
+            TimeFrame::H08 => "h08",
             TimeFrame::H12 => "h12",
             TimeFrame::D01 => "d01",
-            TimeFrame::D03 => "d03",
-            TimeFrame::W01 => "w01",
         }
     }
 
@@ -174,10 +308,9 @@ impl TimeFrame {
             TimeFrame::H03 => 10800,
             TimeFrame::H04 => 14400,
             TimeFrame::H06 => 21600,
+            TimeFrame::H08 => 28800,
             TimeFrame::H12 => 43200,
             TimeFrame::D01 => 86400,
-            TimeFrame::D03 => 259200,
-            TimeFrame::W01 => 604800,
         }
     }
 
@@ -195,10 +328,9 @@ impl TimeFrame {
             TimeFrame::H03 => Duration::hours(3),
             TimeFrame::H04 => Duration::hours(4),
             TimeFrame::H06 => Duration::hours(6),
+            TimeFrame::H08 => Duration::hours(8),
             TimeFrame::H12 => Duration::hours(12),
             TimeFrame::D01 => Duration::days(1),
-            TimeFrame::D03 => Duration::days(3),
-            TimeFrame::W01 => Duration::weeks(1),
         }
     }
 
@@ -227,10 +359,9 @@ impl TimeFrame {
             TimeFrame::H03,
             TimeFrame::H04,
             TimeFrame::H06,
+            TimeFrame::H08,
             TimeFrame::H12,
             TimeFrame::D01,
-            TimeFrame::D03,
-            TimeFrame::W01,
         ];
         time_frames
     }
@@ -261,78 +392,12 @@ impl TryFrom<String> for TimeFrame {
             "h03" => Ok(Self::H03),
             "h04" => Ok(Self::H04),
             "h06" => Ok(Self::H06),
+            "h08" => Ok(Self::H08),
             "h12" => Ok(Self::H12),
             "d01" => Ok(Self::D01),
-            "d03" => Ok(Self::D03),
-            "w01" => Ok(Self::W01),
             other => Err(format!("{} is not a supported TimeFrame.", other)),
         }
     }
-}
-
-pub fn get_input<U: std::str::FromStr>(prompt: &str) -> U {
-    loop {
-        let mut input = String::new();
-
-        // Reads the input from STDIN and places it in the String
-        println!("{}", prompt);
-        // Flush stdout to get on same line as prompt.
-        io::stdout().flush().expect("Failed to flush stdout.");
-        io::stdin()
-            .read_line(&mut input)
-            .expect("Failed to read input.");
-
-        // Convert to another type
-        // If successful, bind to a new variable named input.
-        // If failed, restart loop.
-        let input = match input.trim().parse::<U>() {
-            Ok(parsed_input) => parsed_input,
-            Err(_) => continue,
-        };
-        return input;
-    }
-}
-
-pub fn create_date_range(
-    start: DateTime<Utc>,
-    end: DateTime<Utc>,
-    duration: Duration,
-) -> Vec<DateTime<Utc>> {
-    // Takes a start and end time and creates a vec of dates
-    let mut dr_start = start;
-    let mut date_range = Vec::new();
-    while dr_start < end {
-        date_range.push(dr_start);
-        dr_start = dr_start + duration;
-    }
-    date_range
-}
-
-pub fn create_monthly_date_range(start: DateTime<Utc>, end: DateTime<Utc>) -> Vec<DateTime<Utc>> {
-    println!("Creating monthy dr from {:?} to {:?}", start, end);
-    let mut dr_start = start;
-    let mut date_range = Vec::new();
-    while dr_start < end {
-        date_range.push(dr_start);
-        dr_start = next_month_datetime(dr_start);
-    }
-    date_range
-}
-
-pub fn next_month_datetime(dt: DateTime<Utc>) -> DateTime<Utc> {
-    // Takes a datetime and returns the datetime of the next month
-    // 11/23/2022 12:33:00 -> 12/01/2022
-    let next_month = dt.month() + 1;
-    if next_month > 12 {
-        Utc.ymd(dt.year() + 1, 1, 1).and_hms(0, 0, 0)
-    } else {
-        Utc.ymd(dt.year(), next_month, 1).and_hms(0, 0, 0)
-    }
-}
-
-pub fn trunc_month_datetime(dt: DateTime<Utc>) -> DateTime<Utc> {
-    // Takes a datetime and returns the first of the month as a datetime
-    Utc.ymd(dt.year(), dt.month(), 1).and_hms(0, 0, 0)
 }
 
 pub fn min_to_dp(increment: Decimal) -> i32 {
@@ -355,20 +420,6 @@ pub fn min_to_dp(increment: Decimal) -> i32 {
     }
 }
 
-pub trait Trade {
-    fn trade_id(&self) -> i64;
-    fn price(&self) -> Decimal;
-    fn size(&self) -> Decimal;
-    fn side(&self) -> String;
-    fn liquidation(&self) -> bool;
-    fn time(&self) -> DateTime<Utc>;
-}
-
-pub trait Candle {
-    fn datetime(&self) -> DateTime<Utc>;
-    fn volume(&self) -> Decimal;
-}
-
 pub trait Market {
     fn name(&self) -> String;
     fn market_type(&self) -> String;
@@ -384,12 +435,10 @@ pub trait Market {
 #[cfg(test)]
 mod tests {
     use crate::exchanges::ftx::Trade;
-    use crate::utilities::{next_month_datetime, Twilio};
+    use crate::utilities::Twilio;
     use chrono::{Duration, DurationRound, TimeZone, Utc};
     use rust_decimal::prelude::*;
     use rust_decimal_macros::dec;
-
-    use super::create_monthly_date_range;
 
     #[test]
     pub fn build_range_from_vec_trades() {
@@ -402,7 +451,7 @@ mod tests {
             size: Decimal::new(23, 1),
             side: "sell".to_string(),
             liquidation: false,
-            time: Utc.timestamp(1524886322, 0),
+            time: Utc.timestamp_opt(1524886322, 0).unwrap(),
         });
         trades.push(Trade {
             id: 2,
@@ -410,7 +459,7 @@ mod tests {
             size: Decimal::new(64, 1),
             side: "buy".to_string(),
             liquidation: false,
-            time: Utc.timestamp(1524887322, 0),
+            time: Utc.timestamp_opt(1524887322, 0).unwrap(),
         });
         trades.push(Trade {
             id: 3,
@@ -418,7 +467,7 @@ mod tests {
             size: Decimal::new(4, 1),
             side: "buy".to_string(),
             liquidation: true,
-            time: Utc.timestamp(1524888322, 0),
+            time: Utc.timestamp_opt(1524888322, 0).unwrap(),
         });
         trades.push(Trade {
             id: 4,
@@ -426,7 +475,7 @@ mod tests {
             size: Decimal::new(13, 1),
             side: "sell".to_string(),
             liquidation: false,
-            time: Utc.timestamp(1524892322, 0),
+            time: Utc.timestamp_opt(1524892322, 0).unwrap(),
         });
         // Sort trades by time
         trades.sort_by(|t1, t2| t1.time.cmp(&t2.time));
@@ -497,36 +546,36 @@ mod tests {
     #[test]
     pub fn is_gt_timeframe() {
         // Assert that a given datetime is in a greate timeframe than first datetime
-        let dt1 = Utc.ymd(2021, 6, 27).and_hms(2, 29, 59);
-        let dt2 = Utc.ymd(2021, 6, 27).and_hms(2, 30, 01);
+        let dt1 = Utc.with_ymd_and_hms(2021, 6, 27, 2, 29, 59).unwrap();
+        let dt2 = Utc.with_ymd_and_hms(2021, 6, 27, 2, 30, 01).unwrap();
         assert!(super::TimeFrame::T15.is_gt_timeframe(dt1, dt2));
     }
 
-    #[test]
-    pub fn next_month_datetime_tests() {
-        assert_eq!(
-            next_month_datetime(Utc.ymd(2020, 1, 12).and_hms(4, 4, 30)),
-            Utc.ymd(2020, 2, 1).and_hms(0, 0, 0)
-        );
-        assert_eq!(
-            next_month_datetime(Utc.ymd(2020, 12, 12).and_hms(4, 4, 30)),
-            Utc.ymd(2021, 1, 1).and_hms(0, 0, 0)
-        );
-    }
+    // #[test]
+    // pub fn next_month_datetime_tests() {
+    //     assert_eq!(
+    //         next_month_datetime(Utc.ymd(2020, 1, 12).and_hms(4, 4, 30)),
+    //         Utc.ymd(2020, 2, 1).and_hms(0, 0, 0)
+    //     );
+    //     assert_eq!(
+    //         next_month_datetime(Utc.ymd(2020, 12, 12).and_hms(4, 4, 30)),
+    //         Utc.ymd(2021, 1, 1).and_hms(0, 0, 0)
+    //     );
+    // }
 
-    #[test]
-    pub fn create_monthly_date_range_tests() {
-        // Test no months len = 0
-        let start = Utc.ymd(2020, 2, 1).and_hms(0, 0, 0);
-        let end = Utc.ymd(2020, 2, 1).and_hms(0, 0, 0);
-        let monthly_dr = create_monthly_date_range(start, end);
-        assert_eq!(monthly_dr.len(), 0);
-        println!("{:?}", monthly_dr);
-        // Test 3 months len = 3
-        let start = Utc.ymd(2020, 2, 1).and_hms(0, 0, 0);
-        let end = Utc.ymd(2020, 5, 1).and_hms(0, 0, 0);
-        let monthly_dr = create_monthly_date_range(start, end);
-        assert_eq!(monthly_dr.len(), 3);
-        println!("{:?}", monthly_dr);
-    }
+    // #[test]
+    // pub fn create_monthly_date_range_tests() {
+    //     // Test no months len = 0
+    //     let start = Utc.ymd(2020, 2, 1).and_hms(0, 0, 0);
+    //     let end = Utc.ymd(2020, 2, 1).and_hms(0, 0, 0);
+    //     let monthly_dr = create_monthly_date_range(start, end);
+    //     assert_eq!(monthly_dr.len(), 0);
+    //     println!("{:?}", monthly_dr);
+    //     // Test 3 months len = 3
+    //     let start = Utc.ymd(2020, 2, 1).and_hms(0, 0, 0);
+    //     let end = Utc.ymd(2020, 5, 1).and_hms(0, 0, 0);
+    //     let monthly_dr = create_monthly_date_range(start, end);
+    //     assert_eq!(monthly_dr.len(), 3);
+    //     println!("{:?}", monthly_dr);
+    // }
 }

@@ -1,540 +1,277 @@
-use crate::candles::{resample_candles, select_candles_gte_datetime, select_last_candle, Candle};
-use crate::configuration::{get_configuration, Settings};
-use crate::events::insert_event_process_trades;
-use crate::exchanges::{select_exchanges, Exchange, ExchangeName};
-use crate::markets::{
-    select_market_detail_by_exchange_mita, update_market_data_status, update_markets_last_candle,
-    MarketDetail, MarketStatus,
+use crate::{
+    candles::ProductionCandle,
+    configuration::Database,
+    eldorado::ElDorado,
+    exchanges::ExchangeName,
+    markets::MarketDetail,
+    metrics::MetricAP,
+    trades::PrIdTi,
+    utilities::{DateRange, TimeFrame},
 };
-use crate::metrics::{delete_metrics_ap_by_exchange_market, insert_metric_ap, MetricAP};
-use crate::trades::{
-    insert_delete_ftx_trades, insert_delete_gdax_trades, select_ftx_trades_by_time,
-    select_gdax_trades_by_time, select_insert_drop_trades,
-};
-use crate::utilities::TimeFrame;
-use crate::utilities::Twilio;
-use chrono::{DateTime, Duration, DurationRound, Utc};
-use rust_decimal::Decimal;
-use sqlx::PgPool;
+use chrono::{DateTime, DurationRound, Utc};
 use std::collections::HashMap;
-
-//#[derive(Debug)]
-pub struct Mita {
-    pub settings: Settings,
-    pub markets: Vec<MarketDetail>,
-    pub exchange: Exchange,
-    pub ed_pool: PgPool,
-    pub trade_pool: PgPool,
-    pub restart: bool,
-    pub last_restart: DateTime<Utc>,
-    pub restart_count: i8,
-    pub hbtf: TimeFrame,
-    pub twilio: Twilio,
-}
 
 #[derive(Debug)]
 pub struct Heartbeat {
     pub ts: DateTime<Utc>,
-    pub last: Decimal,
-    pub candles: HashMap<TimeFrame, Vec<Candle>>,
+    pub last: PrIdTi,
+    pub candles: HashMap<TimeFrame, Vec<ProductionCandle>>,
+    pub metrics: Option<Vec<MetricAP>>,
 }
 
-impl Mita {
-    pub async fn new() -> Self {
-        // Load configuration settings
-        let settings = get_configuration().expect("Failed to read configuration.");
-        // Create db connection with pgpool
-        let ed_pool = PgPool::connect_with(settings.ed_db.with_db())
-            .await
-            .expect("Failed to connect to postgres db.");
-        // Get exchange details
-        let exchanges = select_exchanges(&ed_pool)
-            .await
-            .expect("Could not select exchanges from db.");
-        // Match exchange to exchanges in database
-        let exchange = exchanges
-            .into_iter()
-            .find(|e| e.name.as_str() == settings.application.exchange)
-            .unwrap();
-        // Create db pool for trades
-        let trade_pool = match exchange.name {
-            ExchangeName::Ftx | ExchangeName::FtxUs => {
-                PgPool::connect_with(settings.ftx_db.with_db())
-                    .await
-                    .expect("Failed to connect to trade database.")
-            }
-            ExchangeName::Gdax => PgPool::connect_with(settings.gdax_db.with_db())
+impl ElDorado {
+    // Run Mita instance.
+    // Stream trades from websocket to trade tables.
+    // Fill trades from start to current websocket stream
+    // On candle interval, create candle and metrics
+    pub async fn mita(&mut self) -> bool {
+        // Set restart value to false, error handling must explicitly set back to true
+        self.instance.restart = false;
+        self.initialize_mita().await;
+        // self.instance.update_status(&InstanceStatus::New).await;
+        let restart = tokio::select! {
+            res2 = self.stream() => res2,
+            res1 = self.sync_and_run_mita() => res1,
+        };
+        restart
+    }
+
+    async fn initialize_mita(&self) {
+        // Create any candle schemas that are needed
+        match &self.markets.first().unwrap().exchange_name {
+            ExchangeName::Ftx | ExchangeName::FtxUs => self
+                .create_candles_schema(&self.pools[&Database::Ftx])
                 .await
-                .expect("Failed to connect to trade database."),
+                .expect("Failed to create candle schema."),
+            ExchangeName::Gdax => self
+                .create_candles_schema(&self.pools[&Database::Gdax])
+                .await
+                .expect("Failed to create candle schema."),
         };
-        // Get market details assigned to mita
-        let markets = select_market_detail_by_exchange_mita(
-            &ed_pool,
-            &exchange.name,
-            &settings.application.droplet,
-        )
-        .await
-        .expect("Could not select market details from exchange.");
-        // Create twilio client
-        let client = Twilio::new();
-        Self {
-            settings,
-            markets,
-            exchange,
-            ed_pool,
-            trade_pool,
-            restart: true,
-            last_restart: Utc::now(),
-            restart_count: 0,
-            hbtf: TimeFrame::time_frames()[0], // Sets hb to lowest tf
-            twilio: client,
-        }
-    }
-
-    pub async fn process_restart(&self) -> Duration {
-        // Get sleep time from current restart count
-        let mut sleep_duration = match self.restart_count {
-            0 => tokio::time::Duration::from_secs(5),
-            1 => tokio::time::Duration::from_secs(30),
-            _ => tokio::time::Duration::from_secs(60),
-            // 3 => tokio::time::Duration::from_secs(300),
-            // 4 => tokio::time::Duration::from_secs(300),
-            // _ => tokio::time::Duration::from_secs(300),
-        };
-        // Get time from last restart
-        let time_since_last_restart = Utc::now() - self.last_restart;
-        // If time from last restart is more than 24 hours then overwrite sleep
-        if time_since_last_restart > Duration::days(1) {
-            sleep_duration = tokio::time::Duration::from_secs(5);
-        };
-        // Sleep for duration
-        println!("Sleeping for {:?} before restarting.", sleep_duration);
-        tokio::time::sleep(sleep_duration).await;
-        // Return time since last restart
-        time_since_last_restart
-    }
-
-    pub async fn run(&self) -> bool {
-        self.update_instance_status(&crate::instances::InstanceStatus::Sync)
-            .await;
-        // Backfill trades from last candle to first trade of live stream
-        self.historical("stream").await;
-        // Sync from last candle to current stream last trade
-        println!("Starting sync.");
-        let mut heartbeats = self.sync().await;
-        // Set events heartbeat ts
-        let mut events_ts = Utc::now();
-        // Loop forever making a new candle at each new interval
-        // println!("Heartbeats: {:?}", heartbeats);
-        println!("Starting MITA loop.");
-        self.update_instance_status(&crate::instances::InstanceStatus::Active)
-            .await;
-        loop {
-            // Set loop timestamp
-            let timestamp = Utc::now().duration_trunc(self.hbtf.as_dur()).unwrap();
-            // For each market, check if loop timestamp > heartbeat
-            for market in self.markets.iter() {
-                if timestamp > heartbeats[&market.market_name.as_str()].ts + self.hbtf.as_dur() {
-                    println!(
-                        "New heartbeat interval. Create candle for {}. HB: {:?}, TS: {:?}",
-                        market.market_name,
-                        heartbeats[&market.market_name.as_str()].ts,
-                        timestamp,
-                    );
-                    let start = heartbeats[&market.market_name.as_str()].ts;
-                    match self
-                        .process_interval(
-                            start,
-                            timestamp,
-                            market,
-                            &heartbeats[&market.market_name.as_str()],
-                        )
-                        .await
-                    {
-                        Some(h) => heartbeats.insert(market.market_name.as_str(), h),
-                        None => continue,
-                    };
-                    println!(
-                        "New heartbeats for {}:  {:?} {:?}",
-                        market.market_name,
-                        heartbeats[market.market_name.as_str()].ts,
-                        heartbeats[market.market_name.as_str()].last
-                    );
-                }
-            }
-            // Process any events for the droplet mita
-            let events_processed = self.process_events(events_ts).await;
-            if events_processed {
-                events_ts = Utc::now();
-                // Update last -- events are processed every 1 minute.
-                self.update_instance_last().await;
-            };
-            // Reload heartbeats if needed (ie when a candle validation is updated)
-            // Sleep for 200 ms to give control back to tokio scheduler
-            tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
-        }
-    }
-
-    pub async fn sync(&self) -> HashMap<&str, Heartbeat> {
-        // Initiate heartbeat interval map
-        let mut heartbeats = HashMap::new();
+        // Delete metrics for markets
         for market in self.markets.iter() {
-            // Update status to sync
-            update_market_data_status(&self.ed_pool, &market.market_id, &MarketStatus::Sync)
-                .await
-                .expect("Could not update market status.");
-            // Get start time for candle sync
-            let start = match select_last_candle(
-                &self.ed_pool,
-                &self.exchange.name,
-                &market.market_id,
-                self.hbtf,
-            )
-            .await
-            {
-                Ok(c) => c.datetime + self.hbtf.as_dur(),
-                Err(_) => panic!("Sqlx Error getting start time in sync."),
-            };
-            // Get current hb floor for end time of sync
-            let now = Utc::now();
-            let end = now.duration_trunc(self.hbtf.as_dur()).unwrap();
-            println!(
-                "Syncing {} from {:?} to {:?}",
-                market.market_name, start, now
-            );
-            // Migrate rest trades to ws
-            select_insert_drop_trades(
-                &self.trade_pool,
-                &self.exchange.name,
-                market,
-                start,
-                now,
-                "rest",
-                "ws",
-            )
-            .await
-            .expect("Failed to select insert drop ftx trades.");
-            // Create and save any candles necessary
-            if start != end {
-                // Create candles from ws table
-                // Get trades to sync. There has to be at least one trade because the historical
-                // fill needs a ws trade to start the backfill function.
-                match self.exchange.name {
-                    ExchangeName::Ftx | ExchangeName::FtxUs => {
-                        self.sync_ftx_trades(market, start, end).await
-                    }
-                    ExchangeName::Gdax => self.sync_gdax_trades(market, start, end).await,
-                };
-            };
-            // Create heartbeat
-            let heartbeat = self.create_heartbeat(market).await;
-            // Update mita heartbeat interval
-            heartbeats.insert(market.market_name.as_str(), heartbeat);
-            // Delete metrics for market from table
-            delete_metrics_ap_by_exchange_market(&self.ed_pool, &self.exchange.name, market)
+            MetricAP::delete_by_market(&self.pools[&Database::ElDorado], market)
                 .await
                 .expect("Failed to delete metrics.");
-            // Create metrics for all time frames
-            let mut metrics: Vec<MetricAP> = Vec::new();
-            for tf in TimeFrame::time_frames().iter() {
-                let mut new_metrics = MetricAP::new(
-                    &market.market_name,
-                    &self.exchange.name,
-                    *tf,
-                    &heartbeats[market.market_name.as_str()].candles[tf],
-                );
-                metrics.append(&mut new_metrics);
-            }
-            for metric in metrics.iter() {
-                insert_metric_ap(&self.ed_pool, metric)
-                    .await
-                    .expect("Failed to insert metric.");
-            }
-            // Update status to sync
-            update_market_data_status(&self.ed_pool, &market.market_id, &MarketStatus::Active)
-                .await
-                .expect("Could not update market status.");
         }
-        heartbeats
     }
 
-    pub async fn sync_ftx_trades(
+    // Sync by determiniting the last good state and filling trades from that state to the current
+    // first streamed trade. Then and Run Mita loop
+    async fn sync_and_run_mita(&self) -> bool {
+        // Wait for 5 seconds for stream to start
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+        // self.instance.update_status(&InstanceStatus::Sync).await;
+        // Sync candles from start to current time frame
+        let heartbeats = self.sync().await;
+        println!("Starting MITA loop.");
+        // self.instance.update_status(&InstanceStatus::Active).await;
+        let restart = self.run_mita(heartbeats).await;
+        restart
+    }
+
+    // Run the Mita instance - at each interval for each market - aggregate trades into new candle
+    // resample if needed and publish metrics with new candle datapoint
+    async fn run_mita(&self, mut heartbeats: HashMap<String, Heartbeat>) -> bool {
+        loop {
+            // Set loop timestamp
+            let dt = Utc::now();
+            // For each market, check if loop datetime is greater than market heartbeat
+            for market in self.markets.iter() {
+                match self.check_interval(market, &heartbeats[&market.market_name], &dt) {
+                    Some(end) => {
+                        match self
+                            .process_interval(market, &heartbeats[&market.market_name], &end)
+                            .await
+                        {
+                            Some(hb) => heartbeats.insert(market.market_name.clone(), hb),
+                            None => continue,
+                        }
+                    }
+                    None => continue,
+                };
+            }
+            // Reload heartbeats if needed (ie when a candle validation is updated)
+            // Sleep for 200 ms to give control back to tokio scheduler
+            tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+        }
+    }
+
+    // Check if there is a new interval to process. This can occur in two scenarios:
+    // 1) The new timestamp is greater than the heartbeat timestamp + one interval.
+    // 2) There is no metrics in the heartbeat
+    fn check_interval(
         &self,
         market: &MarketDetail,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
-    ) {
-        let sync_trades = select_ftx_trades_by_time(
-            &self.trade_pool,
-            &self.exchange.name,
-            market,
-            "ws",
-            start,
-            end,
-        )
-        .await
-        .expect("Failed to select ws trades.");
-        // Get date range
-        let date_range = self.create_date_range(start, end, self.hbtf.as_dur());
-        // Make new candles
-        let candles = self
-            .create_interval_candles(market, date_range, &sync_trades)
-            .await;
-        println!("Created {} candles to insert into db.", candles.len());
-        // Insert candles to db
-        self.insert_candles(market, candles).await;
-        // Move trades from ws to processed and delete from ws
-        insert_delete_ftx_trades(
-            &self.trade_pool,
-            &self.exchange.name,
-            market,
-            start,
-            end,
-            "ws",
-            "processed",
-            sync_trades,
-        )
-        .await
-        .expect("Failed to insert delete ftx trades.");
+        heartbeat: &Heartbeat,
+        dt: &DateTime<Utc>,
+    ) -> Option<DateTime<Utc>> {
+        let trunc_dt = dt
+            .duration_trunc(market.candle_timeframe.unwrap().as_dur())
+            .unwrap();
+        if trunc_dt > heartbeat.ts + market.candle_timeframe.unwrap().as_dur() {
+            println!(
+                "{} - Checking interval.\tTrunc dt: {}\tHeartbeat TS: {}",
+                Utc::now(),
+                trunc_dt,
+                heartbeat.ts
+            );
+            println!(
+                "New heartbeat interval for {}: {}",
+                market.market_name, trunc_dt
+            );
+            println!("Returning {} for 'process_interval'", trunc_dt);
+            Some(trunc_dt)
+        } else if heartbeat.metrics.is_none() {
+            println!("No metrics, calculating from current heartbeat.");
+            println!("Returning {} for 'process_interval'", trunc_dt);
+            Some(trunc_dt)
+        } else {
+            None
+        }
     }
 
-    pub async fn sync_gdax_trades(
+    async fn process_interval(
         &self,
         market: &MarketDetail,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
-    ) {
-        let sync_trades = select_gdax_trades_by_time(&self.trade_pool, market, "ws", start, end)
-            .await
-            .expect("Failed to select ws trades.");
-        // Get date range
-        let date_range = self.create_date_range(start, end, self.hbtf.as_dur());
-        // Make new candles
-        let candles = self
-            .create_interval_candles(market, date_range, &sync_trades)
-            .await;
-        println!("Created {} candles to insert into db.", candles.len());
-        // Insert candles to db
-        self.insert_candles(market, candles).await;
-        // Move trades from ws to processed and delete from ws
-        insert_delete_gdax_trades(
-            &self.trade_pool,
-            &self.exchange.name,
-            market,
-            start,
-            end,
-            "ws",
-            "processed",
-            sync_trades,
-        )
-        .await
-        .expect("Failed to insert delete ftx trades.");
+        heartbeat: &Heartbeat,
+        interval_end: &DateTime<Utc>,
+    ) -> Option<Heartbeat> {
+        // Check first if the metrics is empty or not - inital run will have empty metric, then
+        // Create date range of intervals to process - most of the time this will be for one
+        // interval but may involve multiple intervals if the sync is long
+        if heartbeat.metrics.is_some() {
+            self.process_interval_new_interval(market, heartbeat, interval_end)
+                .await
+        } else {
+            self.process_interval_no_metrics(market, heartbeat).await
+        }
     }
 
-    pub async fn process_interval(
+    async fn process_interval_new_interval(
         &self,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
+        market: &MarketDetail,
+        heartbeat: &Heartbeat,
+        interval_end: &DateTime<Utc>,
+    ) -> Option<Heartbeat> {
+        println!(
+            "Process new interval for {} with dt {}.",
+            market.market_name, interval_end
+        );
+        let interval_start = heartbeat.ts + market.candle_timeframe.unwrap().as_dur();
+        match DateRange::new(
+            &interval_start,
+            interval_end,
+            &market.candle_timeframe.expect("No Candle Timefram."),
+        ) {
+            Some(dr) => {
+                println!("Process interval dr: {:?}", dr);
+                // There are intervals to process, process then run metrics
+                match self
+                    .make_production_candles_for_interval(market, &dr, &heartbeat.last)
+                    .await
+                {
+                    Some(candles) => {
+                        println!("Inserting {} production candles.", candles.len());
+                        self.insert_production_candles(market, &candles).await;
+                        println!("Updating heartbeat.");
+                        Some(
+                            self.update_heartbeat(market, heartbeat, candles, interval_end)
+                                .await,
+                        )
+                    }
+                    None => {
+                        println!("No interval dr to process.");
+                        None
+                    }
+                }
+            }
+            None => None,
+        }
+    }
+
+    async fn process_interval_no_metrics(
+        &self,
         market: &MarketDetail,
         heartbeat: &Heartbeat,
     ) -> Option<Heartbeat> {
-        // println!("Process interval start: {:?}", Utc::now());
-        // Get trades
-        let mut new_candles = match self.exchange.name {
-            ExchangeName::Ftx | ExchangeName::FtxUs => {
-                let trades = select_ftx_trades_by_time(
-                    &self.trade_pool,
-                    &self.exchange.name,
-                    market,
-                    "ws",
-                    start,
-                    end,
-                )
-                .await
-                .expect("Failed to select ftx ws trades.");
-                // If no trades return without updating hashmap
-                if trades.is_empty() {
-                    // TODO: Consider returning candle forward filled from last and updating hb
-                    return None;
-                } else {
-                    // Get date range
-                    let date_range =
-                        self.create_date_range(start + self.hbtf.as_dur(), end, self.hbtf.as_dur());
-                    println!("Date Range: {:?}", date_range);
-                    self.create_interval_candles(market, date_range, &trades)
-                        .await
-                }
-            }
-            ExchangeName::Gdax => {
-                let trades = select_gdax_trades_by_time(&self.trade_pool, market, "ws", start, end)
-                    .await
-                    .expect("Failed to select gdax ws trades.");
-                // If no trades return without updating hashmap
-                if trades.is_empty() {
-                    // TODO: Consider returning candle forward filled from last and updating hb
-                    return None;
-                } else {
-                    // Get date range
-                    let date_range =
-                        self.create_date_range(start + self.hbtf.as_dur(), end, self.hbtf.as_dur());
-                    println!("Date Range: {:?}", date_range);
-                    self.create_interval_candles(market, date_range, &trades)
-                        .await
-                }
-            }
-        };
-        let n = new_candles.len();
-        // println!("{} new candles: {:?}", n, new_candles);
-        // Set last and heartbeat time
-        let last = new_candles.last().unwrap().close;
-        let ts = new_candles.last().unwrap().datetime;
-        // Create hash map of candles for new heartbeat
-        let mut map_candles = HashMap::new();
-        // Insert hbft candles - clone the current heartbeat which will be dropped when replaced
-        let mut candles = heartbeat.candles[&TimeFrame::T15].clone();
-        candles.append(&mut new_candles);
-        map_candles.insert(TimeFrame::T15, candles);
-        // Insert metrics for hbtf
-        let mut metrics = MetricAP::new(
-            &market.market_name,
-            &market.exchange_name,
-            TimeFrame::T15,
-            &map_candles[&TimeFrame::T15],
-        );
-        // For each time frame either append new candle and insert or insert existing candles
-        for tf in TimeFrame::time_frames().iter().skip(1) {
-            if heartbeat.candles[tf].last().unwrap().datetime + tf.as_dur()
-                < end.duration_trunc(tf.as_dur()).unwrap()
-            {
-                // Resample trades for new candles and append
-                let new_candles: Vec<Candle> = map_candles[&self.hbtf]
-                    .iter()
-                    .filter(|c| {
-                        c.datetime >= heartbeat.candles[tf].last().unwrap().datetime + tf.as_dur()
-                            && c.datetime < end.duration_trunc(tf.as_dur()).unwrap()
-                    })
-                    .cloned()
-                    .collect();
-                let mut resampled_candles =
-                    resample_candles(market.market_id, &new_candles, tf.as_dur());
-                // println!(
-                //     "New {} tf resampled candles: {:?}",
-                //     tf.as_str(),
-                //     resampled_candles.len()
-                // );
-                let mut candles = heartbeat.candles[tf].clone();
-                candles.append(&mut resampled_candles);
-                // Calc metrics on new candle vec
-                let mut more_metrics =
-                    MetricAP::new(&market.market_name, &market.exchange_name, *tf, &candles);
-                metrics.append(&mut more_metrics);
-                map_candles.insert(*tf, candles);
-            } else {
-                // No new candles to resample, clone existing candles
-                let candles = heartbeat.candles[tf].clone();
-                map_candles.insert(*tf, candles);
-            }
-        }
-        // Insert new candles
-        let new_candles = &map_candles[&self.hbtf][map_candles[&self.hbtf].len() - n..];
-        // println!("New hb candles to insert: {:?}", new_candles);
-        self.insert_candles(market, new_candles.to_vec()).await;
-        // Insert new metrics
-        for metric in metrics.iter() {
-            insert_metric_ap(&self.ed_pool, metric)
-                .await
-                .expect("Failed to insert metric ap.");
-        }
-        // Update last candle in market table
-        update_markets_last_candle(&self.ed_pool, market, &ts)
-            .await
-            .expect("Faile to update market last candle.");
-        // Insert new processing event
-        insert_event_process_trades(
-            &self.ed_pool,
-            &self.settings.application.droplet,
-            start,
-            end,
-            market,
-        )
-        .await
-        .expect("Failed in insert event - process interval.");
-        // Return new heartbeat
+        // There are no intervals to process but metrics need to be updated
+        println!("Updating and inserting metrics.");
+        let metrics = self.calc_metrics_all_tfs(market, heartbeat);
+        self.insert_metrics_ap(&metrics).await;
         Some(Heartbeat {
-            ts,
-            last,
-            candles: map_candles,
+            ts: heartbeat.ts,
+            last: heartbeat.last,
+            candles: heartbeat.candles.clone(),
+            metrics: Some(metrics),
         })
     }
 
-    pub async fn create_heartbeat(&self, market: &MarketDetail) -> Heartbeat {
-        // Get candles from the past 97 days. Metrics are calculated with a DON lbp of 192 max for
-        // timeframes of 12H. 192 / 12H = 96 days. Add one to get clean calcs.
-        let candles = select_candles_gte_datetime(
-            &self.ed_pool,
-            &market.exchange_name,
-            &market.market_id,
-            Utc::now() - Duration::days(97),
-        )
-        .await
-        .expect("Failed to select candles.");
-        // Set last and heartbeat time
-        let last = candles.last().unwrap().close;
-        let ts = candles.last().unwrap().datetime;
-        // Create map for each time frame
-        let mut map_candles = HashMap::new();
-        map_candles.insert(TimeFrame::T15, candles);
-        for tf in TimeFrame::time_frames().iter().skip(1) {
-            // Filter candles from floor of new timeframe
-            let filtered_candles: Vec<Candle> = map_candles[&tf.prev()]
-                .iter()
-                .filter(|c| c.datetime < ts.duration_trunc(tf.as_dur()).unwrap())
-                .cloned()
-                .collect();
-            // Resample candles to timeframe
-            let resampled_candles =
-                resample_candles(market.market_id, &filtered_candles, tf.as_dur());
-            map_candles.insert(*tf, resampled_candles);
-        }
-        Heartbeat {
-            ts,
-            last,
-            candles: map_candles,
-        }
-    }
-
-    pub fn create_date_range(
+    async fn update_heartbeat(
         &self,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
-        duration: Duration,
-    ) -> Vec<DateTime<Utc>> {
-        // Takes a start and end time and creates a vec of dates
-        let mut dr_start = start;
-        let mut date_range = Vec::new();
-        while dr_start < end {
-            date_range.push(dr_start);
-            dr_start = dr_start + duration;
+        market: &MarketDetail,
+        heartbeat: &Heartbeat,
+        mut candles: Vec<ProductionCandle>,
+        interval_end: &DateTime<Utc>,
+    ) -> Heartbeat {
+        // Create hashmap for timeframes and candles
+        let last = candles.last().expect("Expected candle in Vec.");
+        let last_ts = last.datetime;
+        let last_pridti = last.close_as_pridti();
+        let mut candles_map = HashMap::new();
+        let base_tf = market.candle_timeframe.unwrap();
+        let mut base_candles = heartbeat.candles[&base_tf].clone();
+        base_candles.append(&mut candles);
+        candles_map.insert(base_tf, base_candles);
+        // Start metrics vec
+        let mut metrics = MetricAP::new(market, base_tf, &candles_map[&base_tf]);
+        // For each time frame - either append new candle for interval or clone existing
+        for tf in TimeFrame::time_frames().iter().skip(1) {
+            let hb_last = heartbeat.candles[tf].last().unwrap();
+            if hb_last.datetime + tf.as_dur() < interval_end.duration_trunc(tf.as_dur()).unwrap() {
+                // Resample new candles to tf and add to tf candles
+                let new_candles: Vec<_> = candles_map[&base_tf]
+                    .iter()
+                    .filter(|c| {
+                        c.datetime >= hb_last.datetime + tf.as_dur()
+                            && c.datetime < interval_end.duration_trunc(tf.as_dur()).unwrap()
+                    })
+                    .cloned()
+                    .collect();
+                let mut resampled_candles = self.resample_production_candles(&new_candles, tf);
+                println!("Filtered new candles for {}: {:?}", tf, new_candles);
+                println!("{} new {} resampled candles.", resampled_candles.len(), tf);
+                let mut candles = heartbeat.candles[tf].clone();
+                candles.append(&mut resampled_candles);
+                // Calc metrics on new candle vec
+                let mut more_metrics = MetricAP::new(market, *tf, &candles);
+                metrics.append(&mut more_metrics);
+                candles_map.insert(*tf, candles);
+            } else {
+                // // Interval end does not create new interval for timeframe
+                // println!("Interval end of {} does not create new interval for {}. Last candle datetime for {}: {}",
+                //     )
+                candles_map.insert(*tf, heartbeat.candles[tf].clone());
+            }
         }
-        date_range
+        // Insert metrics to db
+        self.insert_metrics_ap(&metrics).await;
+        // Update the market last candle
+        market
+            .update_last_candle(&self.pools[&Database::ElDorado], &last_ts)
+            .await
+            .expect("Failed to update market last candle.");
+        // Return the new heartbeat
+        Heartbeat {
+            ts: last_ts,
+            last: last_pridti,
+            candles: candles_map,
+            metrics: Some(metrics),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn create_heartbeat_returns_resampled_candles() {
-        let mita = Mita::new().await;
-        for market in mita.markets.iter() {
-            let heartbeat = mita.create_heartbeat(market).await;
-            println!("Heartbeat for {:?}", market.market_name);
-            println!("TS {:?}", heartbeat.ts);
-            println!("Last {:?}", heartbeat.last);
-            for (k, v) in heartbeat.candles.iter() {
-                println!("K: {:?} L: {:?}", k, v.last().unwrap());
-            }
-        }
-    }
+    // TODO: Add unit tests
 }

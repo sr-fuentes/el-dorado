@@ -1,418 +1,167 @@
-use crate::candles::*;
-use crate::exchanges::ExchangeName;
-use crate::inquisidor::Inquisidor;
-use crate::markets::{select_markets_by_market_data_status, MarketDetail, MarketStatus};
-use crate::trades::*;
-use crate::validation::insert_candle_count_validation;
-use chrono::Duration;
-use csv::Writer;
+// TODO: Make candles for months and zip / compress trades
+use crate::{
+    configuration::Database,
+    eldorado::ElDorado,
+    markets::{MarketArchiveDetail, MarketCandleDetail, MarketDetail, MarketStatus},
+    utilities::{DateRange, TimeFrame},
+};
+use chrono::{DateTime, Duration, DurationRound, Utc};
 
-impl Inquisidor {
-    pub async fn archive_validated_trades(&self) {
-        // Get Active markets
-        let markets = select_markets_by_market_data_status(&self.ig_pool, &MarketStatus::Active)
-            .await
-            .expect("Failed to fetch active markets.");
-        // Check for trades to archive in each active market
-        for market in markets.iter() {
-            self.archive_validated_trades_for_market(market).await;
-        }
-    }
-
-    pub async fn archive_validated_trades_for_market(&self, market: &MarketDetail) {
-        // Get mark{et table for table and file
-        // let market_table_name = market.strip_name();
-        // Check directory for exchange csv is created
-        let p = format!(
-            "{}/csv/{}",
-            &self.settings.application.archive_path,
-            &market.exchange_name.as_str()
-        );
-        std::fs::create_dir_all(&p).expect("Failed to create directories.");
-        // Get validated but not archived 01d candles
-        let candles_to_archive =
-            select_candles_valid_not_archived(&self.ig_pool, &market.market_id)
-                .await
-                .expect("Failed to fetch candles to archive.");
-        // Archive trades
-        for candle in candles_to_archive.iter() {
-            println!(
-                "Archiving {:?} - {} {:?} daily trades.",
-                &market.exchange_name, &market.market_name, &candle.datetime
-            );
-            // Select trades associated with candle since we are working with trades
-            // separate by exchange
-            let archive_success = match market.exchange_name {
-                ExchangeName::Ftx | ExchangeName::FtxUs => {
-                    self.archive_ftx_trades(market, candle, &p).await
+impl ElDorado {
+    pub async fn archive(&self, market: &Option<MarketDetail>) {
+        let markets = match market {
+            Some(m) => {
+                if m.market_status == MarketStatus::Active
+                    && m.market_data_status == MarketStatus::Active
+                {
+                    Some([m.clone()].to_vec())
+                } else {
+                    None
                 }
-                ExchangeName::Gdax => self.archive_gdax_trades(market, candle, &p).await,
-            };
-            if archive_success {
-                // Delete trades from validate table
-                match market.exchange_name {
-                    ExchangeName::Ftx | ExchangeName::FtxUs => {
-                        delete_trades_by_time(
-                            &self.ftx_pool,
-                            &market.exchange_name,
-                            market,
-                            "validated",
-                            candle.datetime,
-                            candle.datetime + Duration::days(1),
-                        )
-                        .await
-                        .expect("Failed to delete archived trades.");
-                    }
-                    ExchangeName::Gdax => {
-                        delete_trades_by_time(
-                            &self.gdax_pool,
-                            &market.exchange_name,
-                            market,
-                            "validated",
-                            candle.datetime,
-                            candle.datetime + Duration::days(1),
-                        )
-                        .await
-                        .expect("Failed to delete archived trades.");
-                    }
-                }
-                update_candle_archived(&self.ig_pool, &market.market_id, candle)
-                    .await
-                    .expect("Failed to update candle archive status.");
             }
+            None => self.select_markets_eligible_for_archive().await,
+        };
+        // Check there are markets to archive
+        match markets {
+            Some(m) => {
+                // For each market: pick up from last state and archive trades and candles
+                for market in m.iter() {
+                    self.archive_market(market).await;
+                }
+            }
+            None => (),
         }
     }
 
-    pub async fn archive_ftx_trades(
-        &self,
-        market: &MarketDetail,
-        candle: &DailyCandle,
-        path: &str,
-    ) -> bool {
-        let trades_to_archive = select_ftx_trades_by_time(
-            &self.ftx_pool,
-            &market.exchange_name,
-            market,
-            "validated",
-            candle.datetime,
-            candle.datetime + Duration::days(1),
-        )
-        .await
-        .expect("Failed to fetch validated trades.");
-        // Check the number of trades selected == trade count from candle
-        if trades_to_archive.len() as i64 != candle.trade_count {
-            println!(
-                "Trade count does not match on candle. Candle: {}, Trade Count {}",
-                candle.trade_count,
-                trades_to_archive.len()
-            );
-            // Insert count validation
-            insert_candle_count_validation(
-                &self.ig_pool,
-                &market.exchange_name,
-                &market.market_id,
-                &candle.datetime,
-            )
-            .await
-            .expect("Failed to create count validation.");
-            return false;
-        }
-        // Define filename = TICKER_YYYYMMDD.csv
-        let f = format!("{}_{}.csv", market.as_strip(), candle.datetime.format("%F"));
-        // Set filepath and file name
-        let fp = std::path::Path::new(path).join(f);
-        // Write trades to file
-        let mut wtr = Writer::from_path(fp).expect("Failed to open file.");
-        for trade in trades_to_archive.iter() {
-            wtr.serialize(trade).expect("Failed to serialize trade.");
-        }
-        wtr.flush().expect("Failed to flush wtr.");
-        true
-    }
-
-    pub async fn archive_gdax_trades(
-        &self,
-        market: &MarketDetail,
-        candle: &DailyCandle,
-        path: &str,
-    ) -> bool {
-        let trades_to_archive = select_gdax_trades_by_time(
-            &self.gdax_pool,
-            market,
-            "validated",
-            candle.datetime,
-            candle.datetime + Duration::days(1),
-        )
-        .await
-        .expect("Failed to fetch validated trades.");
-        // Check the number of trades selected == trade count from candle
-        if trades_to_archive.len() as i64 != candle.trade_count {
-            println!(
-                "Trade count does not match on candle. Candle: {}, Trade Count {}",
-                candle.trade_count,
-                trades_to_archive.len()
-            );
-            // Insert count validation
-            insert_candle_count_validation(
-                &self.ig_pool,
-                &market.exchange_name,
-                &market.market_id,
-                &candle.datetime,
-            )
-            .await
-            .expect("Failed to create count validation.");
-            return false;
-        }
-        // Define filename = TICKER_YYYYMMDD.csv
-        let f = format!("{}_{}.csv", market.as_strip(), candle.datetime.format("%F"));
-        // Set filepath and file name
-        let fp = std::path::Path::new(path).join(f);
-        // Write trades to file
-        let mut wtr = Writer::from_path(fp).expect("Failed to open file.");
-        for trade in trades_to_archive.iter() {
-            wtr.serialize(trade).expect("Failed to serialize trade.");
-        }
-        wtr.flush().expect("Failed to flush wtr.");
-        true
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use crate::candles::*;
-    use crate::configuration::get_configuration;
-    use crate::exchanges::{client::RestClient, ftx::Trade, select_exchanges};
-    use crate::markets::{select_market_detail, select_market_ids_by_exchange};
-    use crate::trades::select_ftx_trades_by_time;
-    use crate::utilities::TimeFrame;
-    use chrono::{Duration, DurationRound};
-    use csv::Writer;
-    use flate2::{write::GzEncoder, write::ZlibEncoder, Compression};
-    use sqlx::PgPool;
-    use std::fs::File;
-    use std::io::{copy, BufReader};
-
-    #[tokio::test]
-    async fn fetch_trades_and_write_to_csv() {
-        // TODO - Make for all exchanges - NOT JUST FTX
-        // Load configuration
-        let configuration = get_configuration().expect("Failed to read configuration.");
-        println!("Configuration: {:?}", configuration);
-
-        // Create db connection
-        let pool = PgPool::connect_with(configuration.ftx_db.with_db())
-            .await
-            .expect("Failed to connect to Postgres.");
-
-        // Get exchanges from database
-        let exchanges = select_exchanges(&pool)
-            .await
-            .expect("Could not fetch exchanges.");
-
-        // Match exchange to exchanges in database
-        let exchange = exchanges
-            .iter()
-            .find(|e| e.name.as_str() == configuration.application.exchange)
-            .unwrap();
-
-        // Get REST client for exchange
-        let client = RestClient::new(&exchange.name);
-
-        // Get input from config for market to archive
-        let market_ids = select_market_ids_by_exchange(&pool, &exchange.name)
-            .await
-            .expect("Could not fetch exchanges.");
-        let market = market_ids
-            .iter()
-            .find(|m| m.market_name == configuration.application.market)
-            .unwrap();
-        let market_detail = select_market_detail(&pool, market)
-            .await
-            .expect("Could not fetch market detail.");
-
-        // Gets 15t candles for market newer than last 01d candle
-        let candles = match select_last_01d_candle(&pool, &market.market_id).await {
-            Ok(c) => select_candles_gte_datetime(
-                &pool,
-                &exchange.name,
-                &market.market_id,
-                c.datetime + Duration::days(1),
-            )
-            .await
-            .expect("Could not fetch candles."),
+    async fn archive_market(&self, market: &MarketDetail) {
+        // Check if there is a market archive detail
+        match MarketArchiveDetail::select(&self.pools[&Database::ElDorado], market).await {
+            // Yes - proceed from the market archive detail information
+            Ok(mad) => self.archive_months(market, &None, &mad).await,
             Err(sqlx::Error::RowNotFound) => {
-                select_candles(&pool, &exchange.name, &market.market_id, 900)
-                    .await
-                    .expect("Could not fetch candles.")
+                // Check if there is a market candle detail
+                match MarketCandleDetail::select(&self.pools[&Database::ElDorado], market).await {
+                    Ok(mcd) => {
+                        let mad = self.create_mad_and_archive_first_month(market, &mcd).await;
+                        match mad {
+                            Some(m) => self.archive_months(market, &Some(mcd), &m).await,
+                            None => {
+                                println!("Not enought trading days to start first month.");
+                            }
+                        }
+                    }
+                    Err(sqlx::Error::RowNotFound) => {
+                        println!(
+                            "No MCD found for {}. No months to archive.",
+                            market.market_name
+                        );
+                    }
+                    Err(e) => panic!("SQLX Error: {:?}", e),
+                }
             }
-            Err(e) => panic!("Sqlx Error: {:?}", e),
-        };
-
-        // If there are no candles, then return, nothing to archive
-        if candles.len() == 0 {
-            return;
-        };
-
-        // Filter candles for last full day
-        let next_candle = candles.last().unwrap().datetime + Duration::seconds(900);
-        let last_full_day = next_candle.duration_trunc(Duration::days(1)).unwrap();
-        let filtered_candles: Vec<Candle> = candles
-            .iter()
-            .filter(|c| c.datetime < last_full_day)
-            .cloned()
-            .collect();
-
-        // Resample to 01d candles
-        let resampled_candles =
-            resample_candles(market.market_id, &filtered_candles, Duration::days(1));
-
-        // If there are no resampled candles, then return
-        if resampled_candles.len() == 0 {
-            return;
-        };
-
-        // Insert 01D candles
-        insert_candles_01d(&pool, &market.market_id, &resampled_candles, false)
-            .await
-            .expect("Could not insert candles.");
-
-        // Get exchange candles for validation
-        let first_candle = resampled_candles.first().unwrap().datetime;
-        let last_candle = resampled_candles.last().unwrap().datetime;
-        let mut exchange_candles = get_ftx_candles_daterange::<crate::exchanges::ftx::Candle>(
-            &client,
-            &market_detail,
-            first_candle,
-            last_candle,
-            86400,
-        )
-        .await;
-
-        // Validate 01d candles - if all 15T candles are validated (trades archived)
-        for candle in resampled_candles.iter() {
-            // get 15t candles that make up candle
-            let hb_candles: Vec<Candle> = filtered_candles
-                .iter()
-                .filter(|c| {
-                    c.datetime.duration_trunc(Duration::days(1)).unwrap() == candle.datetime
-                })
-                .cloned()
-                .collect();
-            println!("Validating {:?} with {:?}", candle, hb_candles);
-            // Check if all hb candles are valid
-            let hb_is_validated = hb_candles.iter().all(|c| c.is_validated == true);
-            // Check if volume matches value
-            let vol_is_validated = validate_ftx_candle(&candle, &mut exchange_candles);
-            // Update candle validation status
-            if hb_is_validated && vol_is_validated {
-                update_candle_validation(
-                    &pool,
-                    &exchange.name,
-                    &market.market_id,
-                    &candle,
-                    TimeFrame::D01,
-                )
-                .await
-                .expect("Could not update candle validation status.");
-            }
+            Err(e) => panic!("SQLX Error: {:?}", e),
         }
+    }
 
-        // Get validated but not archived 01d candles
-        let candles_to_archive = select_candles_valid_not_archived(&pool, &market.market_id)
-            .await
-            .expect("Could not fetch valid not archived candles.");
+    async fn archive_months(
+        &self,
+        market: &MarketDetail,
+        mcd: &Option<MarketCandleDetail>,
+        mad: &MarketArchiveDetail,
+    ) {
+        let mut mad = mad.to_owned();
+        let mcd = match mcd {
+            Some(m) => m.clone(),
+            None => MarketCandleDetail::select(&self.pools[&Database::ElDorado], market)
+                .await
+                .expect("Failed to select mcd."),
+        };
+        // Determine months to archive and put in date range
+        match DateRange::new_monthly(&mad.next_month, &ElDorado::trunc_month_dt(&mcd.last_candle)) {
+            Some(dr) => {
+                // For each month - load trade / make candles / write files
+                for d in dr.dts.iter() {
+                    mad = self.archive_month(market, &Some(mad), d).await;
+                }
+            }
+            None => println!("No more months to archive."),
+        }
+    }
 
-        // Archive trades
-        for candle in candles_to_archive.iter() {
-            // Select trades associated w/ candle
-            let _trades_to_archive = select_ftx_trades_by_time(
-                &pool,
-                &exchange.name,
-                &market_detail,
-                "validated",
-                candle.datetime,
-                candle.datetime + Duration::days(1),
+    async fn archive_month(
+        &self,
+        market: &MarketDetail,
+        mad: &Option<MarketArchiveDetail>,
+        dt: &DateTime<Utc>,
+    ) -> MarketArchiveDetail {
+        // Get trade and candle date ranges
+        let next_month = ElDorado::next_month_dt(dt);
+        let candle_dr = DateRange::new(dt, &next_month, &TimeFrame::S15).unwrap();
+        let trade_days_dr = DateRange::new(dt, &next_month, &TimeFrame::D01).unwrap();
+        // Make candles for month
+        let candles = self.make_research_candles_for_month(market, mad, &candle_dr, &trade_days_dr);
+        // Write candles for month
+        self.write_research_candles_to_file_for_month(market, dt, &candles);
+        // Update mad
+        mad.as_ref()
+            .unwrap()
+            .update(
+                &self.pools[&Database::ElDorado],
+                &next_month,
+                candles.last().unwrap(),
             )
             .await
-            .expect("Could not fetch validated trades.");
-            // Write trades to file
-        }
-
-        // Update 01d candles to is_archived
+            .expect("Failed to update mad.")
     }
 
-    #[tokio::test]
-    async fn write_to_csv() {
-        // Load configuration
-        let configuration = get_configuration().expect("Failed to read configuration.");
-        println!("Configuration: {:?}", configuration);
-
-        // Create db connection
-        let pool = PgPool::connect_with(configuration.ftx_db.with_db())
-            .await
-            .expect("Failed to connect to Postgres.");
-
-        // Get all trades from processed table
-        let sql = r#"
-            SELECT trade_id as id, price, size, side, liquidation, time
-            FROM trades_ftxus_processed
-            "#;
-        let trades = sqlx::query_as::<_, Trade>(&sql)
-            .fetch_all(&pool)
-            .await
-            .expect("Could not fetch trades.");
-
-        // Write trades to csv file
-        let mut wtr = Writer::from_path("trades.csv").expect("Could not open file.");
-        for trade in trades.iter() {
-            wtr.serialize(trade).expect("could not serialize trade.");
+    async fn create_mad_and_archive_first_month(
+        &self,
+        market: &MarketDetail,
+        mcd: &MarketCandleDetail,
+    ) -> Option<MarketArchiveDetail> {
+        let next_month = ElDorado::next_month_dt(&mcd.first_candle);
+        let current_month = ElDorado::trunc_month_dt(&mcd.last_candle);
+        // Check that there are candles through the entire month
+        if next_month <= current_month {
+            let mad = self.archive_first_month(market, mcd, &next_month).await;
+            // Insert and return mad
+            mad.insert(&self.pools[&Database::ElDorado])
+                .await
+                .expect("Failed to insert mad.");
+            Some(mad)
+        } else {
+            None
         }
-        wtr.flush().expect("could not flush wtr.");
-
-        // Take csv file and compress
-        let mut input = BufReader::new(File::open("trades.csv").unwrap());
-        let output = File::create("trades.csv.zlib  ").unwrap();
-        let mut encoder = ZlibEncoder::new(output, Compression::default());
-        copy(&mut input, &mut encoder).unwrap();
-        let _output = encoder.finish().unwrap();
     }
 
-    #[tokio::test]
-    async fn write_to_compressed_csv() {
-        // Load configuration
-        let configuration = get_configuration().expect("Failed to read configuration.");
-        println!("Configuration: {:?}", configuration);
-
-        // Create db connection
-        let pool = PgPool::connect_with(configuration.ftx_db.with_db())
-            .await
-            .expect("Failed to connect to Postgres.");
-
-        // Get all trades from processed table
-        let sql = r#"
-            SELECT trade_id as id, price, size, side, liquidation, time
-            FROM trades_ftxus_processed
-            "#;
-        let trades = sqlx::query_as::<_, Trade>(&sql)
-            .fetch_all(&pool)
-            .await
-            .expect("Could not fetch trades.");
-
-        // Write trades to compressed csv file
-        let mut wtr = Writer::from_writer(vec![]);
-        for trade in trades.iter() {
-            wtr.serialize(trade).expect("could not serialize trade.");
-        }
-
-        let f = File::create("test2.csv.gz").expect("could not create file.");
-        // let mut gz = GzBuilder::new()
-        //     .filename("test.csv")
-        //     .comment("test file, please delete")
-        //     .write(f, Compression::default());
-        //let data = String::from_utf8(wtr.into_inner().unwrap()).unwrap();
-        let mut _gz = GzEncoder::new(f, Compression::default());
-        let _test = wtr.into_inner().unwrap();
-        // gz.write_all(&test).expect("could not write to file.");
-        // gz.finish().expect("could not close file.");
+    async fn archive_first_month(
+        &self,
+        market: &MarketDetail,
+        mcd: &MarketCandleDetail,
+        next_month: &DateTime<Utc>,
+    ) -> MarketArchiveDetail {
+        let this_month = ElDorado::trunc_month_dt(&mcd.first_candle);
+        // Make candle dr from first candle in mcd to begining of next month
+        let candle_dr = DateRange::new(&mcd.first_candle, next_month, &TimeFrame::S15).unwrap();
+        // Make dr for days to load trade files
+        let trade_days_dr = DateRange::new(
+            &mcd.first_candle.duration_trunc(Duration::days(1)).unwrap(),
+            next_month,
+            &TimeFrame::D01,
+        )
+        .unwrap();
+        // Make the candles for the first month
+        let candles =
+            self.make_research_candles_for_month(market, &None, &candle_dr, &trade_days_dr);
+        // Write the candles to file
+        self.write_research_candles_to_file_for_month(market, &this_month, &candles);
+        // Make the MAD and return it
+        let mad = MarketArchiveDetail::new(
+            market,
+            &TimeFrame::S15,
+            candles.first().unwrap(),
+            candles.last().unwrap(),
+        );
+        mad
     }
 }

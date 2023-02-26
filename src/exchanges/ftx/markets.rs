@@ -1,8 +1,12 @@
 use crate::exchanges::{client::RestClient, error::RestError};
-use chrono::{DateTime, Utc};
+use crate::markets::MarketDetail;
+use crate::trades::PrIdTi;
+use async_trait::async_trait;
+use chrono::{DateTime, Duration, DurationRound, Utc};
 use rust_decimal::prelude::*;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
+use sqlx::PgPool;
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -79,7 +83,8 @@ pub struct Trade {
     pub time: DateTime<Utc>,
 }
 
-impl crate::utilities::Trade for Trade {
+#[async_trait]
+impl crate::trades::Trade for Trade {
     fn trade_id(&self) -> i64 {
         self.id
     }
@@ -103,6 +108,151 @@ impl crate::utilities::Trade for Trade {
     fn time(&self) -> DateTime<Utc> {
         self.time
     }
+
+    fn as_pridti(&self) -> PrIdTi {
+        PrIdTi {
+            id: self.id,
+            dt: self.time,
+            price: self.price,
+        }
+    }
+
+    async fn create_table(
+        pool: &PgPool,
+        market: &MarketDetail,
+        dt: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        let table_sql = format!(
+            r#"
+            CREATE TABLE IF NOT EXISTS trades.{}_{}_{} (
+                market_id uuid NOT NULL,
+                trade_id BIGINT NOT NULL,
+                PRIMARY KEY (trade_id),
+                price NUMERIC NOT NULL,
+                size NUMERIC NOT NULL,
+                side TEXT NOT NULL,
+                liquidation BOOLEAN NOT NULL,
+                time timestamptz NOT NULL
+            )
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            dt.format("%Y%m%d")
+        );
+        let index_sql = format!(
+            r#"
+            CREATE INDEX IF NOT EXISTS {e}_{m}_{t}_time_asc
+            ON trades.{e}_{m}_{t} (time)
+            "#,
+            e = market.exchange_name.as_str(),
+            m = market.as_strip(),
+            t = dt.format("%Y%m%d")
+        );
+        sqlx::query(&table_sql).execute(pool).await?;
+        sqlx::query(&index_sql).execute(pool).await?;
+        Ok(())
+    }
+
+    async fn insert(&self, pool: &PgPool, market: &MarketDetail) -> Result<(), sqlx::Error> {
+        let insert_sql = format!(
+            r#"
+            INSERT INTO trades.{}_{}_{} (
+                market_id, trade_id, price, size, side, liquidation, time)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (trade_id) DO NOTHING
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            self.time()
+                .duration_trunc(Duration::days(1))
+                .unwrap()
+                .format("%Y%m%d")
+        );
+        sqlx::query(&insert_sql)
+            .bind(market.market_id)
+            .bind(self.id)
+            .bind(self.price)
+            .bind(self.size)
+            .bind(self.side.clone())
+            .bind(self.liquidation)
+            .bind(self.time)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn drop_table(
+        pool: &PgPool,
+        market: &MarketDetail,
+        dt: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        let sql = format!(
+            r#"
+            DROP TABLE IF EXISTS trades.{}_{}_{}
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            dt.format("%Y%m%d")
+        );
+        sqlx::query(&sql).execute(pool).await?;
+        Ok(())
+    }
+}
+
+impl Trade {
+    // Select the first trade greater than the given date time. Assume and check that the first
+    // trade will occur on the same day as the datetime. If there is no trade, try checking the next
+    // day. This can occur in edge cases where the given datetime is near the end of the day and
+    // there are no further trades for the day and the next trade occurs the next day.
+    pub async fn select_one_gt_dt(
+        pool: &PgPool,
+        market: &MarketDetail,
+        dt: DateTime<Utc>,
+    ) -> Result<Self, sqlx::Error> {
+        let d1 = dt.duration_trunc(Duration::days(1)).unwrap();
+        let d2 = d1 + Duration::days(1);
+        let sql = format!(
+            r#"
+            SELECT trade_id as id, price, size, side, liquidation, time
+            FROM trades.{e}_{m}_{d1}
+            WHERE time > $1
+            UNION
+            SELECT trade_id as id, price, size, side, liquidation, time
+            FROM trades.{e}_{m}_{d2}
+            ORDER BY id ASC
+            "#,
+            e = market.exchange_name.as_str(),
+            m = market.as_strip(),
+            d1 = d1.format("%Y%m%d"),
+            d2 = d2.format("%Y%m%d"),
+        );
+        // Try current day table for trade
+        let row = sqlx::query_as::<_, Trade>(&sql)
+            .bind(dt)
+            .fetch_one(pool)
+            .await?;
+        // Ok(Box::new(row))
+        Ok(row)
+    }
+
+    pub async fn select_all(
+        pool: &PgPool,
+        market: &MarketDetail,
+        dt: &DateTime<Utc>,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        let sql = format!(
+            r#"
+            SELECT trade_id as id, price, size, side, liquidation, time
+            FROM trades.{}_{}_{}
+            ORDER BY id ASC
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            dt.format("%Y%m%d")
+        );
+        let rows = sqlx::query_as::<_, Trade>(&sql).fetch_all(pool).await?;
+        Ok(rows)
+    }
 }
 
 #[derive(Clone, Deserialize, Debug)]
@@ -118,9 +268,13 @@ pub struct Candle {
     pub volume: Decimal,
 }
 
-impl crate::utilities::Candle for Candle {
+impl crate::candles::Candle for Candle {
     fn datetime(&self) -> DateTime<Utc> {
         self.start_time
+    }
+
+    fn close(&self) -> Decimal {
+        self.close
     }
 
     fn volume(&self) -> Decimal {
@@ -205,7 +359,9 @@ impl RestClient {
 
 #[cfg(test)]
 mod tests {
-    use crate::exchanges::{client::*, ftx::*, ExchangeName};
+    use crate::exchanges::{
+        client::RestClient, ftx::Candle, ftx::Market, ftx::Orderbook, ftx::Trade, ExchangeName,
+    };
     use chrono::{TimeZone, Utc};
 
     #[test]
@@ -373,7 +529,7 @@ mod tests {
                 "SOL/USD",
                 Some(100),
                 None,
-                Some(Utc.timestamp(1631666701, 0)),
+                Some(Utc.timestamp_opt(1631666701, 0).unwrap()),
             )
             .await
             .expect("Failed to get last 10 BTC/USD trades.");

@@ -1,7 +1,5 @@
-use crate::candles::create_exchange_candle_table;
-use crate::inquisidor::Inquisidor;
-use crate::utilities::get_input;
-use chrono::Utc;
+use crate::{configuration::Database, eldorado::ElDorado};
+use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use std::convert::{TryFrom, TryInto};
 use uuid::Uuid;
@@ -16,6 +14,12 @@ pub mod ws;
 pub struct Exchange {
     pub id: Uuid,
     pub name: ExchangeName,
+    pub rank: i32,
+    pub is_spot: bool,
+    pub is_derivitive: bool,
+    pub status: ExchangeStatus,
+    pub added_dt: DateTime<Utc>,
+    pub last_refresh_dt: DateTime<Utc>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, sqlx::Type, Hash)]
@@ -49,7 +53,7 @@ impl TryFrom<String> for ExchangeName {
     }
 }
 
-#[derive(Debug, sqlx::Type)]
+#[derive(Debug, PartialEq, Eq, Clone, sqlx::Type)]
 #[sqlx(rename_all = "lowercase")]
 pub enum ExchangeStatus {
     New,
@@ -80,211 +84,101 @@ impl TryFrom<String> for ExchangeStatus {
     }
 }
 
-impl Inquisidor {
-    pub fn list_exchanges(&self) -> Vec<ExchangeName> {
-        // Takes the exchanges in ig and returns a vec of exchange name enums
-        // Output = [ExchangeName::Ftx, ExchangeName::Gdax]
-        self.exchanges.iter().map(|e| e.name).collect()
-    }
-
-    pub async fn add_new_exchange(&self) {
-        // Get user input for exchange to add
-        let exchange: String = get_input("Enter Exchange to Add:");
-        // Parse input to see if there is a valid exchange
-        let exchange: ExchangeName = exchange.try_into().unwrap();
-        // Get current exchanges from db
-        let exchanges = select_exchanges(&self.ig_pool)
-            .await
-            .expect("Could not fetch exchanges.");
-        // Compare input to existing exchanges
-        if exchanges.iter().any(|e| e.name == exchange) {
-            // Exchange already exists in db. Return command.
-            println!("{:?} has all ready been added to El-Dorado.", exchange);
-            return;
-        }
-        // Add new exchange to db.
-        println!("Adding {:?} to El-Dorado.", exchange);
-        let new_exchange = Exchange {
+impl Exchange {
+    // Used for testing - pass the given exchange and it will return a new exchange struct
+    // with New Status and current dates
+    pub fn new_sample_exchange(exchange: &ExchangeName) -> Self {
+        Self {
             id: Uuid::new_v4(),
-            name: exchange,
-        };
-        insert_new_exchange(&self.ig_pool, &new_exchange)
-            .await
-            .expect("Failed to insert new exchange.");
-        // Refresh markets for new exchange (should insert all)
-        match exchange {
-            ExchangeName::Ftx | ExchangeName::FtxUs => {
-                self.refresh_exchange_markets::<crate::exchanges::ftx::Market>(&new_exchange.name)
-                    .await
-            }
-
-            ExchangeName::Gdax => {
-                self.refresh_exchange_markets::<crate::exchanges::gdax::Product>(&new_exchange.name)
-                    .await
-            }
-        };
-        // Create candle table for exchange
-        create_exchange_candle_table(&self.ig_pool, &new_exchange.name)
-            .await
-            .expect("Failed to create exchange table.");
+            name: *exchange,
+            rank: 1,
+            is_spot: true,
+            is_derivitive: true,
+            status: ExchangeStatus::Active,
+            added_dt: Utc::now(),
+            last_refresh_dt: Utc::now(),
+        }
+    }
+    pub async fn select_by_status(
+        pool: &PgPool,
+        status: ExchangeStatus,
+    ) -> Result<Vec<Exchange>, sqlx::Error> {
+        let rows = sqlx::query_as!(
+            Self,
+            r#"
+            SELECT exchange_id as id, exchange_name as "name: ExchangeName",
+            exchange_rank as rank,
+            is_spot,
+            is_derivitive,
+            exchange_status as "status: ExchangeStatus",
+            added_date as added_dt,
+            last_refresh_date as last_refresh_dt
+            FROM exchanges
+            WHERE exchange_status = $1
+            "#,
+            status.as_str(),
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(rows)
     }
 }
 
-pub async fn select_exchanges(pool: &PgPool) -> Result<Vec<Exchange>, sqlx::Error> {
-    let rows = sqlx::query_as!(
-        Exchange,
-        r#"
-        SELECT exchange_id as id, exchange_name as "name: ExchangeName"
-        FROM exchanges
-        "#
-    )
-    .fetch_all(pool)
-    .await?;
-    // println!("Rows: {:?}", rows);
-    Ok(rows)
-}
+impl ElDorado {
+    // Get user input for market, then validate against either all markets in the db or against
+    // the vec of markets passed in as a param
+    pub async fn prompt_exchange_input(&self) -> Option<Exchange> {
+        // Get user input
+        let exchange: String = self.get_input("Please enter exchange: ").await;
+        // Parse input to check if it is a valid exchange name
+        let exchange: ExchangeName = match exchange.try_into() {
+            Ok(x) => x,
+            Err(e) => panic!("Could not parse exchange name. {:?}", e),
+        };
+        // Match against available exchanges for instance
+        let active_exchanges =
+            Exchange::select_by_status(&self.pools[&Database::ElDorado], ExchangeStatus::Active)
+                .await
+                .expect("Failed to select exchanges from db.");
+        active_exchanges.into_iter().find(|e| e.name == exchange)
+    }
 
-pub async fn select_exchanges_by_status(
-    pool: &PgPool,
-    status: ExchangeStatus,
-) -> Result<Vec<Exchange>, sqlx::Error> {
-    let rows = sqlx::query_as!(
-        Exchange,
-        r#"
-        SELECT exchange_id as id, exchange_name as "name: ExchangeName"
-        FROM exchanges
-        WHERE exchange_status = $1
-        "#,
-        status.as_str(),
-    )
-    .fetch_all(pool)
-    .await?;
-    Ok(rows)
-}
-
-pub async fn insert_new_exchange(pool: &PgPool, exchange: &Exchange) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        r#"
-        INSERT INTO exchanges (
-            exchange_id, exchange_name, exchange_rank, is_spot, is_derivitive, 
-            exchange_status, added_date, last_refresh_date)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        "#,
-        exchange.id,
-        exchange.name.as_str(),
-        1,
-        true,
-        false,
-        ExchangeStatus::New.as_str(),
-        Utc::now(),
-        Utc::now()
-    )
-    .execute(pool)
-    .await?;
-    Ok(())
+    // Get an exchange input and refresh the markets for the exchange
+    pub async fn refresh_exchange(&self) {
+        match self.prompt_exchange_input().await {
+            Some(e) => match e.name {
+                ExchangeName::Ftx | ExchangeName::FtxUs => self.refresh_ftx_markets(&e).await,
+                ExchangeName::Gdax => self.refresh_gdax_markets().await,
+            },
+            None => println!("No exchange to refresh."),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::configuration::get_configuration;
-    use crate::markets::select_market_details;
-    use crate::trades::{create_ftx_trade_table, insert_ftx_trades};
+    use crate::{
+        configuration::get_configuration,
+        exchanges::{Exchange, ExchangeName, ExchangeStatus},
+    };
+    use sqlx::PgPool;
 
     #[tokio::test]
-    async fn fetch_exchanges_returns_all_exchanges() {
-        // Load configuration
-        let configuration = get_configuration().expect("Failed to read configuration.");
-        println!("Configuration: {:?}", configuration);
-
-        // Create db connection
-        let connection_pool = PgPool::connect_with(configuration.ftx_db.with_db())
-            .await
-            .expect("Failed to connect to Postgres.");
-
-        let exchanges = select_exchanges(&connection_pool)
-            .await
-            .expect("Failed to load exchanges.");
-
-        println!("Exchanges: {:?}", exchanges);
-    }
+    async fn select_exchanges_returns_all_exchanges() {}
 
     #[test]
     fn check_if_exchanges_already_exists_returns_true() {
         // Arrange
-        let exchange1 = Exchange {
-            id: Uuid::new_v4(),
-            name: String::from("ftxus").try_into().unwrap(),
-        };
-        let exchange2 = Exchange {
-            id: Uuid::new_v4(),
-            name: String::from("ftx").try_into().unwrap(),
-        };
+        let exchange1 = Exchange::new_sample_exchange(&ExchangeName::Ftx);
+        let exchange2 = Exchange::new_sample_exchange(&ExchangeName::FtxUs);
         let mut exchanges = Vec::<Exchange>::new();
         exchanges.push(exchange1);
         exchanges.push(exchange2);
 
-        let dup_exchange = Exchange {
-            id: Uuid::new_v4(),
-            name: String::from("ftxus").try_into().unwrap(),
-        };
+        let dup_exchange = Exchange::new_sample_exchange(&ExchangeName::FtxUs);
 
         // Assert
         assert!(exchanges.iter().any(|e| e.name == dup_exchange.name));
-    }
-
-    #[tokio::test]
-    async fn create_dynamic_exchange_tables_works() {
-        // Load configuration
-        let configuration = get_configuration().expect("Failed to read configuration.");
-        println!("Configuration: {:?}", configuration);
-
-        // Create db connection
-        let connection_pool = PgPool::connect_with(configuration.ftx_db.with_db())
-            .await
-            .expect("Failed to connect to Postgres.");
-
-        // Create exchange struct
-        let exchange = Exchange {
-            id: Uuid::new_v4(),
-            name: String::from("ftxus").try_into().unwrap(),
-        };
-
-        // Set market for test
-        let markets = select_market_details(&connection_pool)
-            .await
-            .expect("Failed to fetch markets.");
-        let market = markets
-            .iter()
-            .find(|m| m.market_name == "BTC/USD")
-            .expect("Failed to grab BTC/USD market.");
-
-        // Set table name variables
-        let test_trade_table = "dynamic_test";
-
-        // Create db tables
-        create_ftx_trade_table(&connection_pool, &exchange.name, market, &test_trade_table)
-            .await
-            .expect("Failed to create tables.");
-
-        // Create rest client
-        let client = crate::exchanges::client::RestClient::new(&ExchangeName::FtxUs);
-
-        // Get last 10 BTC/USD trades
-        let trades = client
-            .get_ftx_trades(&market.market_name, Some(10), None, Some(Utc::now()))
-            .await
-            .expect("Failed to get last 10 BTC/USD trades.");
-
-        insert_ftx_trades(
-            &connection_pool,
-            &exchange.name,
-            market,
-            &test_trade_table,
-            trades,
-        )
-        .await
-        .expect("Failed to insert trades.");
     }
 
     #[tokio::test]
@@ -298,7 +192,7 @@ mod tests {
             .await
             .expect("Failed to connect to Postgres.");
 
-        let exchanges = select_exchanges_by_status(&pool, ExchangeStatus::New)
+        let exchanges = Exchange::select_by_status(&pool, ExchangeStatus::New)
             .await
             .expect("Failed to select exchanges.");
         println!("Exchanges: {:?}", exchanges);

@@ -6,7 +6,6 @@ pub struct Settings {
     pub ed_db: DatabaseSettings,
     pub ftx_db: DatabaseSettings,
     pub gdax_db: DatabaseSettings,
-    pub archive_db: DatabaseSettings,
     pub application: ApplicationSettings,
 }
 
@@ -25,7 +24,34 @@ pub struct ApplicationSettings {
     pub exchange: String,
     pub market: String,
     pub droplet: String,
+    pub instance_type: String,
     pub archive_path: String,
+}
+
+impl Settings {
+    pub fn from_configuration() -> Result<Settings, config::ConfigError> {
+        let mut settings = config::Config::default();
+        let base_path = std::env::current_dir().expect("Failed to determine current directory.");
+        let configuration_directory = base_path.join("configuration");
+
+        // Read the `default` configuration file
+        settings.merge(config::File::from(configuration_directory.join("base")).required(true))?;
+
+        // Detect the running environment and default to `local` if none specified
+        let environment: Environment = std::env::var("APP_ENVIRONMENT")
+            .unwrap_or_else(|_| "local".into())
+            .try_into()
+            .expect("Failed to parse APP_ENVIRONMENT");
+
+        // Layer on environmental specific values
+        settings.merge(
+            config::File::from(configuration_directory.join(environment.as_str())).required(true),
+        )?;
+
+        // Try to convert the configuration values it reads into
+        // our Settings type
+        settings.try_into()
+    }
 }
 
 pub fn get_configuration() -> Result<Settings, config::ConfigError> {
@@ -96,6 +122,37 @@ impl TryFrom<String> for Environment {
                 "{} is not a supported environment. Use either `local` or `production`.",
                 other
             )),
+        }
+    }
+}
+
+// Define the databases that will be used
+#[derive(Eq, PartialEq, Hash, Debug)]
+pub enum Database {
+    ElDorado,
+    Ftx,
+    Gdax,
+}
+
+impl Database {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Database::ElDorado => "eldorado",
+            Database::Ftx => "ftx",
+            Database::Gdax => "gdax",
+        }
+    }
+}
+
+impl TryFrom<String> for Database {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        match s.to_lowercase().as_str() {
+            "eldorado" => Ok(Self::ElDorado),
+            "ftx" => Ok(Self::Ftx),
+            "gdax" => Ok(Self::Gdax),
+            other => Err(format!("{} is not a supported database.", other)),
         }
     }
 }

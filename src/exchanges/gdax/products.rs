@@ -1,8 +1,12 @@
 use crate::exchanges::{client::RestClient, error::RestError};
-use chrono::{serde::ts_seconds, DateTime, Utc};
+use crate::markets::MarketDetail;
+use crate::trades::PrIdTi;
+use async_trait::async_trait;
+use chrono::{serde::ts_seconds, DateTime, Duration, DurationRound, Utc};
 use rust_decimal::prelude::*;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
+use sqlx::PgPool;
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
 #[serde(rename_all = "snake_case")]
@@ -70,7 +74,8 @@ pub struct Trade {
     pub time: DateTime<Utc>,
 }
 
-impl crate::utilities::Trade for Trade {
+#[async_trait]
+impl crate::trades::Trade for Trade {
     fn trade_id(&self) -> i64 {
         self.trade_id
     }
@@ -94,6 +99,174 @@ impl crate::utilities::Trade for Trade {
     fn time(&self) -> DateTime<Utc> {
         self.time
     }
+
+    fn as_pridti(&self) -> PrIdTi {
+        PrIdTi {
+            id: self.trade_id,
+            dt: self.time,
+            price: self.price,
+        }
+    }
+
+    async fn create_table(
+        pool: &PgPool,
+        market: &MarketDetail,
+        dt: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        let table_sql = format!(
+            r#"
+            CREATE TABLE IF NOT EXISTS trades.{}_{}_{} (
+                market_id uuid NOT NULL,
+                trade_id BIGINT NOT NULL,
+                PRIMARY KEY (trade_id),
+                price NUMERIC NOT NULL,
+                size NUMERIC NOT NULL,
+                side TEXT NOT NULL,
+                time timestamptz NOT NULL
+            )
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            dt.format("%Y%m%d")
+        );
+        let index_sql = format!(
+            r#"
+            CREATE INDEX IF NOT EXISTS {e}_{m}_{t}_time_asc
+            ON trades.{e}_{m}_{t} (time)
+            "#,
+            e = market.exchange_name.as_str(),
+            m = market.as_strip(),
+            t = dt.format("%Y%m%d")
+        );
+        sqlx::query(&table_sql).execute(pool).await?;
+        sqlx::query(&index_sql).execute(pool).await?;
+        Ok(())
+    }
+
+    async fn insert(&self, pool: &PgPool, market: &MarketDetail) -> Result<(), sqlx::Error> {
+        let insert_sql = format!(
+            r#"
+            INSERT INTO trades.{}_{}_{} (
+                market_id, trade_id, price, size, side, time)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (trade_id) DO NOTHING
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            self.time()
+                .duration_trunc(Duration::days(1))
+                .unwrap()
+                .format("%Y%m%d")
+        );
+        sqlx::query(&insert_sql)
+            .bind(market.market_id)
+            .bind(self.trade_id)
+            .bind(self.price)
+            .bind(self.size)
+            .bind(self.side.clone())
+            .bind(self.time)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn drop_table(
+        pool: &PgPool,
+        market: &MarketDetail,
+        dt: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        let sql = format!(
+            r#"
+            DROP TABLE IF EXISTS trades.{}_{}_{}
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            dt.format("%Y%m%d")
+        );
+        sqlx::query(&sql).execute(pool).await?;
+        Ok(())
+    }
+}
+
+impl Trade {
+    // Select the first trade greater than the given date time. Assume and check that the first
+    // trade will occur on the same day as the datetime. If there is no trade, try checking the next
+    // day. This can occur in edge cases where the given datetime is near the end of the day and
+    // there are no further trades for the day and the next trade occurs the next day.
+    pub async fn select_one_gt_dt(
+        pool: &PgPool,
+        market: &MarketDetail,
+        dt: DateTime<Utc>,
+    ) -> Result<Self, sqlx::Error> {
+        let d1 = dt.duration_trunc(Duration::days(1)).unwrap();
+        let d2 = d1 + Duration::days(1);
+        let sql = format!(
+            r#"
+            SELECT trade_id, price, size, side, time
+            FROM trades.{e}_{m}_{d1}
+            WHERE time > $1
+            UNION
+            SELECT trade_id, price, size, side, time
+            FROM trades.{e}_{m}_{d2}
+            ORDER BY trade_id ASC
+            "#,
+            e = market.exchange_name.as_str(),
+            m = market.as_strip(),
+            d1 = d1.format("%Y%m%d"),
+            d2 = d2.format("%Y%m%d"),
+        );
+        // Try current day table for trade
+        let row = sqlx::query_as::<_, Trade>(&sql)
+            .bind(dt)
+            .fetch_one(pool)
+            .await?;
+        Ok(row)
+    }
+
+    pub async fn select_all(
+        pool: &PgPool,
+        market: &MarketDetail,
+        dt: &DateTime<Utc>,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        let sql = format!(
+            r#"
+            SELECT trade_id, price, size, side, time
+            FROM trades.{}_{}_{}
+            ORDER BY trade_id ASC
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            dt.format("%Y%m%d")
+        );
+        let rows = sqlx::query_as::<_, Trade>(&sql).fetch_all(pool).await?;
+        Ok(rows)
+    }
+
+    pub async fn select_gte_and_lt_dts(
+        pool: &PgPool,
+        market: &MarketDetail,
+        dt: &DateTime<Utc>,
+        start: &DateTime<Utc>,
+        end: &DateTime<Utc>,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        let sql = format!(
+            r#"
+            SELECT trade_id, price, size, side, time
+            FROM trades.{}_{}_{}
+            WHERE time >= $1 AND time < $2
+            ORDER BY trade_id ASC
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            dt.format("%Y%m%d")
+        );
+        let rows = sqlx::query_as::<_, Trade>(&sql)
+            .bind(start)
+            .bind(end)
+            .fetch_all(pool)
+            .await?;
+        Ok(rows)
+    }
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
@@ -108,9 +281,13 @@ pub struct Candle {
     pub volume: Decimal,
 }
 
-impl crate::utilities::Candle for Candle {
+impl crate::candles::Candle for Candle {
     fn datetime(&self) -> DateTime<Utc> {
         self.time
+    }
+
+    fn close(&self) -> Decimal {
+        self.close
     }
 
     fn volume(&self) -> Decimal {
@@ -119,7 +296,7 @@ impl crate::utilities::Candle for Candle {
 }
 
 impl RestClient {
-    pub async fn get_gdax_products<T: DeserializeOwned>(&self) -> Result<Vec<T>, RestError> {
+    pub async fn get_gdax_products(&self) -> Result<Vec<Product>, RestError> {
         self.get("/products", None).await
     }
 
@@ -150,9 +327,11 @@ impl RestClient {
         &self,
         product_name: &str,
         after: i32,
-    ) -> Result<Vec<Trade>, RestError> {
-        self.get_gdax_trades(product_name, Some(1), None, Some(after + 2))
-            .await
+    ) -> Result<Option<Trade>, RestError> {
+        let mut trades = self
+            .get_gdax_trades(product_name, Some(1), None, Some(after + 2))
+            .await?;
+        Ok(trades.pop())
     }
 
     // Get the next trade AFTER the given trade id for a product
@@ -160,9 +339,11 @@ impl RestClient {
         &self,
         product_name: &str,
         after: i32,
-    ) -> Result<Vec<Trade>, RestError> {
-        self.get_gdax_trades(product_name, Some(1), None, Some(after))
-            .await
+    ) -> Result<Option<Trade>, RestError> {
+        let mut trades = self
+            .get_gdax_trades(product_name, Some(1), None, Some(after))
+            .await?;
+        Ok(trades.pop())
     }
 
     // API will return 300 candles maximum, if start and end are used, both fields need to be
@@ -197,7 +378,7 @@ mod tests {
     async fn get_product_returns_all_products() {
         let client = RestClient::new(&ExchangeName::Gdax);
         let products = client
-            .get_gdax_products::<crate::exchanges::gdax::Product>()
+            .get_gdax_products()
             .await
             .expect("Failed to get all products.");
         println!("Products: {:?}", products)
@@ -322,8 +503,8 @@ mod tests {
             .get_gdax_candles::<crate::exchanges::gdax::Candle>(
                 &product_name,
                 Some(900),
-                Some(Utc.ymd(2021, 11, 15).and_hms(21, 0, 0)),
-                Some(Utc.ymd(2021, 11, 15).and_hms(21, 0, 0)),
+                Some(Utc.with_ymd_and_hms(2021, 11, 15, 21, 0, 0).unwrap()),
+                Some(Utc.with_ymd_and_hms(2021, 11, 15, 21, 0, 0).unwrap()),
             )
             .await
             .expect("Failed to get BTC-USD product.");
