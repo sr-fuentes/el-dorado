@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{
     candles::ProductionCandle, configuration::Database, eldorado::ElDorado,
     exchanges::ExchangeName, markets::MarketDetail, mita::Heartbeat, utilities::TimeFrame,
@@ -108,6 +110,14 @@ pub struct Metric {
     pub lbp: i64,
     pub close: Decimal,
     pub r: Decimal,
+}
+
+pub struct MarketMetric {
+    pub market_id: Uuid,
+    pub market_name: String,
+    pub exchange_name: ExchangeName,
+    pub as_of_dt: DateTime<Utc>,
+    pub metrics: HashMap<TimeFrame, Metric>,
 }
 
 impl Metric {
