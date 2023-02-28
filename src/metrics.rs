@@ -1,12 +1,14 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fs::File, path::PathBuf};
 
 use crate::{
     candles::ProductionCandle, configuration::Database, eldorado::ElDorado,
     exchanges::ExchangeName, markets::MarketDetail, mita::Heartbeat, utilities::TimeFrame,
 };
 use chrono::{DateTime, Utc};
+use csv::Reader;
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
+use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -102,6 +104,7 @@ pub struct MetricAP {
     pub lwz: Decimal,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ResearchMetric {
     pub market_id: Uuid,
     pub tf: TimeFrame,
@@ -530,6 +533,173 @@ impl MetricAP {
     }
 }
 
+impl ResearchMetric {
+    pub fn from_file(pb: &PathBuf) -> Vec<Self> {
+        let file = File::open(pb).expect("Failed to open file.");
+        let mut metrics = Vec::new();
+        let mut rdr = Reader::from_reader(file);
+        for result in rdr.deserialize() {
+            let record: ResearchMetric = result.expect("Failed to deserialize record.");
+            metrics.push(record);
+        }
+        metrics
+    }
+
+    async fn _create_table(pool: &PgPool) -> Result<(), sqlx::Error> {
+        let sql = r#"
+            CREATE TABLE research_metrics (
+                market_id uuid NOT NULL,
+                tf TEXT NOT NULL,
+                datetime timestamptz NOT NULL,
+                high NUMERIC NOT NULL,
+                low NUMERIC NOT NULL,
+                close NUMERIC NOT NULL,
+                atr_l NUMERIC NOT NULL,
+                atr_s NUMERIC NOT NULL,
+                ma_filter TEXT NOT NULL,
+                n_filter TEXT NOT NULL,
+                prev TEXT NOT NULL,
+                return_z_l NUMERIC NOT NULL,
+                return_z_s NUMERIC NOT NULL,
+                tr_z_l NUMERIC NOT NULL,
+                tr_z_s NUMERIC NOT NULL,
+                upper_wick_z_l NUMERIC NOT NULL,
+                upper_wick_z_s NUMERIC NOT NULL,
+                body_z_l NUMERIC NOT NULL,
+                body_z_s NUMERIC NOT NULL,
+                lower_wick_z_l NUMERIC NOT NULL,
+                lower_wick_z_s NUMERIC NOT NULL,
+                volume_z_l NUMERIC NOT NULL,
+                volume_z_s NUMERIC NOT NULL,
+                volume_net_z_l NUMERIC NOT NULL,
+                volume_net_z_s NUMERIC NOT NULL,
+                volume_pct_z_l NUMERIC NOT NULL,
+                volume_pct_z_s NUMERIC NOT NULL,
+                volume_liq_z_l NUMERIC NOT NULL,
+                volume_liq_z_s NUMERIC NOT NULL,
+                volume_liq_net_z_l NUMERIC NOT NULL,
+                volume_liq_net_z_s NUMERIC NOT NULL,
+                volume_liq_pct_z_l NUMERIC NOT NULL,
+                volume_liq_pct_z_s NUMERIC NOT NULL,
+                value_z_l NUMERIC NOT NULL,
+                value_z_s NUMERIC NOT NULL,
+                value_net_z_l NUMERIC NOT NULL,
+                value_net_z_s NUMERIC NOT NULL,
+                value_pct_z_l NUMERIC NOT NULL,
+                value_pct_z_s NUMERIC NOT NULL,
+                value_liq_z_l NUMERIC NOT NULL,
+                value_liq_z_s NUMERIC NOT NULL,
+                value_liq_net_z_l NUMERIC NOT NULL,
+                value_liq_net_z_s NUMERIC NOT NULL,
+                value_liq_pct_z_l NUMERIC NOT NULL,
+                value_liq_pct_z_s NUMERIC NOT NULL,
+                trade_count_z_l NUMERIC NOT NULL,
+                trade_count_z_s NUMERIC NOT NULL,
+                trade_count_net_z_l NUMERIC NOT NULL,
+                trade_count_net_z_s NUMERIC NOT NULL,
+                trade_count_pct_z_l NUMERIC NOT NULL,
+                trade_count_pct_z_s NUMERIC NOT NULL,
+                liq_count_z_l NUMERIC NOT NULL,
+                liq_count_z_s NUMERIC NOT NULL,
+                liq_count_net_z_l NUMERIC NOT NULL,
+                liq_count_net_z_s NUMERIC NOT NULL,
+                liq_count_pct_z_l NUMERIC NOT NULL,
+                liq_count_pct_z_s NUMERIC NOT NULL,
+                insert_dt timestamptz NOT NULL
+            )
+            "#;
+        sqlx::query(&sql).execute(pool).await?;
+        Ok(())
+    }
+
+    pub async fn insert(&self, pool: &PgPool) -> Result<(), sqlx::Error> {
+        let sql = r#"
+            INSERT INTO research_metrics (
+                market_id, tf, datetime, high, low, close, atr_l, atr_s, ma_filter, n_filter, prev,
+                return_z_l, return_z_s, tr_z_l, tr_z_s, upper_wick_z_l, upper_wick_z_s, body_z_l,
+                body_z_s, lower_wick_z_l, lower_wick_z_s, volume_z_l, volume_z_s, volume_net_z_l,
+                volume_net_z_s, volume_pct_z_l, volume_pct_z_s, volume_liq_z_l, volume_liq_z_s,
+                volume_liq_net_z_l, volume_liq_net_z_s, volume_liq_pct_z_l, volume_liq_pct_z_s,
+                value_z_l, value_z_s, value_net_z_l, value_net_z_s, value_pct_z_l, value_pct_z_s,
+                value_liq_z_l, value_liq_z_s, value_liq_net_z_l, value_liq_net_z_s,
+                value_liq_pct_z_l, value_liq_pct_z_s, trade_count_z_l, trade_count_z_s,
+                trade_count_net_z_l, trade_count_net_z_s, trade_count_pct_z_l, trade_count_pct_z_s,
+                liq_count_z_l, liq_count_z_s, liq_count_net_z_l, liq_count_net_z_s,
+                liq_count_pct_z_l, liq_count_pct_z_s, insert_dt
+            )
+            VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+                $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
+                $31, $32, $33, $34, $35, $36, $37, $38, $39, $40,
+                $41, $42, $43, $44, $45, $46, $47, $48, $49, $50,
+                $51, $52, $53, $54, $55, $56, $57, now()
+            )
+            "#;
+        sqlx::query(sql)
+        .bind(self.market_id)
+        .bind(self.tf.as_str())
+        .bind(self.datetime)
+        .bind(self.high)
+        .bind(self.low)
+        .bind(self.close)
+        .bind(self.atr_l)
+        .bind(self.atr_s)
+        .bind(&self.ma_filter)
+        .bind(&self.n_filter)
+        .bind(&self.prev)
+        .bind(self.return_z_l)
+        .bind(self.return_z_s)
+        .bind(self.tr_z_l)
+        .bind(self.tr_z_s)
+        .bind(self.upper_wick_z_l)
+        .bind(self.upper_wick_z_s)
+        .bind(self.body_z_l)
+        .bind(self.body_z_s)
+        .bind(self.lower_wick_z_l)
+        .bind(self.lower_wick_z_s)
+        .bind(self.volume_z_l)
+        .bind(self.volume_z_s)
+        .bind(self.volume_net_z_l)
+        .bind(self.volume_net_z_s)
+        .bind(self.volume_pct_z_l)
+        .bind(self.volume_pct_z_s)
+        .bind(self.volume_liq_z_l)
+        .bind(self.volume_liq_z_s)
+        .bind(self.volume_liq_net_z_l)
+        .bind(self.volume_liq_net_z_s)
+        .bind(self.volume_liq_pct_z_l)
+        .bind(self.volume_liq_pct_z_s)
+        .bind(self.value_z_l)
+        .bind(self.value_z_s)
+        .bind(self.value_net_z_l)
+        .bind(self.value_net_z_s)
+        .bind(self.value_pct_z_l)
+        .bind(self.value_pct_z_s)
+        .bind(self.value_liq_z_l)
+        .bind(self.value_liq_z_s)
+        .bind(self.value_liq_net_z_l)
+        .bind(self.value_liq_net_z_s)
+        .bind(self.value_liq_pct_z_l)
+        .bind(self.value_liq_pct_z_s)
+        .bind(self.trade_count_z_l)
+        .bind(self.trade_count_z_s)
+        .bind(self.trade_count_net_z_l)
+        .bind(self.trade_count_net_z_s)
+        .bind(self.trade_count_pct_z_l)
+        .bind(self.trade_count_pct_z_s)
+        .bind(self.liq_count_z_l)
+        .bind(self.liq_count_z_s)
+        .bind(self.liq_count_net_z_l)
+        .bind(self.liq_count_net_z_s)
+        .bind(self.liq_count_pct_z_l)
+        .bind(self.liq_count_pct_z_s)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+}
+
 impl ElDorado {
     pub async fn insert_metrics_ap(&self, metrics: &[MetricAP]) {
         for metric in metrics.iter() {
@@ -555,163 +725,42 @@ impl ElDorado {
     }
 }
 
-pub async fn insert_metric_ap(pool: &PgPool, metric: &MetricAP) -> Result<(), sqlx::Error> {
-    let sql = r#"
-        INSERT INTO metrics_ap (
-            exchange_name, market_name, datetime, time_frame, lbp, high, low, close, r, H004R, 
-            H004C, L004R,
-            L004C, H008R, H008C, L008R, L008C, H012R, H012C, L012R,
-            L012C, H024R, H024C, L024R, L024C, H048R, H048C, L048R,
-            L048C, H096R, H096C, L096R, L096C, H192R, H192C, L192R,
-            L192C, EMA1, EMA2, EMA3, MV1, MV2, MV3,
-            ofs, vs, rs, n, trs, uws, mbs, lws, ma, vw, insert_ts)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-            $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35,
-            $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52,
-            $53, now())
-        "#;
-    sqlx::query(sql)
-        .bind(metric.exchange_name.as_str())
-        .bind(&metric.market_name)
-        .bind(metric.datetime)
-        .bind(metric.time_frame.as_str())
-        .bind(metric.lbp)
-        .bind(metric.high)
-        .bind(metric.low)
-        .bind(metric.close)
-        .bind(metric.r)
-        .bind(metric.h004h)
-        .bind(metric.h004c)
-        .bind(metric.l004l)
-        .bind(metric.l004c)
-        .bind(metric.h008h)
-        .bind(metric.h008c)
-        .bind(metric.l008l)
-        .bind(metric.l008c)
-        .bind(metric.h012h)
-        .bind(metric.h012c)
-        .bind(metric.l012l)
-        .bind(metric.l012c)
-        .bind(metric.h024h)
-        .bind(metric.h024c)
-        .bind(metric.l024l)
-        .bind(metric.l024c)
-        .bind(metric.h048h)
-        .bind(metric.h048c)
-        .bind(metric.l048l)
-        .bind(metric.l048c)
-        .bind(metric.h096h)
-        .bind(metric.h096c)
-        .bind(metric.l096l)
-        .bind(metric.l096c)
-        .bind(metric.h192h)
-        .bind(metric.h192c)
-        .bind(metric.l192l)
-        .bind(metric.l192c)
-        .bind(metric.ema1)
-        .bind(metric.ema2)
-        .bind(metric.ema3)
-        .bind(metric.mv1)
-        .bind(metric.mv2)
-        .bind(metric.mv3)
-        .bind(metric.ofz)
-        .bind(metric.vz)
-        .bind(metric.rz)
-        .bind(metric.atr)
-        .bind(metric.trz)
-        .bind(metric.uwz)
-        .bind(metric.bz)
-        .bind(metric.lwz)
-        .bind(metric.ma)
-        .bind(metric.vw)
-        .execute(pool)
-        .await?;
-    Ok(())
-}
-
-pub async fn delete_metrics_ap_by_exchange_market(
-    pool: &PgPool,
-    exchange_name: &ExchangeName,
-    market: &MarketDetail,
-) -> Result<(), sqlx::Error> {
-    let sql = r#"
-        DELETE FROM metrics_ap
-        WHERE exchange_name = $1
-        AND market_name = $2
-        "#;
-    sqlx::query(sql)
-        .bind(exchange_name.as_str())
-        .bind(&market.market_name)
-        .execute(pool)
-        .await?;
-    Ok(())
-}
-
-pub async fn select_metrics_ap_by_exchange_market(
-    pool: &PgPool,
-    exchange_name: &ExchangeName,
-    markets: &[String],
-) -> Result<Vec<MetricAP>, sqlx::Error> {
-    let rows = sqlx::query_as!(
-        MetricAP,
-        r#"
-        SELECT exchange_name as "exchange_name: ExchangeName",
-            market_name,
-            datetime,
-            time_frame as "time_frame: TimeFrame",
-            lbp, high, low, close, r,
-            h004c,
-            l004c,
-            h004r as h004h,
-            l004r as l004l,
-            h008c,
-            l008c,
-            h008r as h008h,
-            l008r as l008l,
-            h012c,
-            l012c,
-            h012r as h012h,
-            l012r as l012l,
-            h024c,
-            l024c,
-            h024r as h024h,
-            l024r as l024l,
-            h048c,
-            l048c,
-            h048r as h048h,
-            l048r as l048l,
-            h096c,
-            l096c,
-            h096r as h096h,
-            l096r as l096l,
-            h192c,
-            l192c,
-            h192r as h192h,
-            l192r as l192l,
-            ema1, ema2, ema3, mv1, mv2, mv3, n as atr, vw, ma,
-            ofs as ofz, vs as vz, rs as rz, trs as trz, uws as uwz, mbs as bz, lws as lwz
-        FROM metrics_ap
-        WHERE exchange_name = $1
-        AND market_name = ANY($2)
-        "#,
-        exchange_name.as_str(),
-        markets
-    )
-    .fetch_all(pool)
-    .await?;
-    Ok(rows)
-}
-
 #[cfg(test)]
 mod tests {
     use crate::{
-        configuration::get_configuration,
+        configuration::{get_configuration, Database},
+        eldorado::ElDorado,
         exchanges::ExchangeName,
-        metrics::{select_metrics_ap_by_exchange_market, Metric},
+        metrics::{Metric, MetricAP, ResearchMetric},
     };
     use rust_decimal::prelude::*;
     use rust_decimal_macros::dec;
     use sqlx::PgPool;
+
+    #[tokio::test]
+    pub async fn research_metric_etl() {
+        // Using the sample research metrics file in the test directory:
+        //  1) Read file into ResearchMetric struct vec
+        //  2) Write vec to database
+        //  3) Read rows from database into struc vec
+        //  4) Read file into backtest struct
+        //  5) Read file into live struct
+        // 1)
+        let fp = std::path::Path::new("tests").join("AVAXUSD_d01_202205.csv");
+        let metrics = ResearchMetric::from_file(&fp);
+        // 2)
+        let eld = ElDorado::new().await.unwrap();
+        let drop = "DROP TABLE IF EXISTS research_metrics";
+        sqlx::query(drop).execute(&eld.pools[&Database::ElDorado]).await.expect("Failed to drop table.");
+        ResearchMetric::_create_table(&eld.pools[&Database::ElDorado])
+            .await
+            .expect("Failed to insert.");
+        for metric in metrics.iter() {
+            metric.insert(&eld.pools[&Database::ElDorado]).await.expect("Fialed to insert.");
+        }
+        // 3)
+        let metrics = ResearchMetric::select_all(&eld.pools[&Database::ElDorado]).await.expect("Failed to select all.");
+    }
 
     // #[tokio::test]
     // pub async fn new_metrics_calculations_and_times() {
@@ -749,142 +798,143 @@ mod tests {
     //     }
     // }
 
-    #[tokio::test]
-    pub async fn calc_daily_ema() {
-        // Get daily BTC-PERP candles from FTX
-        let client = crate::exchanges::client::RestClient::new(&ExchangeName::Ftx);
-        let mut candles = client
-            .get_ftx_candles::<crate::exchanges::ftx::Candle>("BTC-PERP", Some(86400), None, None)
-            .await
-            .expect("Failed to get candles.");
-        // Sort candles and put close prices into vector
-        candles.sort_by(|c1, c2| c1.time.cmp(&c2.time));
-        let vc: Vec<Decimal> = candles.iter().map(|c| c.close).collect();
-        // Calc the EMA
-        let period = 90 as i64;
-        let ewma = Metric::ewma(&vc, period);
-        println!("Candle Closes: {:?}", vc);
-        println!("EWMA {}: {:?}", period, ewma);
-    }
+    // #[tokio::test]
+    // pub async fn calc_daily_ema() {
+    //     // Get daily BTC-PERP candles from FTX
+    //     let client = crate::exchanges::client::RestClient::new(&ExchangeName::Ftx);
+    //     let mut candles = client
+    //         .get_ftx_candles::<crate::exchanges::ftx::Candle>("BTC-PERP", Some(86400), None, None)
+    //         .await
+    //         .expect("Failed to get candles.");
+    //     // Sort candles and put close prices into vector
+    //     candles.sort_by(|c1, c2| c1.time.cmp(&c2.time));
+    //     let vc: Vec<Decimal> = candles.iter().map(|c| c.close).collect();
+    //     // Calc the EMA
+    //     let period = 90 as i64;
+    //     let ewma = Metric::ewma(&vc, period);
+    //     println!("Candle Closes: {:?}", vc);
+    //     println!("EWMA {}: {:?}", period, ewma);
+    // }
 
-    #[tokio::test]
-    pub async fn calc_daily_ema_shift() {
-        // Get daily BTC-PERP candles from FTX
-        let client = crate::exchanges::client::RestClient::new(&ExchangeName::Ftx);
-        let mut candles = client
-            .get_ftx_candles::<crate::exchanges::ftx::Candle>("BTC-PERP", Some(86400), None, None)
-            .await
-            .expect("Failed to get candles.");
-        // Sort candles and put close prices into vector
-        candles.sort_by(|c1, c2| c1.time.cmp(&c2.time));
-        let vc: Vec<Decimal> = candles.iter().map(|c| c.close).collect();
-        // Calc the EMA
-        let period = 90 as i64;
-        let n = vc.len();
-        let ewma = Metric::ewma(&vc[..n - 1], period);
-        println!("Candle Closes: {:?}", vc);
-        println!("EWMA {}: {:?}", period, ewma);
-    }
+    // #[tokio::test]
+    // pub async fn calc_daily_ema_shift() {
+    //     // Get daily BTC-PERP candles from FTX
+    //     let client = crate::exchanges::client::RestClient::new(&ExchangeName::Ftx);
+    //     let mut candles = client
+    //         .get_ftx_candles::<crate::exchanges::ftx::Candle>("BTC-PERP", Some(86400), None, None)
+    //         .await
+    //         .expect("Failed to get candles.");
+    //     // Sort candles and put close prices into vector
+    //     candles.sort_by(|c1, c2| c1.time.cmp(&c2.time));
+    //     let vc: Vec<Decimal> = candles.iter().map(|c| c.close).collect();
+    //     // Calc the EMA
+    //     let period = 90 as i64;
+    //     let n = vc.len();
+    //     let ewma = Metric::ewma(&vc[..n - 1], period);
+    //     println!("Candle Closes: {:?}", vc);
+    //     println!("EWMA {}: {:?}", period, ewma);
+    // }
 
-    #[tokio::test]
-    pub async fn calc_atr() {
-        // Get daily BTC-PERP candles from FTX
-        let client = crate::exchanges::client::RestClient::new(&ExchangeName::Ftx);
-        let mut candles = client
-            .get_ftx_candles::<crate::exchanges::ftx::Candle>("BTC-PERP", Some(86400), None, None)
-            .await
-            .expect("Failed to get candles.");
-        // Sort candles and put tr values into vector
-        candles.sort_by(|c1, c2| c1.time.cmp(&c2.time));
-        let vtr = candles
-            .iter()
-            .fold((dec!(0), Vec::new()), |(c, mut vtr), can| {
-                let hl = can.high - can.low;
-                let tr = match c.is_zero() {
-                    true => hl,
-                    false => {
-                        let hpdc = (can.high - c).abs();
-                        let pdcl = (c - can.low).abs();
-                        hl.max(hpdc).max(pdcl)
-                    }
-                };
-                vtr.push(tr);
-                (can.close, vtr)
-            });
-        // Calc the EMA
-        let period = 14 as i64;
-        let ewma = Metric::ewma(&vtr.1, period);
-        println!("Candle TRs: {:?}", vtr.1);
-        println!("ATR {}: {:?}", period, ewma);
-    }
+    // #[tokio::test]
+    // pub async fn calc_atr() {
+    //     // Get daily BTC-PERP candles from FTX
+    //     let client = crate::exchanges::client::RestClient::new(&ExchangeName::Ftx);
+    //     let mut candles = client
+    //         .get_ftx_candles::<crate::exchanges::ftx::Candle>("BTC-PERP", Some(86400), None, None)
+    //         .await
+    //         .expect("Failed to get candles.");
+    //     // Sort candles and put tr values into vector
+    //     candles.sort_by(|c1, c2| c1.time.cmp(&c2.time));
+    //     let vtr = candles
+    //         .iter()
+    //         .fold((dec!(0), Vec::new()), |(c, mut vtr), can| {
+    //             let hl = can.high - can.low;
+    //             let tr = match c.is_zero() {
+    //                 true => hl,
+    //                 false => {
+    //                     let hpdc = (can.high - c).abs();
+    //                     let pdcl = (c - can.low).abs();
+    //                     hl.max(hpdc).max(pdcl)
+    //                 }
+    //             };
+    //             vtr.push(tr);
+    //             (can.close, vtr)
+    //         });
+    //     // Calc the EMA
+    //     let period = 14 as i64;
+    //     let ewma = Metric::ewma(&vtr.1, period);
+    //     println!("Candle TRs: {:?}", vtr.1);
+    //     println!("ATR {}: {:?}", period, ewma);
+    // }
 
-    #[tokio::test]
-    pub async fn calc_z_return() {
-        // Get daily BTC-PERP candles from FTX
-        let client = crate::exchanges::client::RestClient::new(&ExchangeName::Ftx);
-        let mut candles = client
-            .get_ftx_candles::<crate::exchanges::ftx::Candle>("BTC-PERP", Some(86400), None, None)
-            .await
-            .expect("Failed to get candles.");
-        // Sort candles and put tr values into vector
-        candles.sort_by(|c1, c2| c1.time.cmp(&c2.time));
-        let vr = candles
-            .iter()
-            .fold((dec!(0), Vec::new()), |(c, mut vr), can| {
-                let r = match c.is_zero() {
-                    true => dec!(0),
-                    false => can.close / c - dec!(1),
-                };
-                vr.push(r);
-                (can.close, vr)
-            });
-        // Calc the z-score of return
-        let lbp = 90;
-        let n = vr.1.len();
-        let range_start = n - lbp as usize;
-        let range_shift_start = range_start - 1;
-        let range_shift_end = n - 1;
-        let z = Metric::z(&vr.1, range_shift_start, range_shift_end);
-        println!("vr: {:?}", vr.1);
-        println!("z: {:?}", z);
-    }
+    // #[tokio::test]
+    // pub async fn calc_z_return() {
+    //     // Get daily BTC-PERP candles from FTX
+    //     let client = crate::exchanges::client::RestClient::new(&ExchangeName::Ftx);
+    //     let mut candles = client
+    //         .get_ftx_candles::<crate::exchanges::ftx::Candle>("BTC-PERP", Some(86400), None, None)
+    //         .await
+    //         .expect("Failed to get candles.");
+    //     // Sort candles and put tr values into vector
+    //     candles.sort_by(|c1, c2| c1.time.cmp(&c2.time));
+    //     let vr = candles
+    //         .iter()
+    //         .fold((dec!(0), Vec::new()), |(c, mut vr), can| {
+    //             let r = match c.is_zero() {
+    //                 true => dec!(0),
+    //                 false => can.close / c - dec!(1),
+    //             };
+    //             vr.push(r);
+    //             (can.close, vr)
+    //         });
+    //     // Calc the z-score of return
+    //     let lbp = 90;
+    //     let n = vr.1.len();
+    //     let range_start = n - lbp as usize;
+    //     let range_shift_start = range_start - 1;
+    //     let range_shift_end = n - 1;
+    //     let z = Metric::z(&vr.1, range_shift_start, range_shift_end);
+    //     println!("vr: {:?}", vr.1);
+    //     println!("z: {:?}", z);
+    // }
 
-    #[tokio::test]
-    pub async fn calc_dons() {
-        // Get daily BTC-PERP candles from FTX
-        let client = crate::exchanges::client::RestClient::new(&ExchangeName::Ftx);
-        let mut candles = client
-            .get_ftx_candles::<crate::exchanges::ftx::Candle>("BTC-PERP", Some(86400), None, None)
-            .await
-            .expect("Failed to get candles.");
-        // Sort candles and put close prices into vector
-        candles.sort_by(|c1, c2| c1.time.cmp(&c2.time));
-        let vc: Vec<Decimal> = candles.iter().map(|c| c.close).collect();
-        // let slice = &vc[0..50];
-        let dons = Metric::dons(&vc, &vc, &vc);
-        println!("Closes: {:?}", vc);
-        println!("Dons: {:?}", dons);
-    }
+    // #[tokio::test]
+    // pub async fn calc_dons() {
+    //     todo!("Use sample file and calc / compare");
+    //     // Get daily BTC-PERP candles from FTX
+    //     let client = crate::exchanges::client::RestClient::new(&ExchangeName::Ftx);
+    //     let mut candles = client
+    //         .get_ftx_candles::<crate::exchanges::ftx::Candle>("BTC-PERP", Some(86400), None, None)
+    //         .await
+    //         .expect("Failed to get candles.");
+    //     // Sort candles and put close prices into vector
+    //     candles.sort_by(|c1, c2| c1.time.cmp(&c2.time));
+    //     let vc: Vec<Decimal> = candles.iter().map(|c| c.close).collect();
+    //     // let slice = &vc[0..50];
+    //     let dons = Metric::dons(&vc, &vc, &vc);
+    //     println!("Closes: {:?}", vc);
+    //     println!("Dons: {:?}", dons);
+    // }
 
-    #[tokio::test]
-    pub async fn select_metrics_ap_by_exchange_market_maps_to_struct() {
-        // Load configuration
-        let configuration = get_configuration().expect("Failed to read configuration.");
-        println!("Configuration: {:?}", configuration);
-        // Create db connection
-        let pool = PgPool::connect_with(configuration.ed_db.with_db())
-            .await
-            .expect("Failed to connect to Postgres.");
-        // Create list of market names
-        let markets = vec![
-            "BTC-PERP".to_string(),
-            "ETH-PERP".to_string(),
-            "SOL-PERP".to_string(),
-        ];
-        // Select metrics for markets
-        let metrics = select_metrics_ap_by_exchange_market(&pool, &ExchangeName::Ftx, &markets)
-            .await
-            .expect("Failed to select metrics.");
-        println!("{:?}", metrics);
-    }
+    // #[tokio::test]
+    // pub async fn select_metrics_ap_by_exchange_market_maps_to_struct() {
+    //     // Load configuration
+    //     let configuration = get_configuration().expect("Failed to read configuration.");
+    //     println!("Configuration: {:?}", configuration);
+    //     // Create db connection
+    //     let pool = PgPool::connect_with(configuration.ed_db.with_db())
+    //         .await
+    //         .expect("Failed to connect to Postgres.");
+    //     // Create list of market names
+    //     let markets = vec![
+    //         "BTC-PERP".to_string(),
+    //         "ETH-PERP".to_string(),
+    //         "SOL-PERP".to_string(),
+    //     ];
+    //     // Select metrics for markets
+    //     let metrics = MetricAP::select_by_exchange_market(&pool, &ExchangeName::Ftx, &markets)
+    //         .await
+    //         .expect("Failed to select metrics.");
+    //     println!("{:?}", metrics);
+    // }
 }
