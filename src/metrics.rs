@@ -637,66 +637,148 @@ impl ResearchMetric {
             )
             "#;
         sqlx::query(sql)
-        .bind(self.market_id)
-        .bind(self.tf.as_str())
-        .bind(self.datetime)
-        .bind(self.high)
-        .bind(self.low)
-        .bind(self.close)
-        .bind(self.atr_l)
-        .bind(self.atr_s)
-        .bind(&self.ma_filter)
-        .bind(&self.n_filter)
-        .bind(&self.prev)
-        .bind(self.return_z_l)
-        .bind(self.return_z_s)
-        .bind(self.tr_z_l)
-        .bind(self.tr_z_s)
-        .bind(self.upper_wick_z_l)
-        .bind(self.upper_wick_z_s)
-        .bind(self.body_z_l)
-        .bind(self.body_z_s)
-        .bind(self.lower_wick_z_l)
-        .bind(self.lower_wick_z_s)
-        .bind(self.volume_z_l)
-        .bind(self.volume_z_s)
-        .bind(self.volume_net_z_l)
-        .bind(self.volume_net_z_s)
-        .bind(self.volume_pct_z_l)
-        .bind(self.volume_pct_z_s)
-        .bind(self.volume_liq_z_l)
-        .bind(self.volume_liq_z_s)
-        .bind(self.volume_liq_net_z_l)
-        .bind(self.volume_liq_net_z_s)
-        .bind(self.volume_liq_pct_z_l)
-        .bind(self.volume_liq_pct_z_s)
-        .bind(self.value_z_l)
-        .bind(self.value_z_s)
-        .bind(self.value_net_z_l)
-        .bind(self.value_net_z_s)
-        .bind(self.value_pct_z_l)
-        .bind(self.value_pct_z_s)
-        .bind(self.value_liq_z_l)
-        .bind(self.value_liq_z_s)
-        .bind(self.value_liq_net_z_l)
-        .bind(self.value_liq_net_z_s)
-        .bind(self.value_liq_pct_z_l)
-        .bind(self.value_liq_pct_z_s)
-        .bind(self.trade_count_z_l)
-        .bind(self.trade_count_z_s)
-        .bind(self.trade_count_net_z_l)
-        .bind(self.trade_count_net_z_s)
-        .bind(self.trade_count_pct_z_l)
-        .bind(self.trade_count_pct_z_s)
-        .bind(self.liq_count_z_l)
-        .bind(self.liq_count_z_s)
-        .bind(self.liq_count_net_z_l)
-        .bind(self.liq_count_net_z_s)
-        .bind(self.liq_count_pct_z_l)
-        .bind(self.liq_count_pct_z_s)
-        .execute(pool)
-        .await?;
+            .bind(self.market_id)
+            .bind(self.tf.as_str())
+            .bind(self.datetime)
+            .bind(self.high)
+            .bind(self.low)
+            .bind(self.close)
+            .bind(self.atr_l)
+            .bind(self.atr_s)
+            .bind(&self.ma_filter)
+            .bind(&self.n_filter)
+            .bind(&self.prev)
+            .bind(self.return_z_l)
+            .bind(self.return_z_s)
+            .bind(self.tr_z_l)
+            .bind(self.tr_z_s)
+            .bind(self.upper_wick_z_l)
+            .bind(self.upper_wick_z_s)
+            .bind(self.body_z_l)
+            .bind(self.body_z_s)
+            .bind(self.lower_wick_z_l)
+            .bind(self.lower_wick_z_s)
+            .bind(self.volume_z_l)
+            .bind(self.volume_z_s)
+            .bind(self.volume_net_z_l)
+            .bind(self.volume_net_z_s)
+            .bind(self.volume_pct_z_l)
+            .bind(self.volume_pct_z_s)
+            .bind(self.volume_liq_z_l)
+            .bind(self.volume_liq_z_s)
+            .bind(self.volume_liq_net_z_l)
+            .bind(self.volume_liq_net_z_s)
+            .bind(self.volume_liq_pct_z_l)
+            .bind(self.volume_liq_pct_z_s)
+            .bind(self.value_z_l)
+            .bind(self.value_z_s)
+            .bind(self.value_net_z_l)
+            .bind(self.value_net_z_s)
+            .bind(self.value_pct_z_l)
+            .bind(self.value_pct_z_s)
+            .bind(self.value_liq_z_l)
+            .bind(self.value_liq_z_s)
+            .bind(self.value_liq_net_z_l)
+            .bind(self.value_liq_net_z_s)
+            .bind(self.value_liq_pct_z_l)
+            .bind(self.value_liq_pct_z_s)
+            .bind(self.trade_count_z_l)
+            .bind(self.trade_count_z_s)
+            .bind(self.trade_count_net_z_l)
+            .bind(self.trade_count_net_z_s)
+            .bind(self.trade_count_pct_z_l)
+            .bind(self.trade_count_pct_z_s)
+            .bind(self.liq_count_z_l)
+            .bind(self.liq_count_z_s)
+            .bind(self.liq_count_net_z_l)
+            .bind(self.liq_count_net_z_s)
+            .bind(self.liq_count_pct_z_l)
+            .bind(self.liq_count_pct_z_s)
+            .execute(pool)
+            .await?;
         Ok(())
+    }
+
+    pub async fn select_all(pool: &PgPool) -> Result<Vec<Self>, sqlx::Error> {
+        let rows = sqlx::query_as!(
+            Self,
+            r#"
+            SELECT market_id,
+                tf as "tf: TimeFrame",
+                datetime, high, low, close, atr_l, atr_s, ma_filter, n_filter, prev,
+                return_z_l, return_z_s, tr_z_l, tr_z_s, upper_wick_z_l, upper_wick_z_s, body_z_l,
+                body_z_s, lower_wick_z_l, lower_wick_z_s, volume_z_l, volume_z_s, volume_net_z_l,
+                volume_net_z_s, volume_pct_z_l, volume_pct_z_s, volume_liq_z_l, volume_liq_z_s,
+                volume_liq_net_z_l, volume_liq_net_z_s, volume_liq_pct_z_l, volume_liq_pct_z_s,
+                value_z_l, value_z_s, value_net_z_l, value_net_z_s, value_pct_z_l, value_pct_z_s,
+                value_liq_z_l, value_liq_z_s, value_liq_net_z_l, value_liq_net_z_s,
+                value_liq_pct_z_l, value_liq_pct_z_s, trade_count_z_l, trade_count_z_s,
+                trade_count_net_z_l, trade_count_net_z_s, trade_count_pct_z_l, trade_count_pct_z_s,
+                liq_count_z_l, liq_count_z_s, liq_count_net_z_l, liq_count_net_z_s,
+                liq_count_pct_z_l, liq_count_pct_z_s
+            FROM research_metrics
+            "#,
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(rows)
+    }
+
+    pub async fn select_by_id(pool: &PgPool, market_id: &Uuid) -> Result<Vec<Self>, sqlx::Error> {
+        let rows = sqlx::query_as!(
+            Self,
+            r#"
+            SELECT market_id,
+                tf as "tf: TimeFrame",
+                datetime, high, low, close, atr_l, atr_s, ma_filter, n_filter, prev,
+                return_z_l, return_z_s, tr_z_l, tr_z_s, upper_wick_z_l, upper_wick_z_s, body_z_l,
+                body_z_s, lower_wick_z_l, lower_wick_z_s, volume_z_l, volume_z_s, volume_net_z_l,
+                volume_net_z_s, volume_pct_z_l, volume_pct_z_s, volume_liq_z_l, volume_liq_z_s,
+                volume_liq_net_z_l, volume_liq_net_z_s, volume_liq_pct_z_l, volume_liq_pct_z_s,
+                value_z_l, value_z_s, value_net_z_l, value_net_z_s, value_pct_z_l, value_pct_z_s,
+                value_liq_z_l, value_liq_z_s, value_liq_net_z_l, value_liq_net_z_s,
+                value_liq_pct_z_l, value_liq_pct_z_s, trade_count_z_l, trade_count_z_s,
+                trade_count_net_z_l, trade_count_net_z_s, trade_count_pct_z_l, trade_count_pct_z_s,
+                liq_count_z_l, liq_count_z_s, liq_count_net_z_l, liq_count_net_z_s,
+                liq_count_pct_z_l, liq_count_pct_z_s
+            FROM research_metrics
+            WHERE market_id = $1
+            "#,
+            market_id
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(rows)
+    }
+
+    pub async fn select_by_ids(
+        pool: &PgPool,
+        market_ids: &[Uuid],
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        let rows = sqlx::query_as!(
+            Self,
+            r#"
+            SELECT market_id,
+                tf as "tf: TimeFrame",
+                datetime, high, low, close, atr_l, atr_s, ma_filter, n_filter, prev,
+                return_z_l, return_z_s, tr_z_l, tr_z_s, upper_wick_z_l, upper_wick_z_s, body_z_l,
+                body_z_s, lower_wick_z_l, lower_wick_z_s, volume_z_l, volume_z_s, volume_net_z_l,
+                volume_net_z_s, volume_pct_z_l, volume_pct_z_s, volume_liq_z_l, volume_liq_z_s,
+                volume_liq_net_z_l, volume_liq_net_z_s, volume_liq_pct_z_l, volume_liq_pct_z_s,
+                value_z_l, value_z_s, value_net_z_l, value_net_z_s, value_pct_z_l, value_pct_z_s,
+                value_liq_z_l, value_liq_z_s, value_liq_net_z_l, value_liq_net_z_s,
+                value_liq_pct_z_l, value_liq_pct_z_s, trade_count_z_l, trade_count_z_s,
+                trade_count_net_z_l, trade_count_net_z_s, trade_count_pct_z_l, trade_count_pct_z_s,
+                liq_count_z_l, liq_count_z_s, liq_count_net_z_l, liq_count_net_z_s,
+                liq_count_pct_z_l, liq_count_pct_z_s
+            FROM research_metrics
+            WHERE market_id = ANY($1)
+            "#,
+            market_ids
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(rows)
     }
 }
 
@@ -727,15 +809,8 @@ impl ElDorado {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        configuration::{get_configuration, Database},
-        eldorado::ElDorado,
-        exchanges::ExchangeName,
-        metrics::{Metric, MetricAP, ResearchMetric},
-    };
-    use rust_decimal::prelude::*;
-    use rust_decimal_macros::dec;
-    use sqlx::PgPool;
+    use crate::{configuration::Database, eldorado::ElDorado, metrics::ResearchMetric};
+    use uuid::Uuid;
 
     #[tokio::test]
     pub async fn research_metric_etl() {
@@ -750,16 +825,33 @@ mod tests {
         let metrics = ResearchMetric::from_file(&fp);
         // 2)
         let eld = ElDorado::new().await.unwrap();
+        let pool = &eld.pools[&Database::ElDorado];
         let drop = "DROP TABLE IF EXISTS research_metrics";
-        sqlx::query(drop).execute(&eld.pools[&Database::ElDorado]).await.expect("Failed to drop table.");
-        ResearchMetric::_create_table(&eld.pools[&Database::ElDorado])
+        sqlx::query(drop)
+            .execute(pool)
+            .await
+            .expect("Failed to drop table.");
+        ResearchMetric::_create_table(pool)
             .await
             .expect("Failed to insert.");
         for metric in metrics.iter() {
-            metric.insert(&eld.pools[&Database::ElDorado]).await.expect("Fialed to insert.");
+            metric.insert(pool).await.expect("Fialed to insert.");
         }
         // 3)
-        let metrics = ResearchMetric::select_all(&eld.pools[&Database::ElDorado]).await.expect("Failed to select all.");
+        let metrics = ResearchMetric::select_all(pool)
+            .await
+            .expect("Failed to select all.");
+        println!("First Metric: {:?}", metrics.first());
+        let market_id = Uuid::parse_str("2e6c07eb-2bef-42d1-af74-620ed5879a89").unwrap();
+        let metrics = ResearchMetric::select_by_id(pool, &market_id)
+            .await
+            .expect("Failed to select metrrics.");
+        println!("First Metric: {:?}", metrics.first());
+        let market_ids = vec![market_id];
+        let metrics = ResearchMetric::select_by_ids(pool, &market_ids)
+            .await
+            .expect("Failed to select metrics.");
+        println!("First Metric: {:?}", metrics.first());
     }
 
     // #[tokio::test]

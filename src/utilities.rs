@@ -1,6 +1,8 @@
 use chrono::{DateTime, Datelike, Duration, DurationRound, TimeZone, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
+use serde::Deserialize;
+use serde::Serialize;
 use sqlx::PgPool;
 use std::convert::TryFrom;
 use std::env;
@@ -247,8 +249,9 @@ impl Twilio {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type, Serialize, Deserialize)]
 #[sqlx(rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
 pub enum TimeFrame {
     S15,
     S30,
