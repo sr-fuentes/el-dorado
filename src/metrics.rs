@@ -165,14 +165,6 @@ pub struct ResearchMetric {
     pub liq_count_pct_z_s: Decimal,
 }
 
-pub struct MarketMetric {
-    pub market_id: Uuid,
-    pub market_name: String,
-    pub exchange_name: ExchangeName,
-    pub as_of_dt: DateTime<Utc>,
-    pub metrics: HashMap<TimeFrame, ResearchMetric>,
-}
-
 pub struct Metric {}
 
 impl Metric {
@@ -780,6 +772,20 @@ impl ResearchMetric {
         .await?;
         Ok(rows)
     }
+
+    pub fn map_by_id_tf(metrics: &[Self]) -> HashMap<Uuid, HashMap<TimeFrame, Vec<Self>>> {
+        let mut map: HashMap<Uuid, HashMap<TimeFrame, Vec<ResearchMetric>>> = HashMap::new();
+        for metric in metrics.iter() {
+            map.entry(metric.market_id)
+                .and_modify(|hm| {
+                    hm.entry(metric.tf)
+                        .and_modify(|v| v.push(metric.clone()))
+                        .or_insert_with(|| vec![metric.clone()]);
+                })
+                .or_insert_with(|| HashMap::from([(metric.tf, vec![metric.clone()])]));
+        }
+        map
+    }
 }
 
 impl ElDorado {
@@ -852,6 +858,8 @@ mod tests {
             .await
             .expect("Failed to select metrics.");
         println!("First Metric: {:?}", metrics.first());
+        let mapped_metrics = ResearchMetric::map_by_id_tf(&metrics);
+        println!("Mapped metrics: {:?}", mapped_metrics);
     }
 
     // #[tokio::test]
