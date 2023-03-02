@@ -111,7 +111,7 @@ impl ElDorado {
         // If the date given is less than 2 days in the future, increment the date and
         // create tables for the date before returning it
         if dt < Utc::now().duration_trunc(Duration::days(1)).unwrap() + Duration::days(2) {
-            dt = dt + Duration::days(1);
+            dt += Duration::days(1);
             self.create_trade_tables_all_markets(dt).await;
             dt
         } else {
@@ -317,7 +317,7 @@ impl ElDorado {
                     &market.market_name,
                     Some(1000),
                     None,
-                    Some(last_trade_id as i32 + 1001),
+                    Some(last_trade_id + 1001),
                 )
                 .await
             {

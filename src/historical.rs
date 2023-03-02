@@ -428,7 +428,7 @@ impl ElDorado {
                 .await
                 .expect("Failed to get ftx trades.");
             if trades.is_empty() {
-                start_dt = start_dt + Duration::days(1)
+                start_dt += Duration::days(1)
             } else {
                 println!("Trades exist. Use start of day.");
                 break;
@@ -743,17 +743,14 @@ impl ElDorado {
             None => self.select_markets_eligible_for_fill().await,
         };
         // Check if there are markets to fill
-        match markets {
-            Some(m) => {
-                // For each market: fill back than forward until either fully synced or manual
-                // input to stop
-                for market in m.iter() {
-                    // Fill the market backward than forward until either the current date or
-                    // there is a manual rejection or if automated - a validation fails
-                    self.fill_market(market, &automate).await;
-                }
+        if let Some(m) = markets {
+            // For each market: fill back than forward until either fully synced or manual
+            // input to stop
+            for market in m.iter() {
+                // Fill the market backward than forward until either the current date or
+                // there is a manual rejection or if automated - a validation fails
+                self.fill_market(market, &automate).await;
             }
-            None => (),
         }
     }
 
@@ -1411,7 +1408,7 @@ impl ElDorado {
             // Create directories in the correct location
             std::fs::create_dir_all(path).expect("Failed to create directories.");
             // File exists but in wrong location - copy to correct location
-            std::fs::rename(bf_path, &fb).expect("Failed to copy file from location 3.");
+            std::fs::rename(bf_path, fb).expect("Failed to copy file from location 3.");
         };
         // Try location 2
         let bad_archive_path = format!("{}/csv/gdax/gdax", &self.storage_path,);
@@ -1419,9 +1416,9 @@ impl ElDorado {
         if bf_path.exists() {
             println!("File in location 2. Moving to correct location.");
             // Create directories in the correct location
-            std::fs::create_dir_all(&path).expect("Failed to create directories.");
+            std::fs::create_dir_all(path).expect("Failed to create directories.");
             // File exists but in wrong location - copy to correct location
-            std::fs::rename(bf_path, &fb).expect("Failed to copy file from location 2.");
+            std::fs::rename(bf_path, fb).expect("Failed to copy file from location 2.");
         };
     }
 

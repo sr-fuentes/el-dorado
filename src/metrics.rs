@@ -600,7 +600,7 @@ impl ResearchMetric {
                 insert_dt timestamptz NOT NULL
             )
             "#;
-        sqlx::query(&sql).execute(pool).await?;
+        sqlx::query(sql).execute(pool).await?;
         Ok(())
     }
 

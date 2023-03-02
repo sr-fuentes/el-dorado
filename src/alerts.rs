@@ -42,11 +42,11 @@ impl Alert {
             VALUES ($1, $2, $3, $4, $5, $6)
             "#;
         sqlx::query(sql)
-            .bind(&self.alert_id)
-            .bind(&self.instance_type.as_str())
+            .bind(self.alert_id)
+            .bind(self.instance_type.as_str())
             .bind(&self.droplet)
-            .bind(&self.exchange_name.map(|e| e.as_str()))
-            .bind(&self.timestamp)
+            .bind(self.exchange_name.map(|e| e.as_str()))
+            .bind(self.timestamp)
             .bind(&self.message)
             .execute(pool)
             .await?;

@@ -30,7 +30,7 @@ impl DateRange {
         let mut dr = Vec::new();
         while next < *end {
             dr.push(next);
-            next = next + tf.as_dur();
+            next += tf.as_dur();
         }
         if !dr.is_empty() {
             let first = dr.first().expect("Expected first dt in dr.");
@@ -83,7 +83,7 @@ impl ElDorado {
         let mut date_range = Vec::new();
         while dr_start < *end {
             date_range.push(dr_start);
-            dr_start = dr_start + tf.as_dur();
+            dr_start += tf.as_dur();
         }
         date_range
     }
