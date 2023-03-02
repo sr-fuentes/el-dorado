@@ -201,12 +201,22 @@ impl WebSocket {
             }
             Response::Gdax(v) => {
                 if v["type"] == "ticker" {
-                    let product_id = serde_json::from_value(v["product_id"].clone()).unwrap();
+                    let product_id: String =
+                        serde_json::from_value(v["product_id"].clone()).unwrap();
                     // println!("V: {:?}", v);
                     // println!("Product Id: {:?}", product_id);
-                    let trade: GdaxTrade = serde_json::from_value(v).unwrap();
-                    self.buf
-                        .push_back((Some(product_id), Data::GdaxTrade(trade)))
+                    // let trade: GdaxTrade = serde_json::from_value(v).unwrap();
+                    // self.buf
+                    //     .push_back((Some(product_id), Data::GdaxTrade(trade)))
+                    let v2 = v.clone();
+                    match serde_json::from_value::<GdaxTrade>(v) {
+                        Ok(t) => self.buf.push_back((Some(product_id), Data::GdaxTrade(t))),
+                        Err(e) => {
+                            println!("Failed to parse gdax trade from serde json value.");
+                            println!("Value: {:?}", v2);
+                            panic!("Error: {:?}", e);
+                        }
+                    }
                 }
             }
         }
