@@ -161,6 +161,15 @@ impl ElDorado {
         }
     }
 
+    pub fn prev_month_dt(dt: &DateTime<Utc>) -> DateTime<Utc> {
+        let prev_month = dt.month() - 1;
+        if prev_month < 1 {
+            Utc.with_ymd_and_hms(dt.year() - 1, 12, 1, 0, 0, 0).unwrap()
+        } else {
+            Utc.with_ymd_and_hms(dt.year(), prev_month, 1, 0, 0, 0).unwrap()
+        }
+    }
+
     // Return the first of the month for a give datetime
     pub fn trunc_month_dt(dt: &DateTime<Utc>) -> DateTime<Utc> {
         Utc.with_ymd_and_hms(dt.year(), dt.month(), 1, 0, 0, 0)
