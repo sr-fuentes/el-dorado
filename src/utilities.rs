@@ -166,7 +166,8 @@ impl ElDorado {
         if prev_month < 1 {
             Utc.with_ymd_and_hms(dt.year() - 1, 12, 1, 0, 0, 0).unwrap()
         } else {
-            Utc.with_ymd_and_hms(dt.year(), prev_month, 1, 0, 0, 0).unwrap()
+            Utc.with_ymd_and_hms(dt.year(), prev_month, 1, 0, 0, 0)
+                .unwrap()
         }
     }
 
