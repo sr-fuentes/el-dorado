@@ -786,6 +786,64 @@ impl ResearchMetric {
         }
         map
     }
+
+    pub fn z_l(&self, metric: String) -> Decimal {
+        match metric.as_str() {
+            "return" => self.return_z_l,
+            "tr" => self.tr_z_l,
+            "upper_wick" => self.upper_wick_z_l,
+            "body" => self.body_z_l,
+            "lower_wick" => self.lower_wick_z_l,
+            "volume" => self.volume_z_l,
+            "volume_net" => self.value_net_z_l,
+            "volume_pct" => self.volume_pct_z_l,
+            "volume_liq" => self.volume_liq_z_l,
+            "volume_liq_net" => self.volume_liq_net_z_l,
+            "volume_liq_pct" => self.volume_liq_pct_z_l,
+            "value" => self.value_z_l,
+            "value_net" => self.value_net_z_l,
+            "value_pct" => self.value_pct_z_l,
+            "value_liq" => self.value_liq_z_l,
+            "value_liq_net" => self.value_liq_net_z_l,
+            "value_liq_pct" => self.value_liq_pct_z_l,
+            "trade_count" => self.trade_count_z_l,
+            "trade_count_net" => self.trade_count_net_z_l,
+            "trade_count_pct" => self.trade_count_pct_z_l,
+            "liq_count" => self.liq_count_z_l,
+            "liq_count_net" => self.liq_count_net_z_l,
+            "liq_count_pct" => self.liq_count_pct_z_l,
+            _ => panic!("{} not a valid metric.", metric),
+        }
+    }
+
+    pub fn z_s(&self, metric: String) -> Decimal {
+        match metric.as_str() {
+            "return" => self.return_z_s,
+            "tr" => self.tr_z_s,
+            "upper_wick" => self.upper_wick_z_s,
+            "body" => self.body_z_s,
+            "lower_wick" => self.lower_wick_z_s,
+            "volume" => self.volume_z_s,
+            "volume_net" => self.value_net_z_s,
+            "volume_pct" => self.volume_pct_z_s,
+            "volume_liq" => self.volume_liq_z_s,
+            "volume_liq_net" => self.volume_liq_net_z_s,
+            "volume_liq_pct" => self.volume_liq_pct_z_s,
+            "value" => self.value_z_s,
+            "value_net" => self.value_net_z_s,
+            "value_pct" => self.value_pct_z_s,
+            "value_liq" => self.value_liq_z_s,
+            "value_liq_net" => self.value_liq_net_z_s,
+            "value_liq_pct" => self.value_liq_pct_z_s,
+            "trade_count" => self.trade_count_z_s,
+            "trade_count_net" => self.trade_count_net_z_s,
+            "trade_count_pct" => self.trade_count_pct_z_s,
+            "liq_count" => self.liq_count_z_s,
+            "liq_count_net" => self.liq_count_net_z_s,
+            "liq_count_pct" => self.liq_count_pct_z_s,
+            _ => panic!("{} not a valid metric.", metric),
+        }
+    }
 }
 
 impl ElDorado {
