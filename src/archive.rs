@@ -22,14 +22,11 @@ impl ElDorado {
             None => self.select_markets_eligible_for_archive().await,
         };
         // Check there are markets to archive
-        match markets {
-            Some(m) => {
-                // For each market: pick up from last state and archive trades and candles
-                for market in m.iter() {
-                    self.archive_market(market).await;
-                }
+        if let Some(m) = markets {
+            // For each market: pick up from last state and archive trades and candles
+            for market in m.iter() {
+                self.archive_market(market).await;
             }
-            None => (),
         }
     }
 

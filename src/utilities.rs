@@ -1,6 +1,8 @@
 use chrono::{DateTime, Datelike, Duration, DurationRound, TimeZone, Utc};
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
+use serde::Deserialize;
+use serde::Serialize;
 use sqlx::PgPool;
 use std::convert::TryFrom;
 use std::env;
@@ -28,7 +30,7 @@ impl DateRange {
         let mut dr = Vec::new();
         while next < *end {
             dr.push(next);
-            next = next + tf.as_dur();
+            next += tf.as_dur();
         }
         if !dr.is_empty() {
             let first = dr.first().expect("Expected first dt in dr.");
@@ -81,7 +83,7 @@ impl ElDorado {
         let mut date_range = Vec::new();
         while dr_start < *end {
             date_range.push(dr_start);
-            dr_start = dr_start + tf.as_dur();
+            dr_start += tf.as_dur();
         }
         date_range
     }
@@ -155,6 +157,16 @@ impl ElDorado {
             Utc.with_ymd_and_hms(dt.year() + 1, 1, 1, 0, 0, 0).unwrap()
         } else {
             Utc.with_ymd_and_hms(dt.year(), next_month, 1, 0, 0, 0)
+                .unwrap()
+        }
+    }
+
+    pub fn prev_month_dt(dt: &DateTime<Utc>) -> DateTime<Utc> {
+        let prev_month = dt.month() - 1;
+        if prev_month < 1 {
+            Utc.with_ymd_and_hms(dt.year() - 1, 12, 1, 0, 0, 0).unwrap()
+        } else {
+            Utc.with_ymd_and_hms(dt.year(), prev_month, 1, 0, 0, 0)
                 .unwrap()
         }
     }
@@ -247,8 +259,11 @@ impl Twilio {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, sqlx::Type, Serialize, Deserialize, Ord, PartialOrd,
+)]
 #[sqlx(rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
 pub enum TimeFrame {
     S15,
     S30,
