@@ -14,13 +14,10 @@ pub struct Product {
     pub id: String,
     pub base_currency: String,
     pub quote_currency: String,
-    pub base_min_size: Option<Decimal>,
-    pub base_max_size: Option<Decimal>,
     pub quote_increment: Decimal,
     pub base_increment: Decimal,
     pub display_name: String,
-    pub min_market_funds: Decimal,         // Can this be int?
-    pub max_market_funds: Option<Decimal>, // Can this be int?
+    pub min_market_funds: Decimal,
     pub margin_enabled: bool,
     pub fx_stablecoin: Option<bool>,
     pub max_slippage_percentage: Option<Decimal>,
@@ -47,7 +44,7 @@ impl crate::utilities::Market for Product {
         crate::utilities::min_to_dp(self.quote_increment)
     }
     fn min_quantity(&self) -> Option<Decimal> {
-        self.base_min_size
+        Some(self.base_increment)
     }
     fn base_currency(&self) -> Option<String> {
         Some(self.base_currency.clone())

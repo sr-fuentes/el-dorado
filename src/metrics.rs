@@ -114,9 +114,9 @@ pub struct ResearchMetric {
     pub close: Decimal,
     pub atr_l: Decimal,
     pub atr_s: Decimal,
-    pub ma_filter: String,
-    pub n_filter: String,
-    pub prev: String,
+    pub ma_filter: MetricFilter,
+    pub n_filter: MetricFilter,
+    pub prev: MetricFilter,
     pub return_z_l: Decimal,
     pub return_z_s: Decimal,
     pub tr_z_l: Decimal,
@@ -163,6 +163,25 @@ pub struct ResearchMetric {
     pub liq_count_net_z_s: Decimal,
     pub liq_count_pct_z_l: Decimal,
     pub liq_count_pct_z_s: Decimal,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, sqlx::Type, Eq, PartialEq)]
+#[sqlx(rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum MetricFilter {
+    SML,
+    SLM,
+    MLS,
+    MSL,
+    LMS,
+    LSM,
+    SL,
+    LS,
+    Equal,
+    Up,
+    Down,
+    NC,
+    None,
 }
 
 pub struct Metric {}
@@ -697,7 +716,10 @@ impl ResearchMetric {
             r#"
             SELECT market_id,
                 tf as "tf: TimeFrame",
-                datetime, high, low, close, atr_l, atr_s, ma_filter, n_filter, prev,
+                datetime, high, low, close, atr_l, atr_s, 
+                ma_filter as "ma_filter: MetricFilter",
+                n_filter as "n_filter: MetricFilter", 
+                prev as "prev: MetricFilter",
                 return_z_l, return_z_s, tr_z_l, tr_z_s, upper_wick_z_l, upper_wick_z_s, body_z_l,
                 body_z_s, lower_wick_z_l, lower_wick_z_s, volume_z_l, volume_z_s, volume_net_z_l,
                 volume_net_z_s, volume_pct_z_l, volume_pct_z_s, volume_liq_z_l, volume_liq_z_s,
@@ -722,7 +744,10 @@ impl ResearchMetric {
             r#"
             SELECT market_id,
                 tf as "tf: TimeFrame",
-                datetime, high, low, close, atr_l, atr_s, ma_filter, n_filter, prev,
+                datetime, high, low, close, atr_l, atr_s, 
+                ma_filter as "ma_filter: MetricFilter",
+                n_filter as "n_filter: MetricFilter", 
+                prev as "prev: MetricFilter",
                 return_z_l, return_z_s, tr_z_l, tr_z_s, upper_wick_z_l, upper_wick_z_s, body_z_l,
                 body_z_s, lower_wick_z_l, lower_wick_z_s, volume_z_l, volume_z_s, volume_net_z_l,
                 volume_net_z_s, volume_pct_z_l, volume_pct_z_s, volume_liq_z_l, volume_liq_z_s,
@@ -752,7 +777,10 @@ impl ResearchMetric {
             r#"
             SELECT market_id,
                 tf as "tf: TimeFrame",
-                datetime, high, low, close, atr_l, atr_s, ma_filter, n_filter, prev,
+                datetime, high, low, close, atr_l, atr_s, 
+                ma_filter as "ma_filter: MetricFilter",
+                n_filter as "n_filter: MetricFilter", 
+                prev as "prev: MetricFilter",
                 return_z_l, return_z_s, tr_z_l, tr_z_s, upper_wick_z_l, upper_wick_z_s, body_z_l,
                 body_z_s, lower_wick_z_l, lower_wick_z_s, volume_z_l, volume_z_s, volume_net_z_l,
                 volume_net_z_s, volume_pct_z_l, volume_pct_z_s, volume_liq_z_l, volume_liq_z_s,
@@ -787,8 +815,8 @@ impl ResearchMetric {
         map
     }
 
-    pub fn z_l(&self, metric: String) -> Decimal {
-        match metric.as_str() {
+    pub fn z_l(&self, metric: &str) -> Decimal {
+        match metric {
             "return" => self.return_z_l,
             "tr" => self.tr_z_l,
             "upper_wick" => self.upper_wick_z_l,
@@ -816,8 +844,8 @@ impl ResearchMetric {
         }
     }
 
-    pub fn z_s(&self, metric: String) -> Decimal {
-        match metric.as_str() {
+    pub fn z_s(&self, metric: &str) -> Decimal {
+        match metric {
             "return" => self.return_z_s,
             "tr" => self.tr_z_s,
             "upper_wick" => self.upper_wick_z_s,
