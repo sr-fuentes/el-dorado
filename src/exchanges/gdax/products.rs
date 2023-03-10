@@ -156,7 +156,7 @@ impl crate::trades::Trade for Trade {
                 .format("%Y%m%d")
         );
         sqlx::query(&insert_sql)
-            .bind(market.market_id)
+            .bind(market.id)
             .bind(self.trade_id)
             .bind(self.price)
             .bind(self.size)

@@ -539,7 +539,7 @@ impl ElDorado {
         println!(
             "Selecting trades gte {} and lt {}",
             dr.first,
-            dr.last + market.candle_timeframe.unwrap().as_dur()
+            dr.last + market.tf.as_dur()
         );
         let mut trades = Vec::new();
         match DateRange::new(
@@ -559,7 +559,7 @@ impl ElDorado {
                         market,
                         d,
                         &dr.first,
-                        &(dr.last + market.candle_timeframe.unwrap().as_dur()),
+                        &(dr.last + market.tf.as_dur()),
                     )
                     .await
                     .expect("Failed to select trades.");
