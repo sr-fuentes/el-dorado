@@ -147,7 +147,7 @@ impl ElDorado {
     pub async fn refresh_exchange(&self) {
         match self.prompt_exchange_input().await {
             Some(e) => match e.name {
-                ExchangeName::Ftx | ExchangeName::FtxUs => self.refresh_ftx_markets(&e).await,
+                ExchangeName::Ftx | ExchangeName::FtxUs => println!("FTX / FTXUS API no longer active."), // self.refresh_ftx_markets(&e).await,
                 ExchangeName::Gdax => self.refresh_gdax_markets().await,
             },
             None => println!("No exchange to refresh."),
