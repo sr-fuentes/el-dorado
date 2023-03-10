@@ -2,7 +2,7 @@ use crate::{
     candles::ResearchCandle,
     configuration::Database,
     eldorado::ElDorado,
-    exchanges::{ftx::Market, gdax::Product, Exchange, ExchangeName},
+    exchanges::{    gdax::Product, Exchange, ExchangeName},
     trades::{PrIdTi, Trade},
     utilities::TimeFrame,
 };
@@ -15,36 +15,21 @@ use uuid::Uuid;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct MarketDetail {
-    pub market_id: Uuid,
+    pub id: Uuid,
     pub exchange_name: ExchangeName,
     pub market_name: String,
-    pub market_type: String,
-    pub base_currency: Option<String>,
-    pub quote_currency: Option<String>,
-    pub underlying: Option<String>,
-    pub market_status: MarketStatus,
-    pub market_data_status: MarketStatus,
+    pub market_type: MarketType,
+    pub base: Option<String>,
+    pub base_step: Option<Decimal>,
+    pub base_min: Option<Decimal>,
+    pub quote: Option<String>,
+    pub quote_step: Option<Decimal>,
+    pub status: MarketStatus,
+    pub tradable: bool,
     pub mita: Option<String>,
-    pub candle_timeframe: Option<TimeFrame>,
+    pub tf: TimeFrame,
     pub last_candle: Option<DateTime<Utc>>,
-}
-
-#[derive(Debug, PartialEq, Eq, sqlx::FromRow)]
-pub struct MarketRank {
-    pub market_id: Uuid,
-    pub market_name: String,
-    pub rank: i64,
-    pub rank_prev: Option<i64>,
-    pub mita_current: Option<String>,
-    pub mita_proposed: Option<String>,
-    pub usd_volume_24h: Decimal,
-    pub usd_volume_15t: Decimal,
-    pub ats_v1: Decimal,
-    pub ats_v2: Decimal,
-    pub mps: Decimal,
-    pub dp_quantity: i32,
-    pub dp_price: i32,
-    pub min_quantity: Decimal,
+    pub asset_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -143,6 +128,22 @@ impl MarketStatus {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
+#[sqlx(rename_all = "lowercase")]
+pub enum MarketType {
+    Spot,
+    Perpetual,
+}
+
+impl MarketType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            MarketType::Spot => "spot",
+            MarketType::Perpetual => "perpetual",
+        }
+    }
+}
+
 impl MarketDataStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -188,35 +189,21 @@ impl TryFrom<String> for MarketDataStatus {
 impl MarketDetail {
     pub fn new_from_gdax_product(product: &Product) -> Self {
         MarketDetail {
-            market_id: Uuid::new_v4(),
+            id: Uuid::new_v4(),
             exchange_name: ExchangeName::Gdax,
             market_name: product.id.clone(),
-            market_type: "spot".to_string(), // All gdax markets are spot
-            base_currency: Some(product.base_currency.clone()),
-            quote_currency: Some(product.quote_currency.clone()),
-            underlying: None,
-            market_status: MarketStatus::New,
-            market_data_status: MarketStatus::New,
+            market_type: MarketType::Spot, // All gdax markets are spot
+            base: Some(product.base_currency.clone()),
+            base_step: Some(product.base_increment),
+            base_min: Some(product.min_market_funds),
+            quote: Some(product.quote_currency.clone()),
+            quote_step: Some(product.quote_increment),
+            status: MarketStatus::New,
+            tradable: false,
             mita: None,
-            candle_timeframe: None,
+            tf: TimeFrame::D01,
             last_candle: None,
-        }
-    }
-
-    pub fn new_from_ftx_market(exchange: &Exchange, market: &Market) -> Self {
-        MarketDetail {
-            market_id: Uuid::new_v4(),
-            exchange_name: exchange.name,
-            market_name: market.name.clone(),
-            market_type: market.market_type.clone(),
-            base_currency: market.base_currency.clone(),
-            quote_currency: market.quote_currency.clone(),
-            underlying: market.underlying.clone(),
-            market_status: MarketStatus::New,
-            market_data_status: MarketStatus::New,
-            mita: None,
-            candle_timeframe: None,
-            last_candle: None,
+            asset_id: None,
         }
     }
 
@@ -224,26 +211,29 @@ impl MarketDetail {
         sqlx::query!(
             r#"
             INSERT INTO markets (
-                market_id, exchange_name, market_name, market_type, base_currency,
-                quote_currency, underlying, market_status, market_data_status, mita,
-                candle_timeframe, last_candle)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)    
+                id, exchange_name, market_name, market_type, base, base_step, base_min, quote,
+                quote_step, status, tradable, mita, tf, last_candle, asset_id
+            )
+            VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 
+                $11, $12, $13, $14, $15
+            )    
             "#,
-            self.market_id,
+            self.id,
             self.exchange_name.as_str(),
             self.market_name,
-            self.market_type,
-            self.base_currency,
-            self.quote_currency,
-            self.underlying,
-            self.market_status.as_str(),
-            self.market_data_status.as_str(),
+            self.market_type.as_str(),
+            self.base,
+            self.base_step,
+            self.base_min,
+            self.quote,
+            self.quote_step,
+            self.status.as_str(),
+            self.tradable,
             self.mita,
-            match self.candle_timeframe {
-                Some(tf) => Some(tf.as_str()),
-                None => None,
-            },
-            self.last_candle
+            self.tf.as_str(),
+            self.last_candle,
+            self.asset_id,
         )
         .execute(pool)
         .await?;
@@ -259,10 +249,10 @@ impl MarketDetail {
             r#"
             UPDATE markets
             SET last_candle  = $1
-            WHERE market_id = $2
+            WHERE id = $2
             "#,
             dt,
-            self.market_id,
+            self.id,
         )
         .execute(pool)
         .await?;
@@ -273,15 +263,22 @@ impl MarketDetail {
         let rows = sqlx::query_as!(
             Self,
             r#"
-            SELECT market_id,
+            SELECT id,
                 exchange_name as "exchange_name: ExchangeName",
-                market_name, market_type, base_currency, quote_currency, underlying,
-                market_status as "market_status: MarketStatus",
-                market_data_status as "market_data_status: MarketStatus",
+                market_name, 
+                market_type as "market_type: MarketType", 
+                base,
+                base_step,
+                base_min,
+                quote, 
+                quote_step,
+                status as "status: MarketStatus",
+                tradable,
                 mita,
-                candle_timeframe as "candle_timeframe: TimeFrame",
-                last_candle
-                FROM markets
+                tf as "tf: TimeFrame",
+                last_candle,
+                asset_id
+            FROM markets
             "#,
         )
         .fetch_all(pool)
@@ -293,19 +290,24 @@ impl MarketDetail {
         let rows = sqlx::query_as!(
             Self,
             r#"
-            SELECT m.market_id as "market_id!",
+            SELECT m.id as "id!",
                 m.exchange_name as "exchange_name!: ExchangeName",
                 m.market_name as "market_name!", 
-                m.market_type as "market_type!", 
-                m.base_currency, m.quote_currency, m.underlying,
-                m.market_status as "market_status!: MarketStatus",
-                m.market_data_status as "market_data_status!: MarketStatus",
+                m.market_type as "market_type!: MarketType", 
+                m.base,
+                m.base_step,
+                m.base_min,
+                m.quote,
+                m.quote_step,
+                m.status as "status!: MarketStatus",
+                m.tradable,
                 m.mita,
-                m.candle_timeframe as "candle_timeframe: TimeFrame",
-                m.last_candle
-                FROM markets m
-                INNER JOIN market_candle_details mcd
-                ON m.market_id = mcd.market_id
+                m.tf as "tf!: TimeFrame",
+                m.last_candle,
+                m.asset_id
+            FROM markets m
+            INNER JOIN market_candle_details mcd
+            ON m.id = mcd.market_id
             "#,
         )
         .fetch_all(pool)
@@ -321,15 +323,22 @@ impl MarketDetail {
         let rows = sqlx::query_as!(
             Self,
             r#"
-            SELECT market_id,
+            SELECT id,
                 exchange_name as "exchange_name: ExchangeName",
-                market_name, market_type, base_currency, quote_currency, underlying,
-                market_status as "market_status: MarketStatus",
-                market_data_status as "market_data_status: MarketStatus",
+                market_name, 
+                market_type as "market_type: MarketType", 
+                base,
+                base_step,
+                base_min,
+                quote, 
+                quote_step,
+                status as "status: MarketStatus",
+                tradable,
                 mita,
-                candle_timeframe as "candle_timeframe: TimeFrame",
-                last_candle
-                FROM markets
+                tf as "tf: TimeFrame",
+                last_candle,
+                asset_id
+            FROM markets
             WHERE exchange_name = $1
             AND mita = $2
             "#,
@@ -348,15 +357,22 @@ impl MarketDetail {
         let rows = sqlx::query_as!(
             Self,
             r#"
-            SELECT market_id,
+            SELECT id,
                 exchange_name as "exchange_name: ExchangeName",
-                market_name, market_type, base_currency, quote_currency, underlying,
-                market_status as "market_status: MarketStatus",
-                market_data_status as "market_data_status: MarketStatus",
+                market_name, 
+                market_type as "market_type: MarketType", 
+                base,
+                base_step,
+                base_min,
+                quote, 
+                quote_step,
+                status as "status: MarketStatus",
+                tradable,
                 mita,
-                candle_timeframe as "candle_timeframe: TimeFrame",
-                last_candle
-                FROM markets
+                tf as "tf: TimeFrame",
+                last_candle,
+                asset_id
+            FROM markets
             WHERE exchange_name = $1
             "#,
             exchange.as_str(),
@@ -373,16 +389,23 @@ impl MarketDetail {
         let rows = sqlx::query_as!(
             Self,
             r#"
-            SELECT market_id,
+            SELECT id,
                 exchange_name as "exchange_name: ExchangeName",
-                market_name, market_type, base_currency, quote_currency, underlying,
-                market_status as "market_status: MarketStatus",
-                market_data_status as "market_data_status: MarketStatus",
+                market_name, 
+                market_type as "market_type: MarketType", 
+                base,
+                base_step,
+                base_min,
+                quote, 
+                quote_step,
+                status as "status: MarketStatus",
+                tradable,
                 mita,
-                candle_timeframe as "candle_timeframe: TimeFrame",
-                last_candle
-                FROM markets
-            WHERE market_data_status = $1
+                tf as "tf: TimeFrame",
+                last_candle,
+                asset_id
+            FROM markets
+            WHERE status = $1
             "#,
             status.as_str(),
         )
@@ -395,16 +418,23 @@ impl MarketDetail {
         let row = sqlx::query_as!(
             Self,
             r#"
-            SELECT market_id,
+            SELECT id,
                 exchange_name as "exchange_name: ExchangeName",
-                market_name, market_type, base_currency, quote_currency, underlying,
-                market_status as "market_status: MarketStatus",
-                market_data_status as "market_data_status: MarketStatus",
+                market_name, 
+                market_type as "market_type: MarketType", 
+                base,
+                base_step,
+                base_min,
+                quote, 
+                quote_step,
+                status as "status: MarketStatus",
+                tradable,
                 mita,
-                candle_timeframe as "candle_timeframe: TimeFrame",
-                last_candle
-                FROM markets
-            WHERE market_id = $1
+                tf as "tf: TimeFrame",
+                last_candle,
+                asset_id
+            FROM markets
+            WHERE id = $1
             "#,
             market_id,
         )
@@ -426,7 +456,7 @@ impl MarketDetail {
             .await
             .expect("Failed to select markets.");
         for market in markets.iter() {
-            markets_by_id.insert(market.market_id, market.clone());
+            markets_by_id.insert(market.id, market.clone());
             markets_by_exchange_name
                 .entry(market.exchange_name)
                 .and_modify(|hm| {
@@ -444,7 +474,7 @@ impl MarketTradeDetail {
         // previous day
         // Create new market trade detail from market give the first trade provided.
         Self {
-            market_id: market.market_id,
+            market_id: market.id,
             market_start_ts: None,
             first_trade_ts: first_trade.dt,
             first_trade_id: first_trade.id.to_string(),
@@ -710,7 +740,7 @@ impl MarketTradeDetail {
             FROM market_trade_details
             WHERE market_id = $1
             "#,
-            market.market_id
+            market.id
         )
         .fetch_one(pool)
         .await?;
@@ -724,7 +754,7 @@ impl MarketCandleDetail {
         assert!(!candles.is_empty());
         let last = candles.last().unwrap();
         Self {
-            market_id: market.market_id,
+            market_id: market.id,
             exchange_name: market.exchange_name,
             market_name: market.market_name.clone(),
             time_frame: *tf,
@@ -820,7 +850,7 @@ impl MarketCandleDetail {
             FROM market_candle_details
             WHERE market_id = $1
             "#,
-            market.market_id
+            market.id
         )
         .fetch_one(pool)
         .await?;
@@ -844,7 +874,7 @@ impl MarketArchiveDetail {
         last_candle: &ResearchCandle,
     ) -> Self {
         Self {
-            market_id: market.market_id,
+            market_id: market.id,
             exchange_name: market.exchange_name,
             market_name: market.market_name.clone(),
             tf: *tf,
@@ -903,7 +933,7 @@ impl MarketArchiveDetail {
             FROM market_archive_details
             WHERE market_id = $1
             "#,
-            market.market_id
+            market.id
         )
         .fetch_one(pool)
         .await?;
@@ -976,209 +1006,6 @@ impl MarketArchiveDetail {
         })
     }
 }
-// impl Inquisidor {
-
-// pub async fn update_market_ranks(&self) {
-//     // Get user input for exchange to add
-//     let exchange: String = get_input("Enter Exchange to Rank:");
-//     // Parse input to see if there is a valid exchange
-//     let exchange: ExchangeName = exchange.try_into().unwrap();
-//     // Get current exchanges from db
-//     let exchanges = select_exchanges(&self.ig_pool)
-//         .await
-//         .expect("Failed to fetch exchanges.");
-//     // Compare input to existing exchanges
-//     if !exchanges.iter().any(|e| e.name == exchange) {
-//         // Exchange not added
-//         println!("{:?} has not been added to El-Dorado.", exchange);
-//         return;
-//     }
-//     match exchange {
-//         ExchangeName::Ftx | ExchangeName::FtxUs => {
-//             self.update_market_ranks_generic::<crate::exchanges::ftx::Market>(&exchange)
-//                 .await
-//         }
-
-//         ExchangeName::Gdax => {
-//             // I dont think this works..no volume on get products to rank
-//             self.update_market_ranks_generic::<crate::exchanges::gdax::Product>(&exchange)
-//                 .await
-//         }
-//     };
-// }
-
-// pub async fn update_market_ranks_generic<
-//     T: crate::utilities::Market + DeserializeOwned + std::clone::Clone,
-// >(
-//     &self,
-//     exchange: &ExchangeName,
-// ) {
-//     // Get terminated markets from database
-//     let markets_terminated = select_market_details_by_status_exchange(
-//         &self.ig_pool,
-//         exchange,
-//         &MarketStatus::Terminated,
-//     )
-//     .await
-//     .expect("Failed to select terminated markets.");
-//     // Get market details from db TODO: derive market term from this list to reduce db calls
-//     let market_details = select_market_details(&self.ig_pool)
-//         .await
-//         .expect("Failed to select market details.");
-//     // Get USD markets from exchange
-//     let markets_exch: Vec<T> = get_usd_markets(&self.clients[exchange], exchange).await;
-//     println!("# exchange markets: {}", markets_exch.len());
-//     // Filter out non-terminated markets and non-perp markets
-//     let mut filtered_markets: Vec<T> = match *exchange {
-//         ExchangeName::Ftx | ExchangeName::FtxUs => markets_exch
-//             .iter()
-//             .filter(|m| {
-//                 m.market_type() == "future"
-//                     && !markets_terminated
-//                         .iter()
-//                         .any(|tm| tm.market_name == m.name())
-//                     && m.name().split('-').last() == Some("PERP")
-//             })
-//             .cloned()
-//             .collect(),
-//         ExchangeName::Gdax => markets_exch,
-//     };
-//     // println!("Filtered markets: {:?}", filtered_markets);
-//     // Sort by 24h volume
-//     filtered_markets.sort_by_key(|m2| Reverse(m2.usd_volume_24h()));
-//     // Create ranks table and select current contents
-//     create_market_ranks_table(&self.ig_pool, exchange)
-//         .await
-//         .expect("Failed to create market ranks table.");
-//     let previous_ranks = select_market_ranks(&self.ig_pool, exchange)
-//         .await
-//         .expect("Failed to select market ranks.");
-//     // Create empty vec to hold new ranks
-//     let mut new_ranks = Vec::new();
-//     let proposal = self.mita_proposal();
-//     // Set rank counter = 1
-//     let mut rank: i64 = 1;
-//     for market in filtered_markets.iter() {
-//         // Check if there is a previous record for market
-//         let previous_rank = previous_ranks
-//             .iter()
-//             .find(|pr| pr.market_name == market.name());
-//         let rank_prev = previous_rank.map(|pr| pr.rank);
-//         // Get MarketDetail for id and current mita fields
-//         let market_detail = market_details
-//             .iter()
-//             .find(|md| md.market_name == market.name())
-//             .unwrap();
-//         let (market_id, mita_current) = (market_detail.market_id, market_detail.mita.clone());
-//         let proposed_mita = proposal.get(&rank).map(|m| m.to_string());
-//         // If previous mita is none AND the proposal is not none - set proposal to mita-09 as
-//         // It will need time to catch up and should not be streamed immediately
-//         let mita_proposed = if mita_current == None && proposed_mita != None {
-//             Some("mita-09".to_string())
-//         } else {
-//             proposed_mita
-//         };
-//         let new_rank = MarketRank {
-//             market_id,
-//             market_name: market.name(),
-//             rank,
-//             rank_prev,
-//             mita_current,
-//             mita_proposed,
-//             usd_volume_24h: market.usd_volume_24h().unwrap().round(),
-//             usd_volume_15t: (market.usd_volume_24h().unwrap() / dec!(96)).round(),
-//             ats_v1: (market.usd_volume_24h().unwrap() / dec!(24) * dec!(0.05)).round_dp(2),
-//             ats_v2: (market.usd_volume_24h().unwrap() / dec!(96) * dec!(0.05)).round_dp(2),
-//             mps: (market.usd_volume_24h().unwrap() * dec!(0.005)).round_dp(2),
-//             dp_quantity: market.dp_quantity(),
-//             dp_price: market.dp_price(),
-//             min_quantity: market.min_quantity().unwrap(),
-//         };
-//         new_ranks.push(new_rank);
-//         rank += 1;
-//     }
-//     // Drop market ranks table
-//     drop_market_ranks_table(&self.ig_pool, exchange)
-//         .await
-//         .expect("Failed to drop market ranks.");
-//     // Create market ranks table
-//     create_market_ranks_table(&self.ig_pool, exchange)
-//         .await
-//         .expect("Failed to create market ranks table.");
-//     // Insert markets
-//     for new_rank in new_ranks.iter() {
-//         // Insert rank
-//         insert_market_rank(&self.ig_pool, exchange, new_rank)
-//             .await
-//             .expect("Failed to insert market rank.");
-//     }
-// }
-
-// pub async fn update_market_mitas_from_ranks(&self) {
-//     // Get user input for exchange to add
-//     let exchange: String = get_input("Enter Exchange to Rank:");
-//     // Parse input to see if there is a valid exchange
-//     let exchange: ExchangeName = exchange.try_into().unwrap();
-//     // Get current exchanges from db
-//     let exchanges = select_exchanges(&self.ig_pool)
-//         .await
-//         .expect("Failed to fetch exchanges.");
-//     // Compare input to existing exchanges
-//     if !exchanges.iter().any(|e| e.name == exchange) {
-//         // Exchange not added
-//         println!("{:?} has not been added to El-Dorado.", exchange);
-//         return;
-//     }
-//     // Get market ranks for exchange
-//     let ranks = select_market_ranks(&self.ig_pool, &exchange)
-//         .await
-//         .expect("Failed to select market ranks.");
-//     // For each rank - update market mita column, update rank set current = proposed
-//     for rank in ranks.iter() {
-//         if rank.mita_current != rank.mita_proposed {
-//             // Update mita in markets table
-//             update_market_mita(&self.ig_pool, &rank.market_id, &rank.mita_proposed)
-//                 .await
-//                 .expect("Failed to update mita in markets.");
-//             // Update mita_current in market_ranks table
-//             update_market_ranks_current_mita(
-//                 &self.ig_pool,
-//                 &exchange,
-//                 &rank.mita_proposed,
-//                 &rank.market_id,
-//             )
-//             .await
-//             .expect("Failed to update mita in market ranks.");
-//         }
-//     }
-// }
-
-//     fn mita_proposal(&self) -> HashMap<i64, String> {
-//         let mut proposal = HashMap::new();
-//         // Create map for proposed mitas: 1-48 in streams, 49-75 in daily catchups
-//         proposal.insert("mita-01", vec![1, 40, 41]);
-//         proposal.insert("mita-02", vec![2, 39, 42]);
-//         proposal.insert("mita-03", vec![3, 14, 15, 26, 27, 38, 43]);
-//         proposal.insert("mita-04", vec![4, 13, 16, 25, 28, 37, 44]);
-//         proposal.insert("mita-05", vec![5, 12, 17, 24, 29, 36, 45]);
-//         proposal.insert("mita-06", vec![6, 11, 18, 23, 30, 35, 46]);
-//         proposal.insert("mita-07", vec![7, 10, 19, 22, 31, 34, 47]);
-//         proposal.insert("mita-08", vec![8, 9, 20, 21, 32, 33, 48]);
-//         let mut mita_09 = Vec::new();
-//         for i in 49..75 {
-//             mita_09.push(i);
-//         }
-//         proposal.insert("mita-09", mita_09);
-//         // Create map for return proposal (k,v) = (1,"mita-01")
-//         let mut proposal_map = HashMap::new();
-//         for (k, v) in proposal.iter() {
-//             for i in v.iter() {
-//                 proposal_map.insert(*i as i64, k.to_string());
-//             }
-//         }
-//         proposal_map
-//     }
-// }
 
 impl ElDorado {
     // Map a vec of market details to the two hashmaps needed for ElDorado instances so that lookups
@@ -1198,7 +1025,7 @@ impl ElDorado {
                     hm.insert(md.market_name.clone(), md.clone());
                 })
                 .or_insert_with(|| HashMap::from([(md.market_name.clone(), md.clone())]));
-            market_ids.insert(md.market_id, md.clone());
+            market_ids.insert(md.id, md.clone());
         }
         (markets, market_ids)
     }
@@ -1213,11 +1040,7 @@ impl ElDorado {
         // Filter for markets with a last candle
         let eligible_markets: Vec<MarketDetail> = markets
             .into_iter()
-            .filter(|m| {
-                m.last_candle.is_some()
-                    && m.candle_timeframe.is_some()
-                    && m.exchange_name == ExchangeName::Gdax
-            })
+            .filter(|m| m.last_candle.is_some() && m.exchange_name == ExchangeName::Gdax)
             .collect();
         if !eligible_markets.is_empty() {
             Some(eligible_markets)
@@ -1235,7 +1058,7 @@ impl ElDorado {
         // Filter for markets that are currently active
         let eligible_markets: Vec<MarketDetail> = markets
             .into_iter()
-            .filter(|m| m.market_status == MarketStatus::Active)
+            .filter(|m| m.status == MarketStatus::Active)
             .collect();
         if !eligible_markets.is_empty() {
             Some(eligible_markets)

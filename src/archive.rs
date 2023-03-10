@@ -11,9 +11,7 @@ impl ElDorado {
     pub async fn archive(&self, market: &Option<MarketDetail>) {
         let markets = match market {
             Some(m) => {
-                if m.market_status == MarketStatus::Active
-                    && m.market_data_status == MarketStatus::Active
-                {
+                if m.status == MarketStatus::Active {
                     Some([m.clone()].to_vec())
                 } else {
                     None

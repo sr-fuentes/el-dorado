@@ -106,10 +106,8 @@ impl ElDorado {
         heartbeat: &Heartbeat,
         dt: &DateTime<Utc>,
     ) -> Option<DateTime<Utc>> {
-        let trunc_dt = dt
-            .duration_trunc(market.candle_timeframe.unwrap().as_dur())
-            .unwrap();
-        if trunc_dt > heartbeat.ts + market.candle_timeframe.unwrap().as_dur() {
+        let trunc_dt = dt.duration_trunc(market.tf.as_dur()).unwrap();
+        if trunc_dt > heartbeat.ts + market.tf.as_dur() {
             println!(
                 "{} - Checking interval.\tTrunc dt: {}\tHeartbeat TS: {}",
                 Utc::now(),
@@ -158,12 +156,8 @@ impl ElDorado {
             "Process new interval for {} with dt {}.",
             market.market_name, interval_end
         );
-        let interval_start = heartbeat.ts + market.candle_timeframe.unwrap().as_dur();
-        match DateRange::new(
-            &interval_start,
-            interval_end,
-            &market.candle_timeframe.expect("No Candle Timefram."),
-        ) {
+        let interval_start = heartbeat.ts + market.tf.as_dur();
+        match DateRange::new(&interval_start, interval_end, &market.tf) {
             Some(dr) => {
                 println!("Process interval dr: {:?}", dr);
                 // There are intervals to process, process then run metrics
@@ -219,7 +213,7 @@ impl ElDorado {
         let last_ts = last.datetime;
         let last_pridti = last.close_as_pridti();
         let mut candles_map = HashMap::new();
-        let base_tf = market.candle_timeframe.unwrap();
+        let base_tf = market.tf;
         let mut base_candles = heartbeat.candles[&base_tf].clone();
         base_candles.append(&mut candles);
         candles_map.insert(base_tf, base_candles);

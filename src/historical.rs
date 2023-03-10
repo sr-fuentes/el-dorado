@@ -216,7 +216,7 @@ impl ElDorado {
                 &(mcd.last_candle + mcd.time_frame.as_dur()),
                 archive_candles.first().unwrap().datetime
             );
-        } else if market.candle_timeframe.unwrap() == mcd.time_frame {
+        } else if market.tf == mcd.time_frame {
             // Candles are already in time frame. Convert the candles to prod candles.
             archive_candles
                 .iter()
@@ -226,18 +226,14 @@ impl ElDorado {
             // Resample candles to market time frame and convert to prod candles.
             println!(
                 "Resampling MCD candles from {} to {}.",
-                mcd.time_frame,
-                market.candle_timeframe.unwrap()
+                mcd.time_frame, market.tf
             );
-            self.resample_and_convert_research_candles_by_hashmap_v2(
-                &archive_candles,
-                &market.candle_timeframe.unwrap(),
-            )
+            self.resample_and_convert_research_candles_by_hashmap_v2(&archive_candles, &market.tf)
         };
         // Return the prepped candles ready for sync and new sync start and pridti
         let last = candles.last().unwrap();
         (
-            last.datetime + market.candle_timeframe.unwrap().as_dur(),
+            last.datetime + market.tf.as_dur(),
             last.close_as_pridti(),
             candles,
         )
@@ -331,7 +327,7 @@ impl ElDorado {
             // Return the prepped candles ready for sync and new sync start and pridti
             let last = candles.last().unwrap();
             Some((
-                last.datetime + market.candle_timeframe.unwrap().as_dur(),
+                last.datetime + market.tf.as_dur(),
                 last.close_as_pridti(),
                 candles,
             ))
@@ -350,11 +346,7 @@ impl ElDorado {
         println!("Trying ElD start.");
         // Check if production candle table exists for market
         if self
-            .candle_table_exists(
-                market,
-                &market.candle_timeframe.unwrap(),
-                &CandleType::Production,
-            )
+            .candle_table_exists(market, &market.tf, &CandleType::Production)
             .await
         {
             self.use_eld_start(market, sync_start).await
@@ -365,13 +357,9 @@ impl ElDorado {
                 ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
                 ExchangeName::Gdax => Database::Gdax,
             };
-            ProductionCandle::create_table(
-                &self.pools[&db],
-                market,
-                &market.candle_timeframe.unwrap(),
-            )
-            .await
-            .expect("Failed to create candle table.");
+            ProductionCandle::create_table(&self.pools[&db], market, &market.tf)
+                .await
+                .expect("Failed to create candle table.");
             None
         }
     }
@@ -402,7 +390,7 @@ impl ElDorado {
         } else {
             let last = candles.last().unwrap();
             Some((
-                last.datetime + market.candle_timeframe.unwrap().as_dur(),
+                last.datetime + market.tf.as_dur(),
                 last.close_as_pridti(),
                 candles,
             ))
@@ -496,11 +484,7 @@ impl ElDorado {
                 .as_pridti()
         };
         (
-            last_trade
-                .dt
-                .duration_trunc(market.candle_timeframe.unwrap().as_dur())
-                .unwrap()
-                + market.candle_timeframe.unwrap().as_dur(),
+            last_trade.dt.duration_trunc(market.tf.as_dur()).unwrap() + market.tf.as_dur(),
             Some(last_trade),
         )
     }
@@ -603,11 +587,7 @@ impl ElDorado {
                     Some(cs) => {
                         for candle in cs.iter() {
                             candle
-                                .insert(
-                                    &self.pools[&Database::Ftx],
-                                    market,
-                                    &market.candle_timeframe.unwrap(),
-                                )
+                                .insert(&self.pools[&Database::Ftx], market, &market.tf)
                                 .await
                                 .expect("Failed to insert candle.");
                         }
@@ -650,11 +630,7 @@ impl ElDorado {
                     Some(cs) => {
                         for candle in cs.iter() {
                             candle
-                                .insert(
-                                    &self.pools[&Database::Gdax],
-                                    market,
-                                    &market.candle_timeframe.unwrap(),
-                                )
+                                .insert(&self.pools[&Database::Gdax], market, &market.tf)
                                 .await
                                 .expect("Failed to insert candle.");
                         }
@@ -679,9 +655,7 @@ impl ElDorado {
         println!("Last TS: {}", last_ts);
         let last_pridti = last.close_as_pridti();
         let mut candles_map = HashMap::new();
-        let base_tf = market
-            .candle_timeframe
-            .expect("Expected timeframe for market.");
+        let base_tf = market.tf;
         println!("Mapping base tf {} from production candles.", base_tf);
         candles_map.insert(base_tf, candles);
         for tf in TimeFrame::time_frames().iter().skip(1) {
@@ -757,13 +731,10 @@ impl ElDorado {
     async fn validate_market_eligible_for_fill(&self, market: &MarketDetail) -> bool {
         // Market detail must contain a last candle value - meaning that it has been initialized
         // and run. The market must also be active.
-        if market.market_data_status != MarketStatus::Active
-            || market.last_candle.is_none()
-            || market.candle_timeframe.is_none()
-        {
+        if market.status != MarketStatus::Active || market.last_candle.is_none() {
             println!(
                 "{} not eligible for fill. Status: {:?}\tLast Candle: {:?}",
-                market.market_name, market.market_data_status, market.last_candle
+                market.market_name, market.status, market.last_candle
             );
             false
         } else {
@@ -790,11 +761,7 @@ impl ElDorado {
             // Check that production candles table is created
             println!("Checking production candle tables are created.");
             if !self
-                .candle_table_exists(
-                    market,
-                    &market.candle_timeframe.unwrap(),
-                    &CandleType::Production,
-                )
+                .candle_table_exists(market, &market.tf, &CandleType::Production)
                 .await
             {
                 println!("Creating production candle table.");
@@ -802,13 +769,9 @@ impl ElDorado {
                     ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
                     ExchangeName::Gdax => Database::Gdax,
                 };
-                ProductionCandle::create_table(
-                    &self.pools[&db],
-                    market,
-                    &market.candle_timeframe.unwrap(),
-                )
-                .await
-                .expect("Failed to create candle table.");
+                ProductionCandle::create_table(&self.pools[&db], market, &market.tf)
+                    .await
+                    .expect("Failed to create candle table.");
             } else {
                 println!("Table exists.");
             }
@@ -1283,7 +1246,7 @@ impl ElDorado {
         ProductionCandle::delete_lt_dt(
             &self.pools[&db],
             market,
-            &market.candle_timeframe.expect("Expected candle timeframe."),
+            &market.tf,
             &(*dt + Duration::days(1)),
         )
         .await

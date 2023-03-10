@@ -537,7 +537,7 @@ impl ProductionCandle {
             "#,
             market.exchange_name.as_str(),
             market.as_strip(),
-            market.candle_timeframe.unwrap().as_str(),
+            market.tf.as_str(),
         );
         let rows = sqlx::query_as::<_, ProductionCandle>(&sql)
             .bind(dt)
@@ -562,7 +562,7 @@ impl ProductionCandle {
             "#,
             market.exchange_name.as_str(),
             market.as_strip(),
-            market.candle_timeframe.unwrap().as_str(),
+            market.tf.as_str(),
         );
         let row = sqlx::query_as::<_, ProductionCandle>(&sql)
             .bind(dt)
@@ -582,7 +582,7 @@ impl ProductionCandle {
             "#,
             market.exchange_name.as_str(),
             market.as_strip(),
-            market.candle_timeframe.unwrap().as_str(),
+            market.tf.as_str(),
         );
         let row = sqlx::query_as::<_, ProductionCandle>(&sql)
             .fetch_one(pool)
@@ -604,7 +604,7 @@ impl ProductionCandle {
             "#,
             market.exchange_name.as_str(),
             market.as_strip(),
-            market.candle_timeframe.unwrap().as_str(),
+            market.tf.as_str(),
         );
         let row = sqlx::query_as::<_, ProductionCandle>(&sql)
             .fetch_one(pool)
@@ -644,7 +644,7 @@ impl ProductionCandle {
             "#,
             market.exchange_name.as_str(),
             market.as_strip(),
-            market.candle_timeframe.unwrap().as_str(),
+            market.tf.as_str(),
         );
         sqlx::query(&sql).bind(dt).execute(pool).await?;
         Ok(())
@@ -1731,7 +1731,7 @@ impl DailyCandle {
             ORDER BY datetime
             "#;
         let row = sqlx::query_as::<_, DailyCandle>(sql)
-            .bind(market.market_id)
+            .bind(market.id)
             .fetch_one(pool)
             .await?;
         Ok(row)
@@ -2035,7 +2035,7 @@ impl ElDorado {
                     None
                 } else {
                     let dr = self.create_candles_dr_for_dt(
-                        &market.candle_timeframe.unwrap(),
+                        &market.tf,
                         dt,
                         last_trade,
                         trades.first().unwrap(),
@@ -2047,10 +2047,7 @@ impl ElDorado {
                         dr.last().unwrap()
                     );
                     Some(ProductionCandle::from_trades_for_dr(
-                        &trades,
-                        last_trade,
-                        &market.candle_timeframe.unwrap(),
-                        &dr,
+                        &trades, last_trade, &market.tf, &dr,
                     ))
                 }
             }
@@ -2063,7 +2060,7 @@ impl ElDorado {
                     None
                 } else {
                     let dr = self.create_candles_dr_for_dt(
-                        &market.candle_timeframe.unwrap(),
+                        &market.tf,
                         dt,
                         last_trade,
                         trades.first().unwrap(),
@@ -2075,10 +2072,7 @@ impl ElDorado {
                         dr.last().unwrap()
                     );
                     Some(ProductionCandle::from_trades_for_dr(
-                        &trades,
-                        last_trade,
-                        &market.candle_timeframe.unwrap(),
-                        &dr,
+                        &trades, last_trade, &market.tf, &dr,
                     ))
                 }
             }
@@ -2101,18 +2095,10 @@ impl ElDorado {
             // Rare edge case where there are not trades on the day - can happen with
             // exchange outages like Kraken in Jan 2018 create a date range for day
             // so that 0 volume candles are created
-            self.create_date_range(
-                dt,
-                &(*dt + Duration::days(1)),
-                &market.candle_timeframe.unwrap(),
-            )
+            self.create_date_range(dt, &(*dt + Duration::days(1)), &market.tf)
         } else if trades.is_empty() {
             // Handle scenario 1 with no trades but interval is not 1 day
-            self.create_date_range(
-                interval_start,
-                interval_end,
-                &market.candle_timeframe.unwrap(),
-            )
+            self.create_date_range(interval_start, interval_end, &market.tf)
         } else {
             // Set last trade to start if start is None
             self.create_fill_candles_dr(
@@ -2133,7 +2119,7 @@ impl ElDorado {
             Some(ProductionCandle::from_trades_for_dr(
                 trades,
                 *last_trade,
-                &market.candle_timeframe.unwrap(),
+                &market.tf,
                 &dr,
             ))
         } else {
@@ -2157,7 +2143,7 @@ impl ElDorado {
                         ProductionCandle::from_trades_for_dr(
                             &trades,
                             Some(*last_trade),
-                            &market.candle_timeframe.unwrap(),
+                            &market.tf,
                             &dr.dts,
                         ),
                 )
@@ -2205,15 +2191,10 @@ impl ElDorado {
             Some(_) => *interval_start,
             // There have been no previous trades or candles loaded for sync. If there are
             // trades on the date given, the first trade is when the candles should start.
-            None => trade
-                .time()
-                .duration_trunc(market.candle_timeframe.unwrap().as_dur())
-                .unwrap(),
+            None => trade.time().duration_trunc(market.tf.as_dur()).unwrap(),
         };
-        let dr_end = interval_end
-            .duration_trunc(market.candle_timeframe.unwrap().as_dur())
-            .unwrap();
-        self.create_date_range(&dr_start, &dr_end, &market.candle_timeframe.unwrap())
+        let dr_end = interval_end.duration_trunc(market.tf.as_dur()).unwrap();
+        self.create_date_range(&dr_start, &dr_end, &market.tf)
     }
 
     pub async fn insert_production_candles(
@@ -2227,7 +2208,7 @@ impl ElDorado {
         };
         for candle in candles.iter() {
             candle
-                .insert(&self.pools[&db], market, &market.candle_timeframe.unwrap())
+                .insert(&self.pools[&db], market, &market.tf)
                 .await
                 .expect("Failed to insert candle.");
         }
@@ -2351,11 +2332,7 @@ impl ElDorado {
     ) -> Option<ProductionCandle> {
         // Check that candle table exists
         if self
-            .candle_table_exists(
-                market,
-                &market.candle_timeframe.unwrap(),
-                &CandleType::Production,
-            )
+            .candle_table_exists(market, &market.tf, &CandleType::Production)
             .await
         {
             // Get first production candle

@@ -48,7 +48,7 @@ impl ElDorado {
                 // Filter for all active markets
                 market_details
                     .iter()
-                    .filter(|m| m.market_data_status == MarketStatus::Active)
+                    .filter(|m| m.status == MarketStatus::Active)
                     .cloned()
                     .collect()
             }
@@ -62,17 +62,11 @@ impl ElDorado {
                 .expect("Failed to select market details.");
                 // Validate mita markets are in the correct status and have a candle timeframe
                 for market in markets.iter() {
-                    if market.candle_timeframe.is_none() {
-                        println!(
-                            "{} missing base candle time frame. Please fix before using market.",
-                            market.market_name
-                        );
-                        return None;
-                    } else if market.market_status != MarketStatus::Active {
+                    if market.status != MarketStatus::Active {
                         println!(
                             "{} is not in Active status. Current status: {}",
                             market.market_name,
-                            market.market_status.as_str()
+                            market.status.as_str()
                         );
                         return None;
                     } else {
