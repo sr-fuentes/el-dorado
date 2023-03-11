@@ -16,10 +16,18 @@ DROP COLUMN underlying,
 DROP COLUMN market_data_status;
 
 ALTER TABLE markets
-ADD COLUMN base_step NUMERIC,
-ADD COLUMN base_min NUMERIC,
-ADD COLUMN quote_step NUMERIC,
-ADD COLUMN tradable BOOLEAN,
+ADD COLUMN base_step NUMERIC;
+
+ALTER TABLE markets
+ADD COLUMN base_min NUMERIC;
+
+ALTER TABLE markets
+ADD COLUMN quote_step NUMERIC;
+
+ALTER TABLE markets
+ADD COLUMN tradable BOOLEAN;
+
+ALTER TABLE markets
 ADD COLUMN asset_id UUID;
 
 UPDATE markets set tf = 'd01' WHERE tf is NULL;
