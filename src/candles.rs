@@ -1731,7 +1731,7 @@ impl DailyCandle {
             ORDER BY datetime
             "#;
         let row = sqlx::query_as::<_, DailyCandle>(sql)
-            .bind(market.id)
+            .bind(market.market_id)
             .fetch_one(pool)
             .await?;
         Ok(row)
