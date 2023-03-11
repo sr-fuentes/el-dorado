@@ -74,214 +74,6 @@
     },
     "query": "\n            SELECT market_id, market_start_ts, first_trade_ts, first_trade_id, last_trade_ts,\n                last_trade_id, previous_trade_day,\n                previous_status as \"previous_status: MarketDataStatus\",\n                next_trade_day,\n                next_status as \"next_status: MarketDataStatus\"\n            FROM market_trade_details\n            WHERE market_id = $1\n            "
   },
-  "0bdd1bdf88b9a54c8607ff684172a2e1148af895c1d4b896fe529ea992781bd6": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        },
-        {
-          "name": "exchange_name: ExchangeName",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "market_name",
-          "ordinal": 2,
-          "type_info": "Text"
-        },
-        {
-          "name": "market_type: MarketType",
-          "ordinal": 3,
-          "type_info": "Text"
-        },
-        {
-          "name": "base",
-          "ordinal": 4,
-          "type_info": "Text"
-        },
-        {
-          "name": "base_step",
-          "ordinal": 5,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "base_min",
-          "ordinal": 6,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "quote",
-          "ordinal": 7,
-          "type_info": "Text"
-        },
-        {
-          "name": "quote_step",
-          "ordinal": 8,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "status: MarketStatus",
-          "ordinal": 9,
-          "type_info": "Text"
-        },
-        {
-          "name": "tradable",
-          "ordinal": 10,
-          "type_info": "Bool"
-        },
-        {
-          "name": "mita",
-          "ordinal": 11,
-          "type_info": "Text"
-        },
-        {
-          "name": "tf: TimeFrame",
-          "ordinal": 12,
-          "type_info": "Text"
-        },
-        {
-          "name": "last_candle",
-          "ordinal": 13,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "asset_id",
-          "ordinal": 14,
-          "type_info": "Uuid"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        true,
-        true,
-        true,
-        true,
-        true,
-        false,
-        false,
-        true,
-        false,
-        true,
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      }
-    },
-    "query": "\n            SELECT id,\n                exchange_name as \"exchange_name: ExchangeName\",\n                market_name, \n                market_type as \"market_type: MarketType\", \n                base,\n                base_step,\n                base_min,\n                quote, \n                quote_step,\n                status as \"status: MarketStatus\",\n                tradable,\n                mita,\n                tf as \"tf: TimeFrame\",\n                last_candle,\n                asset_id\n            FROM markets\n            WHERE exchange_name = $1\n            "
-  },
-  "1789b837b940c3e67dd1049c0e89d15886708a34bbb7b938016934c340a40ea5": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        },
-        {
-          "name": "exchange_name: ExchangeName",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "market_name",
-          "ordinal": 2,
-          "type_info": "Text"
-        },
-        {
-          "name": "market_type: MarketType",
-          "ordinal": 3,
-          "type_info": "Text"
-        },
-        {
-          "name": "base",
-          "ordinal": 4,
-          "type_info": "Text"
-        },
-        {
-          "name": "base_step",
-          "ordinal": 5,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "base_min",
-          "ordinal": 6,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "quote",
-          "ordinal": 7,
-          "type_info": "Text"
-        },
-        {
-          "name": "quote_step",
-          "ordinal": 8,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "status: MarketStatus",
-          "ordinal": 9,
-          "type_info": "Text"
-        },
-        {
-          "name": "tradable",
-          "ordinal": 10,
-          "type_info": "Bool"
-        },
-        {
-          "name": "mita",
-          "ordinal": 11,
-          "type_info": "Text"
-        },
-        {
-          "name": "tf: TimeFrame",
-          "ordinal": 12,
-          "type_info": "Text"
-        },
-        {
-          "name": "last_candle",
-          "ordinal": 13,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "asset_id",
-          "ordinal": 14,
-          "type_info": "Uuid"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        true,
-        true,
-        true,
-        true,
-        true,
-        false,
-        false,
-        true,
-        false,
-        true,
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Uuid"
-        ]
-      }
-    },
-    "query": "\n            SELECT id,\n                exchange_name as \"exchange_name: ExchangeName\",\n                market_name, \n                market_type as \"market_type: MarketType\", \n                base,\n                base_step,\n                base_min,\n                quote, \n                quote_step,\n                status as \"status: MarketStatus\",\n                tradable,\n                mita,\n                tf as \"tf: TimeFrame\",\n                last_candle,\n                asset_id\n            FROM markets\n            WHERE id = $1\n            "
-  },
   "239035bebec684fdc32757a888b9d08839c31ac744e9d186f44ab5945078db0b": {
     "describe": {
       "columns": [
@@ -421,6 +213,19 @@
       }
     },
     "query": "\n            SELECT instance_type as \"instance_type: InstanceType\",\n                droplet,\n                exchange_name as \"exchange_name: Option<ExchangeName>\",\n                instance_status as \"instance_status: InstanceStatus\",\n                restart, last_restart_ts, restart_count, num_markets, last_update_ts,\n                last_message_ts\n            FROM instances\n            WHERE instance_type = $1\n            "
+  },
+  "34a87af57f943a17968609a01bc929b6e64e30bf008ed3007765424a22ff3a6c": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Timestamptz",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            UPDATE markets\n            SET last_candle  = $1\n            WHERE market_id = $2\n            "
   },
   "3656e7faa8f268850c1682b6868ad8d53d5d65cb4b8d1c5c476cbd39ed7e7b2d": {
     "describe": {
@@ -808,6 +613,108 @@
     },
     "query": "\n            SELECT market_id,\n                tf as \"tf: TimeFrame\",\n                datetime, high, low, close, atr_l, atr_s, \n                ma_filter as \"ma_filter: MetricFilter\",\n                n_filter as \"n_filter: MetricFilter\", \n                prev as \"prev: MetricFilter\",\n                return_z_l, return_z_s, tr_z_l, tr_z_s, upper_wick_z_l, upper_wick_z_s, body_z_l,\n                body_z_s, lower_wick_z_l, lower_wick_z_s, volume_z_l, volume_z_s, volume_net_z_l,\n                volume_net_z_s, volume_pct_z_l, volume_pct_z_s, volume_liq_z_l, volume_liq_z_s,\n                volume_liq_net_z_l, volume_liq_net_z_s, volume_liq_pct_z_l, volume_liq_pct_z_s,\n                value_z_l, value_z_s, value_net_z_l, value_net_z_s, value_pct_z_l, value_pct_z_s,\n                value_liq_z_l, value_liq_z_s, value_liq_net_z_l, value_liq_net_z_s,\n                value_liq_pct_z_l, value_liq_pct_z_s, trade_count_z_l, trade_count_z_s,\n                trade_count_net_z_l, trade_count_net_z_s, trade_count_pct_z_l, trade_count_pct_z_s,\n                liq_count_z_l, liq_count_z_s, liq_count_net_z_l, liq_count_net_z_s,\n                liq_count_pct_z_l, liq_count_pct_z_s\n            FROM research_metrics\n            WHERE market_id = $1\n            "
   },
+  "4b8107f386c99b0c73a7ab1ec469238ecee4f6a4592def6ad026cb5ab10caca4": {
+    "describe": {
+      "columns": [
+        {
+          "name": "market_id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "exchange_name: ExchangeName",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "market_name",
+          "ordinal": 2,
+          "type_info": "Text"
+        },
+        {
+          "name": "market_type: MarketType",
+          "ordinal": 3,
+          "type_info": "Text"
+        },
+        {
+          "name": "base",
+          "ordinal": 4,
+          "type_info": "Text"
+        },
+        {
+          "name": "base_step",
+          "ordinal": 5,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "base_min",
+          "ordinal": 6,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "quote",
+          "ordinal": 7,
+          "type_info": "Text"
+        },
+        {
+          "name": "quote_step",
+          "ordinal": 8,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "status: MarketStatus",
+          "ordinal": 9,
+          "type_info": "Text"
+        },
+        {
+          "name": "tradable",
+          "ordinal": 10,
+          "type_info": "Bool"
+        },
+        {
+          "name": "mita",
+          "ordinal": 11,
+          "type_info": "Text"
+        },
+        {
+          "name": "tf: TimeFrame",
+          "ordinal": 12,
+          "type_info": "Text"
+        },
+        {
+          "name": "last_candle",
+          "ordinal": 13,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "asset_id",
+          "ordinal": 14,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        false,
+        false,
+        true,
+        false,
+        true,
+        true
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "\n            SELECT market_id,\n                exchange_name as \"exchange_name: ExchangeName\",\n                market_name, \n                market_type as \"market_type: MarketType\", \n                base,\n                base_step,\n                base_min,\n                quote, \n                quote_step,\n                status as \"status: MarketStatus\",\n                tradable,\n                mita,\n                tf as \"tf: TimeFrame\",\n                last_candle,\n                asset_id\n            FROM markets\n            "
+  },
   "59218a3c24744250f089c1926b921fd0eb9c0010ce2a9073f22eb942a95d9156": {
     "describe": {
       "columns": [
@@ -1164,27 +1071,115 @@
     },
     "query": "\n            SELECT market_id,\n                tf as \"tf: TimeFrame\",\n                datetime, high, low, close, atr_l, atr_s, \n                ma_filter as \"ma_filter: MetricFilter\",\n                n_filter as \"n_filter: MetricFilter\", \n                prev as \"prev: MetricFilter\",\n                return_z_l, return_z_s, tr_z_l, tr_z_s, upper_wick_z_l, upper_wick_z_s, body_z_l,\n                body_z_s, lower_wick_z_l, lower_wick_z_s, volume_z_l, volume_z_s, volume_net_z_l,\n                volume_net_z_s, volume_pct_z_l, volume_pct_z_s, volume_liq_z_l, volume_liq_z_s,\n                volume_liq_net_z_l, volume_liq_net_z_s, volume_liq_pct_z_l, volume_liq_pct_z_s,\n                value_z_l, value_z_s, value_net_z_l, value_net_z_s, value_pct_z_l, value_pct_z_s,\n                value_liq_z_l, value_liq_z_s, value_liq_net_z_l, value_liq_net_z_s,\n                value_liq_pct_z_l, value_liq_pct_z_s, trade_count_z_l, trade_count_z_s,\n                trade_count_net_z_l, trade_count_net_z_s, trade_count_pct_z_l, trade_count_pct_z_s,\n                liq_count_z_l, liq_count_z_s, liq_count_net_z_l, liq_count_net_z_s,\n                liq_count_pct_z_l, liq_count_pct_z_s\n            FROM research_metrics\n            WHERE market_id = ANY($1)\n            "
   },
-  "7e57b94d19cd9d9ff77236ac518749265bdb2070504e397ba8a01d99747e2c6e": {
+  "59b74fb6c45cf3453fdeceea8a72ff239c80314c355857e0f39667be70577af8": {
     "describe": {
-      "columns": [],
-      "nullable": [],
+      "columns": [
+        {
+          "name": "market_id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "exchange_name: ExchangeName",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "market_name",
+          "ordinal": 2,
+          "type_info": "Text"
+        },
+        {
+          "name": "market_type: MarketType",
+          "ordinal": 3,
+          "type_info": "Text"
+        },
+        {
+          "name": "base",
+          "ordinal": 4,
+          "type_info": "Text"
+        },
+        {
+          "name": "base_step",
+          "ordinal": 5,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "base_min",
+          "ordinal": 6,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "quote",
+          "ordinal": 7,
+          "type_info": "Text"
+        },
+        {
+          "name": "quote_step",
+          "ordinal": 8,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "status: MarketStatus",
+          "ordinal": 9,
+          "type_info": "Text"
+        },
+        {
+          "name": "tradable",
+          "ordinal": 10,
+          "type_info": "Bool"
+        },
+        {
+          "name": "mita",
+          "ordinal": 11,
+          "type_info": "Text"
+        },
+        {
+          "name": "tf: TimeFrame",
+          "ordinal": 12,
+          "type_info": "Text"
+        },
+        {
+          "name": "last_candle",
+          "ordinal": 13,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "asset_id",
+          "ordinal": 14,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        false,
+        false,
+        true,
+        false,
+        true,
+        true
+      ],
       "parameters": {
         "Left": [
-          "Timestamptz",
-          "Timestamptz",
-          "Text",
-          "Numeric",
           "Uuid"
         ]
       }
     },
-    "query": "\n            UPDATE market_candle_details\n            SET (last_candle, last_trade_ts, last_trade_id, last_trade_price) = ($1, $2, $3, $4)\n            WHERE market_id = $5\n            "
+    "query": "\n            SELECT market_id,\n                exchange_name as \"exchange_name: ExchangeName\",\n                market_name, \n                market_type as \"market_type: MarketType\", \n                base,\n                base_step,\n                base_min,\n                quote, \n                quote_step,\n                status as \"status: MarketStatus\",\n                tradable,\n                mita,\n                tf as \"tf: TimeFrame\",\n                last_candle,\n                asset_id\n            FROM markets\n            WHERE market_id = $1\n            "
   },
-  "8bff9ffd711d7faf6e310a98246a87e56b24cc58f7d60dbc5ed4b0c18a32d712": {
+  "649b002971cb105156c9f2db15f629179d6c42b94de282f5745c346bbc678b0f": {
     "describe": {
       "columns": [
         {
-          "name": "id",
+          "name": "market_id",
           "ordinal": 0,
           "type_info": "Uuid"
         },
@@ -1283,7 +1278,127 @@
         ]
       }
     },
-    "query": "\n            SELECT id,\n                exchange_name as \"exchange_name: ExchangeName\",\n                market_name, \n                market_type as \"market_type: MarketType\", \n                base,\n                base_step,\n                base_min,\n                quote, \n                quote_step,\n                status as \"status: MarketStatus\",\n                tradable,\n                mita,\n                tf as \"tf: TimeFrame\",\n                last_candle,\n                asset_id\n            FROM markets\n            WHERE exchange_name = $1\n            AND mita = $2\n            "
+    "query": "\n            SELECT market_id,\n                exchange_name as \"exchange_name: ExchangeName\",\n                market_name, \n                market_type as \"market_type: MarketType\", \n                base,\n                base_step,\n                base_min,\n                quote, \n                quote_step,\n                status as \"status: MarketStatus\",\n                tradable,\n                mita,\n                tf as \"tf: TimeFrame\",\n                last_candle,\n                asset_id\n            FROM markets\n            WHERE exchange_name = $1\n            AND mita = $2\n            "
+  },
+  "64b5882761dddbc54719cc491d00b247adc029837acfee6825c99c4d3b84ed83": {
+    "describe": {
+      "columns": [
+        {
+          "name": "market_id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "exchange_name: ExchangeName",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "market_name",
+          "ordinal": 2,
+          "type_info": "Text"
+        },
+        {
+          "name": "market_type: MarketType",
+          "ordinal": 3,
+          "type_info": "Text"
+        },
+        {
+          "name": "base",
+          "ordinal": 4,
+          "type_info": "Text"
+        },
+        {
+          "name": "base_step",
+          "ordinal": 5,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "base_min",
+          "ordinal": 6,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "quote",
+          "ordinal": 7,
+          "type_info": "Text"
+        },
+        {
+          "name": "quote_step",
+          "ordinal": 8,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "status: MarketStatus",
+          "ordinal": 9,
+          "type_info": "Text"
+        },
+        {
+          "name": "tradable",
+          "ordinal": 10,
+          "type_info": "Bool"
+        },
+        {
+          "name": "mita",
+          "ordinal": 11,
+          "type_info": "Text"
+        },
+        {
+          "name": "tf: TimeFrame",
+          "ordinal": 12,
+          "type_info": "Text"
+        },
+        {
+          "name": "last_candle",
+          "ordinal": 13,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "asset_id",
+          "ordinal": 14,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        false,
+        false,
+        true,
+        false,
+        true,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "\n            SELECT market_id,\n                exchange_name as \"exchange_name: ExchangeName\",\n                market_name, \n                market_type as \"market_type: MarketType\", \n                base,\n                base_step,\n                base_min,\n                quote, \n                quote_step,\n                status as \"status: MarketStatus\",\n                tradable,\n                mita,\n                tf as \"tf: TimeFrame\",\n                last_candle,\n                asset_id\n            FROM markets\n            WHERE exchange_name = $1\n            "
+  },
+  "7e57b94d19cd9d9ff77236ac518749265bdb2070504e397ba8a01d99747e2c6e": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Timestamptz",
+          "Timestamptz",
+          "Text",
+          "Numeric",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            UPDATE market_candle_details\n            SET (last_candle, last_trade_ts, last_trade_id, last_trade_price) = ($1, $2, $3, $4)\n            WHERE market_id = $5\n            "
   },
   "8eda66124ff968382b106f45da0a57469f79c0c6e522c952b718faec0c869015": {
     "describe": {
@@ -1306,50 +1421,11 @@
     },
     "query": "\n            INSERT INTO market_trade_details (\n                market_id, market_start_ts, first_trade_ts, first_trade_id, last_trade_ts,\n                last_trade_id, previous_trade_day, previous_status, next_trade_day, next_status)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)\n            "
   },
-  "8f93d952b1d934f337c3c2e9b26a2c60ff095807da91c008733ef68236b35c79": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Timestamptz",
-          "Uuid"
-        ]
-      }
-    },
-    "query": "\n            UPDATE markets\n            SET last_candle  = $1\n            WHERE id = $2\n            "
-  },
-  "95949b15100f225a7b7877e5c686a2713cd55d9c35faa5354f1c8f9ae1666ede": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Uuid",
-          "Text",
-          "Text",
-          "Text",
-          "Text",
-          "Numeric",
-          "Numeric",
-          "Text",
-          "Numeric",
-          "Text",
-          "Bool",
-          "Text",
-          "Text",
-          "Timestamptz",
-          "Uuid"
-        ]
-      }
-    },
-    "query": "\n            INSERT INTO markets (\n                id, exchange_name, market_name, market_type, base, base_step, base_min, quote,\n                quote_step, status, tradable, mita, tf, last_candle, asset_id\n            )\n            VALUES (\n                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, \n                $11, $12, $13, $14, $15\n            )    \n            "
-  },
-  "9aa91806f74f086c50bc8d5e5a9795fad438e9bfa6863bc8eecd8826c070002e": {
+  "905a75de1f8e4771d16901e3b12ed057417a3f6aa5ec479ec953e5070ab16e03": {
     "describe": {
       "columns": [
         {
-          "name": "id!",
+          "name": "market_id!",
           "ordinal": 0,
           "type_info": "Uuid"
         },
@@ -1445,7 +1521,7 @@
         "Left": []
       }
     },
-    "query": "\n            SELECT m.id as \"id!\",\n                m.exchange_name as \"exchange_name!: ExchangeName\",\n                m.market_name as \"market_name!\", \n                m.market_type as \"market_type!: MarketType\", \n                m.base,\n                m.base_step,\n                m.base_min,\n                m.quote,\n                m.quote_step,\n                m.status as \"status!: MarketStatus\",\n                m.tradable,\n                m.mita,\n                m.tf as \"tf!: TimeFrame\",\n                m.last_candle,\n                m.asset_id\n            FROM markets m\n            INNER JOIN market_candle_details mcd\n            ON m.id = mcd.market_id\n            "
+    "query": "\n            SELECT m.market_id as \"market_id!\",\n                m.exchange_name as \"exchange_name!: ExchangeName\",\n                m.market_name as \"market_name!\", \n                m.market_type as \"market_type!: MarketType\", \n                m.base,\n                m.base_step,\n                m.base_min,\n                m.quote,\n                m.quote_step,\n                m.status as \"status!: MarketStatus\",\n                m.tradable,\n                m.mita,\n                m.tf as \"tf!: TimeFrame\",\n                m.last_candle,\n                m.asset_id\n            FROM markets m\n            INNER JOIN market_candle_details mcd\n            ON m.market_id = mcd.market_id\n            "
   },
   "9b5c5c2528023a352bcd4b31f576c914fd18fcd736d29d587d6f7e45d643239d": {
     "describe": {
@@ -1680,109 +1756,31 @@
     },
     "query": "\n            SELECT market_id,\n                exchange_name as \"exchange_name: ExchangeName\",\n                market_name,\n                time_frame as \"time_frame: TimeFrame\",\n                first_candle, last_candle, last_trade_ts, last_trade_id, last_trade_price\n            FROM market_candle_details\n            WHERE market_id = $1\n            "
   },
-  "b5312679cd70e79b3f241ca6e870d4791a2c93064019ef2c656ffc1d95452cb0": {
+  "afb7129713ab51294b8e72420d8d8be557a40e348363b079985f6cd6e5e42a4d": {
     "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        },
-        {
-          "name": "exchange_name: ExchangeName",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "market_name",
-          "ordinal": 2,
-          "type_info": "Text"
-        },
-        {
-          "name": "market_type: MarketType",
-          "ordinal": 3,
-          "type_info": "Text"
-        },
-        {
-          "name": "base",
-          "ordinal": 4,
-          "type_info": "Text"
-        },
-        {
-          "name": "base_step",
-          "ordinal": 5,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "base_min",
-          "ordinal": 6,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "quote",
-          "ordinal": 7,
-          "type_info": "Text"
-        },
-        {
-          "name": "quote_step",
-          "ordinal": 8,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "status: MarketStatus",
-          "ordinal": 9,
-          "type_info": "Text"
-        },
-        {
-          "name": "tradable",
-          "ordinal": 10,
-          "type_info": "Bool"
-        },
-        {
-          "name": "mita",
-          "ordinal": 11,
-          "type_info": "Text"
-        },
-        {
-          "name": "tf: TimeFrame",
-          "ordinal": 12,
-          "type_info": "Text"
-        },
-        {
-          "name": "last_candle",
-          "ordinal": 13,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "asset_id",
-          "ordinal": 14,
-          "type_info": "Uuid"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        true,
-        true,
-        true,
-        true,
-        true,
-        false,
-        false,
-        true,
-        false,
-        true,
-        true
-      ],
+      "columns": [],
+      "nullable": [],
       "parameters": {
         "Left": [
-          "Text"
+          "Uuid",
+          "Text",
+          "Text",
+          "Text",
+          "Text",
+          "Numeric",
+          "Numeric",
+          "Text",
+          "Numeric",
+          "Text",
+          "Bool",
+          "Text",
+          "Text",
+          "Timestamptz",
+          "Uuid"
         ]
       }
     },
-    "query": "\n            SELECT id,\n                exchange_name as \"exchange_name: ExchangeName\",\n                market_name, \n                market_type as \"market_type: MarketType\", \n                base,\n                base_step,\n                base_min,\n                quote, \n                quote_step,\n                status as \"status: MarketStatus\",\n                tradable,\n                mita,\n                tf as \"tf: TimeFrame\",\n                last_candle,\n                asset_id\n            FROM markets\n            WHERE status = $1\n            "
+    "query": "\n            INSERT INTO markets (\n                market_id, exchange_name, market_name, market_type, base, base_step, base_min, quote,\n                quote_step, status, tradable, mita, tf, last_candle, asset_id\n            )\n            VALUES (\n                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, \n                $11, $12, $13, $14, $15\n            )    \n            "
   },
   "bf40863580a2ad101de1bbd15dbcb1d9ae33d42957b490246c68d279b537d005": {
     "describe": {
@@ -1796,6 +1794,21 @@
       }
     },
     "query": "\n            UPDATE market_trade_details\n            SET next_status = $1\n            WHERE market_id = $2\n            "
+  },
+  "bf99008e6a915f4146c57528e34bbdbf4e1d88219cf2961b7090ef141d2da4ce": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Numeric",
+          "Numeric",
+          "Numeric",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            UPDATE markets\n            SET (base_step, base_min, quote_step) = ($1, $2, $3)\n            WHERE market_id = $4\n            "
   },
   "c3eac7c219196d7aa254b94f49a02600f65b638d36769eceea29f6e05e7dc3ae": {
     "describe": {
@@ -1834,108 +1847,6 @@
       }
     },
     "query": "\n            UPDATE market_trade_details\n            SET (previous_trade_day, previous_status) = ($1, $2)\n            WHERE market_id = $3\n            "
-  },
-  "c7fe144c536240425004013a74aa92577f40df823ab774f631614fe070c7ed65": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        },
-        {
-          "name": "exchange_name: ExchangeName",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "market_name",
-          "ordinal": 2,
-          "type_info": "Text"
-        },
-        {
-          "name": "market_type: MarketType",
-          "ordinal": 3,
-          "type_info": "Text"
-        },
-        {
-          "name": "base",
-          "ordinal": 4,
-          "type_info": "Text"
-        },
-        {
-          "name": "base_step",
-          "ordinal": 5,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "base_min",
-          "ordinal": 6,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "quote",
-          "ordinal": 7,
-          "type_info": "Text"
-        },
-        {
-          "name": "quote_step",
-          "ordinal": 8,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "status: MarketStatus",
-          "ordinal": 9,
-          "type_info": "Text"
-        },
-        {
-          "name": "tradable",
-          "ordinal": 10,
-          "type_info": "Bool"
-        },
-        {
-          "name": "mita",
-          "ordinal": 11,
-          "type_info": "Text"
-        },
-        {
-          "name": "tf: TimeFrame",
-          "ordinal": 12,
-          "type_info": "Text"
-        },
-        {
-          "name": "last_candle",
-          "ordinal": 13,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "asset_id",
-          "ordinal": 14,
-          "type_info": "Uuid"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        true,
-        true,
-        true,
-        true,
-        true,
-        false,
-        false,
-        true,
-        false,
-        true,
-        true
-      ],
-      "parameters": {
-        "Left": []
-      }
-    },
-    "query": "\n            SELECT id,\n                exchange_name as \"exchange_name: ExchangeName\",\n                market_name, \n                market_type as \"market_type: MarketType\", \n                base,\n                base_step,\n                base_min,\n                quote, \n                quote_step,\n                status as \"status: MarketStatus\",\n                tradable,\n                mita,\n                tf as \"tf: TimeFrame\",\n                last_candle,\n                asset_id\n            FROM markets\n            "
   },
   "cb6e44a9ff4ef48766ed09d2362711ea950dd45dd761d07add342838cecba3ca": {
     "describe": {
@@ -2121,6 +2032,110 @@
       }
     },
     "query": "\n            UPDATE market_archive_details\n            SET (last_candle_dt, last_trade_dt, last_trade_price, last_trade_id, next_month) = ($1, $2, $3, $4, $5)\n            WHERE market_id = $6\n            "
+  },
+  "e9205c2b0e2e53d8209045a42bea18590a9faa44a6a68689f263a30500c73a62": {
+    "describe": {
+      "columns": [
+        {
+          "name": "market_id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "exchange_name: ExchangeName",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "market_name",
+          "ordinal": 2,
+          "type_info": "Text"
+        },
+        {
+          "name": "market_type: MarketType",
+          "ordinal": 3,
+          "type_info": "Text"
+        },
+        {
+          "name": "base",
+          "ordinal": 4,
+          "type_info": "Text"
+        },
+        {
+          "name": "base_step",
+          "ordinal": 5,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "base_min",
+          "ordinal": 6,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "quote",
+          "ordinal": 7,
+          "type_info": "Text"
+        },
+        {
+          "name": "quote_step",
+          "ordinal": 8,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "status: MarketStatus",
+          "ordinal": 9,
+          "type_info": "Text"
+        },
+        {
+          "name": "tradable",
+          "ordinal": 10,
+          "type_info": "Bool"
+        },
+        {
+          "name": "mita",
+          "ordinal": 11,
+          "type_info": "Text"
+        },
+        {
+          "name": "tf: TimeFrame",
+          "ordinal": 12,
+          "type_info": "Text"
+        },
+        {
+          "name": "last_candle",
+          "ordinal": 13,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "asset_id",
+          "ordinal": 14,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        false,
+        false,
+        true,
+        false,
+        true,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "\n            SELECT market_id,\n                exchange_name as \"exchange_name: ExchangeName\",\n                market_name, \n                market_type as \"market_type: MarketType\", \n                base,\n                base_step,\n                base_min,\n                quote, \n                quote_step,\n                status as \"status: MarketStatus\",\n                tradable,\n                mita,\n                tf as \"tf: TimeFrame\",\n                last_candle,\n                asset_id\n            FROM markets\n            WHERE status = $1\n            "
   },
   "ecb8228350caa3a7af343b434d19e04b5be25d1e93d9068457ca3fa9485a6199": {
     "describe": {

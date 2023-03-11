@@ -59,5 +59,5 @@ CREATE TABLE research_metrics (
     liq_count_net_z_s NUMERIC NOT NULL,
     liq_count_pct_z_l NUMERIC NOT NULL,
     liq_count_pct_z_s NUMERIC NOT NULL,
-    insert_dt timestamptz NUMERIC NOT NULL
+    insert_dt timestamptz NOT NULL
 )

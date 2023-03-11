@@ -2,7 +2,7 @@ use crate::{
     candles::ResearchCandle,
     configuration::Database,
     eldorado::ElDorado,
-    exchanges::{    gdax::Product, Exchange, ExchangeName},
+    exchanges::{gdax::Product, ExchangeName},
     trades::{PrIdTi, Trade},
     utilities::TimeFrame,
 };
@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct MarketDetail {
-    pub id: Uuid,
+    pub market_id: Uuid,
     pub exchange_name: ExchangeName,
     pub market_name: String,
     pub market_type: MarketType,
@@ -189,7 +189,7 @@ impl TryFrom<String> for MarketDataStatus {
 impl MarketDetail {
     pub fn new_from_gdax_product(product: &Product) -> Self {
         MarketDetail {
-            id: Uuid::new_v4(),
+            market_id: Uuid::new_v4(),
             exchange_name: ExchangeName::Gdax,
             market_name: product.id.clone(),
             market_type: MarketType::Spot, // All gdax markets are spot
@@ -211,7 +211,7 @@ impl MarketDetail {
         sqlx::query!(
             r#"
             INSERT INTO markets (
-                id, exchange_name, market_name, market_type, base, base_step, base_min, quote,
+                market_id, exchange_name, market_name, market_type, base, base_step, base_min, quote,
                 quote_step, status, tradable, mita, tf, last_candle, asset_id
             )
             VALUES (
@@ -219,7 +219,7 @@ impl MarketDetail {
                 $11, $12, $13, $14, $15
             )    
             "#,
-            self.id,
+            self.market_id,
             self.exchange_name.as_str(),
             self.market_name,
             self.market_type.as_str(),
@@ -240,6 +240,23 @@ impl MarketDetail {
         Ok(())
     }
 
+    pub async fn update(&self, pool: &PgPool, product: &Product) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"
+            UPDATE markets
+            SET (base_step, base_min, quote_step) = ($1, $2, $3)
+            WHERE market_id = $4
+            "#,
+            product.base_increment,
+            product.min_market_funds,
+            product.quote_increment,
+            self.market_id,
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn update_last_candle(
         &self,
         pool: &PgPool,
@@ -249,10 +266,10 @@ impl MarketDetail {
             r#"
             UPDATE markets
             SET last_candle  = $1
-            WHERE id = $2
+            WHERE market_id = $2
             "#,
             dt,
-            self.id,
+            self.market_id,
         )
         .execute(pool)
         .await?;
@@ -263,7 +280,7 @@ impl MarketDetail {
         let rows = sqlx::query_as!(
             Self,
             r#"
-            SELECT id,
+            SELECT market_id,
                 exchange_name as "exchange_name: ExchangeName",
                 market_name, 
                 market_type as "market_type: MarketType", 
@@ -290,7 +307,7 @@ impl MarketDetail {
         let rows = sqlx::query_as!(
             Self,
             r#"
-            SELECT m.id as "id!",
+            SELECT m.market_id as "market_id!",
                 m.exchange_name as "exchange_name!: ExchangeName",
                 m.market_name as "market_name!", 
                 m.market_type as "market_type!: MarketType", 
@@ -307,7 +324,7 @@ impl MarketDetail {
                 m.asset_id
             FROM markets m
             INNER JOIN market_candle_details mcd
-            ON m.id = mcd.market_id
+            ON m.market_id = mcd.market_id
             "#,
         )
         .fetch_all(pool)
@@ -323,7 +340,7 @@ impl MarketDetail {
         let rows = sqlx::query_as!(
             Self,
             r#"
-            SELECT id,
+            SELECT market_id,
                 exchange_name as "exchange_name: ExchangeName",
                 market_name, 
                 market_type as "market_type: MarketType", 
@@ -357,7 +374,7 @@ impl MarketDetail {
         let rows = sqlx::query_as!(
             Self,
             r#"
-            SELECT id,
+            SELECT market_id,
                 exchange_name as "exchange_name: ExchangeName",
                 market_name, 
                 market_type as "market_type: MarketType", 
@@ -389,7 +406,7 @@ impl MarketDetail {
         let rows = sqlx::query_as!(
             Self,
             r#"
-            SELECT id,
+            SELECT market_id,
                 exchange_name as "exchange_name: ExchangeName",
                 market_name, 
                 market_type as "market_type: MarketType", 
@@ -418,7 +435,7 @@ impl MarketDetail {
         let row = sqlx::query_as!(
             Self,
             r#"
-            SELECT id,
+            SELECT market_id,
                 exchange_name as "exchange_name: ExchangeName",
                 market_name, 
                 market_type as "market_type: MarketType", 
@@ -434,7 +451,7 @@ impl MarketDetail {
                 last_candle,
                 asset_id
             FROM markets
-            WHERE id = $1
+            WHERE market_id = $1
             "#,
             market_id,
         )
@@ -447,24 +464,39 @@ impl MarketDetail {
         pool: &PgPool,
     ) -> (
         HashMap<Uuid, Self>,
-        HashMap<ExchangeName, HashMap<String, MarketDetail>>,
+        HashMap<ExchangeName, HashMap<String, Self>>,
+        HashMap<ExchangeName, HashMap<Uuid, Self>>,
     ) {
         let mut markets_by_id = HashMap::new();
         let mut markets_by_exchange_name: HashMap<ExchangeName, HashMap<String, MarketDetail>> =
+            HashMap::new();
+        let mut markets_by_exchange_asset: HashMap<ExchangeName, HashMap<Uuid, MarketDetail>> =
             HashMap::new();
         let markets = Self::select_all(pool)
             .await
             .expect("Failed to select markets.");
         for market in markets.iter() {
-            markets_by_id.insert(market.id, market.clone());
+            markets_by_id.insert(market.market_id, market.clone());
             markets_by_exchange_name
                 .entry(market.exchange_name)
                 .and_modify(|hm| {
                     hm.insert(market.market_name.clone(), market.clone());
                 })
                 .or_insert_with(|| HashMap::from([(market.market_name.clone(), market.clone())]));
+            if let Some(aid) = market.asset_id {
+                markets_by_exchange_asset
+                    .entry(market.exchange_name)
+                    .and_modify(|hm| {
+                        hm.insert(aid, market.clone());
+                    })
+                    .or_insert_with(|| HashMap::from([(aid, market.clone())]));
+            }
         }
-        (markets_by_id, markets_by_exchange_name)
+        (
+            markets_by_id,
+            markets_by_exchange_name,
+            markets_by_exchange_asset,
+        )
     }
 }
 
@@ -474,7 +506,7 @@ impl MarketTradeDetail {
         // previous day
         // Create new market trade detail from market give the first trade provided.
         Self {
-            market_id: market.id,
+            market_id: market.market_id,
             market_start_ts: None,
             first_trade_ts: first_trade.dt,
             first_trade_id: first_trade.id.to_string(),
@@ -740,7 +772,7 @@ impl MarketTradeDetail {
             FROM market_trade_details
             WHERE market_id = $1
             "#,
-            market.id
+            market.market_id
         )
         .fetch_one(pool)
         .await?;
@@ -754,7 +786,7 @@ impl MarketCandleDetail {
         assert!(!candles.is_empty());
         let last = candles.last().unwrap();
         Self {
-            market_id: market.id,
+            market_id: market.market_id,
             exchange_name: market.exchange_name,
             market_name: market.market_name.clone(),
             time_frame: *tf,
@@ -850,7 +882,7 @@ impl MarketCandleDetail {
             FROM market_candle_details
             WHERE market_id = $1
             "#,
-            market.id
+            market.market_id
         )
         .fetch_one(pool)
         .await?;
@@ -874,7 +906,7 @@ impl MarketArchiveDetail {
         last_candle: &ResearchCandle,
     ) -> Self {
         Self {
-            market_id: market.id,
+            market_id: market.market_id,
             exchange_name: market.exchange_name,
             market_name: market.market_name.clone(),
             tf: *tf,
@@ -933,7 +965,7 @@ impl MarketArchiveDetail {
             FROM market_archive_details
             WHERE market_id = $1
             "#,
-            market.id
+            market.market_id
         )
         .fetch_one(pool)
         .await?;
@@ -1025,7 +1057,7 @@ impl ElDorado {
                     hm.insert(md.market_name.clone(), md.clone());
                 })
                 .or_insert_with(|| HashMap::from([(md.market_name.clone(), md.clone())]));
-            market_ids.insert(md.id, md.clone());
+            market_ids.insert(md.market_id, md.clone());
         }
         (markets, market_ids)
     }
@@ -1110,8 +1142,6 @@ impl ElDorado {
         }
     }
 
-    pub async fn refresh_ftx_markets(&self, _exchange: &Exchange) {} // TODO: even w/dead code}
-
     pub async fn refresh_gdax_markets(&self) {
         // Get markets from Gdax Rest API
         let mut markets = self.clients[&ExchangeName::Gdax]
@@ -1125,16 +1155,25 @@ impl ElDorado {
             MarketDetail::select_by_exchange(&self.pools[&Database::ElDorado], &ExchangeName::Gdax)
                 .await
                 .expect("Failed to select markets from db.");
+        let mut market_map = HashMap::new();
+        for db_market in db_markets.iter() {
+            market_map.insert(db_market.market_name.clone(), db_market.clone());
+        }
         // If the rest api market is not in the db, add to db
         for market in markets.iter() {
-            if !db_markets.iter().any(|m| m.market_name == market.id) {
-                // Add market
-                println!("Adding {:?} market for Gdax", market.id);
-                let new_market = MarketDetail::new_from_gdax_product(market);
-                new_market
-                    .insert(&self.pools[&Database::ElDorado])
+            match market_map.get(&market.id) {
+                Some(m) => m
+                    .update(&self.pools[&Database::ElDorado], market)
                     .await
-                    .expect("Failed to insert market.");
+                    .expect("Failed to update market."),
+                None => {
+                    println!("Adding {:?} market for Gdax", market.id);
+                    let new_market = MarketDetail::new_from_gdax_product(market);
+                    new_market
+                        .insert(&self.pools[&Database::ElDorado])
+                        .await
+                        .expect("Failed to insert market.");
+                }
             }
         }
     }
