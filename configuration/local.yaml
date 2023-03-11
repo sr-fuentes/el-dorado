@@ -8,7 +8,7 @@ archive_db:
   require_ssl: false
 application:
   exchange: "gdax"
-  market: "SOL-PERP"
+  market: "LDO-USD"
   droplet: "localdev"
   instance_type: "mita"
   archive_path: "../ed"
