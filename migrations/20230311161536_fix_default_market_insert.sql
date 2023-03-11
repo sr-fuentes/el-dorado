@@ -13,3 +13,5 @@ INSERT INTO markets (
         't15',
         true
     ) ON CONFLICT DO NOTHING;
+
+UPDATE markets set mita = NULL where market_id = '19994c6a-fa3c-4b0b-96c4-c744c43a9514';
