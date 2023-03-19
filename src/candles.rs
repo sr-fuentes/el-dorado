@@ -67,11 +67,23 @@ pub struct ProductionCandle {
     pub low: Decimal,
     pub close: Decimal,
     pub volume: Decimal,
-    pub volume_net: Decimal,
-    pub volume_liquidation: Decimal,
+    pub volume_buy: Decimal,
+    pub volume_sell: Decimal,
+    pub volume_liq: Decimal,
+    pub volume_liq_buy: Decimal,
+    pub volume_liq_sell: Decimal,
     pub value: Decimal,
+    pub value_buy: Decimal,
+    pub value_sell: Decimal,
+    pub value_liq: Decimal,
+    pub value_liq_buy: Decimal,
+    pub value_liq_sell: Decimal,
     pub trade_count: i64,
-    pub liquidation_count: i64,
+    pub trade_count_buy: i64,
+    pub trade_count_sell: i64,
+    pub liq_count: i64,
+    pub liq_count_buy: i64,
+    pub liq_count_sell: i64,
     pub last_trade_ts: DateTime<Utc>,
     pub last_trade_id: String,
     pub first_trade_ts: DateTime<Utc>,
@@ -153,695 +165,7 @@ impl ProductionCandle {
     // datetime passed as argument. Candle built from trades in the order they are in
     // the Vec, sort before calling this function otherwise Open / Close / Datetime may
     // be incorrect.
-    pub fn new_from_trades<T: Trade>(
-        _market_id: Uuid,
-        datetime: DateTime<Utc>,
-        trades: &[T],
-    ) -> Self {
-        let candle_tuple = trades.iter().fold(
-            (
-                trades.first().expect("No first trade for candle.").price(), // open
-                Decimal::MIN,                                                // high
-                Decimal::MAX,                                                // low
-                dec!(0),                                                     // close
-                dec!(0),                                                     // volume
-                dec!(0),                                                     // volume_net
-                dec!(0),                                                     // volume_liquidation
-                dec!(0),                                                     // value
-                0,                                                           // count
-                0,                                                           // liquidation_count,
-                datetime,                                                    // last_trade_ts
-                "".to_string(),                                              // last_trade_id
-                trades.first().expect("No first trade.").time(),             // first_trade_ts
-                trades
-                    .first()
-                    .expect("No first trade.")
-                    .trade_id()
-                    .to_string(), // first_trade_id
-            ),
-            |(o, h, l, _c, v, vn, vl, a, n, ln, _ts, _id, fts, fid), t| {
-                (
-                    o,
-                    h.max(t.price()),
-                    l.min(t.price()),
-                    t.price(),
-                    v + t.size(),
-                    if t.side() == "sell" {
-                        vn + (t.size() * dec!(-1))
-                    } else {
-                        vn + t.size()
-                    },
-                    if t.liquidation() { vl + t.size() } else { vl },
-                    a + (t.size() * t.price()),
-                    n + 1,
-                    if t.liquidation() { ln + 1 } else { ln },
-                    t.time(),
-                    t.trade_id().to_string(),
-                    fts,
-                    fid,
-                )
-            },
-        );
-        Self {
-            datetime,
-            open: candle_tuple.0,
-            high: candle_tuple.1,
-            low: candle_tuple.2,
-            close: candle_tuple.3,
-            volume: candle_tuple.4,
-            volume_net: candle_tuple.5,
-            volume_liquidation: candle_tuple.6,
-            value: candle_tuple.7,
-            trade_count: candle_tuple.8,
-            liquidation_count: candle_tuple.9,
-            last_trade_ts: candle_tuple.10,
-            last_trade_id: candle_tuple.11,
-            first_trade_ts: candle_tuple.12,
-            first_trade_id: candle_tuple.13,
-        }
-    }
-
-    // Takes a Vec of Trade and aggregates into a Candle with the Datetime = the
-    // datetime passed as argument. Candle built from trades in the order they are in
-    // the Vec, sort before calling this function otherwise Open / Close / Datetime may
-    // be incorrect.
     pub fn from_trades<T: Trade>(datetime: DateTime<Utc>, trades: &[&T]) -> Self {
-        let candle_tuple = trades.iter().fold(
-            (
-                trades.first().expect("No first trade for candle.").price(), // open
-                Decimal::MIN,                                                // high
-                Decimal::MAX,                                                // low
-                dec!(0),                                                     // close
-                dec!(0),                                                     // volume
-                dec!(0),                                                     // volume_net
-                dec!(0),                                                     // volume_liquidation
-                dec!(0),                                                     // value
-                0,                                                           // count
-                0,                                                           // liquidation_count,
-                datetime,                                                    // last_trade_ts
-                "".to_string(),                                              // last_trade_id
-                trades.first().expect("No first trade.").time(),             // first_trade_ts
-                trades
-                    .first()
-                    .expect("No first trade.")
-                    .trade_id()
-                    .to_string(), // first_trade_id
-            ),
-            |(o, h, l, _c, v, vn, vl, a, n, ln, _ts, _id, fts, fid), t| {
-                (
-                    o,
-                    h.max(t.price()),
-                    l.min(t.price()),
-                    t.price(),
-                    v + t.size(),
-                    if t.side() == "sell" {
-                        vn + (t.size() * dec!(-1))
-                    } else {
-                        vn + t.size()
-                    },
-                    if t.liquidation() { vl + t.size() } else { vl },
-                    a + (t.size() * t.price()),
-                    n + 1,
-                    if t.liquidation() { ln + 1 } else { ln },
-                    t.time(),
-                    t.trade_id().to_string(),
-                    fts,
-                    fid,
-                )
-            },
-        );
-        Self {
-            datetime,
-            open: candle_tuple.0,
-            high: candle_tuple.1,
-            low: candle_tuple.2,
-            close: candle_tuple.3,
-            volume: candle_tuple.4,
-            volume_net: candle_tuple.5,
-            volume_liquidation: candle_tuple.6,
-            value: candle_tuple.7,
-            trade_count: candle_tuple.8,
-            liquidation_count: candle_tuple.9,
-            last_trade_ts: candle_tuple.10,
-            last_trade_id: candle_tuple.11,
-            first_trade_ts: candle_tuple.12,
-            first_trade_id: candle_tuple.13,
-        }
-    }
-
-    // This function will build a placeholder trade with 0 volume and
-    // will populate OHLC from the last trade provided.
-    pub fn from_last(datetime: DateTime<Utc>, pit: &PrIdTi) -> Self {
-        Self {
-            datetime,
-            open: pit.price, // All OHLC are = last trade price
-            high: pit.price,
-            low: pit.price,
-            close: pit.price,
-            volume: dec!(0),
-            volume_net: dec!(0),
-            volume_liquidation: dec!(0),
-            value: dec!(0),
-            trade_count: 0,
-            liquidation_count: 0,
-            last_trade_ts: pit.dt,
-            last_trade_id: pit.id.to_string(),
-            first_trade_ts: pit.dt,
-            first_trade_id: pit.id.to_string(),
-        }
-    }
-
-    // Takes a Vec of Candles and resamples into a Candle with the Datetime = the
-    // datetime passed as argument. Candle built from candes in the order they are in
-    // the Vec, sort before calling this function otherwise Open / Close may
-    // be incorrect.
-    pub fn new_from_candles(datetime: DateTime<Utc>, candles: &[ProductionCandle]) -> Self {
-        let candle_tuple = candles.iter().fold(
-            (
-                candles.first().expect("No first trade for candle.").open, // open
-                Decimal::MIN,                                              // high
-                Decimal::MAX,                                              // low
-                dec!(0),                                                   // close
-                dec!(0),                                                   // volume
-                dec!(0),                                                   // volume_net
-                dec!(0),                                                   // volume_liquidation
-                dec!(0),                                                   // value
-                0,                                                         // count
-                0,                                                         // liquidation_count,
-                datetime,                                                  // last_trade_ts
-                "".to_string(),                                            // last_trade_id
-                candles.first().expect("No first trade.").first_trade_ts,  // first_trade_ts
-                candles
-                    .first()
-                    .expect("No first trade.")
-                    .first_trade_id
-                    .to_string(), // first_trade_id
-            ),
-            |(o, h, l, _c, v, vn, vl, a, n, ln, _ts, _id, fts, fid), c| {
-                (
-                    o,
-                    h.max(c.high),
-                    l.min(c.low),
-                    c.close,
-                    v + c.volume,
-                    vn + c.volume_net,
-                    vl + c.volume_liquidation,
-                    a + c.value,
-                    n + c.trade_count,
-                    ln + c.liquidation_count,
-                    c.last_trade_ts,
-                    c.last_trade_id.to_string(),
-                    fts,
-                    fid,
-                )
-            },
-        );
-        Self {
-            datetime,
-            open: candle_tuple.0,
-            high: candle_tuple.1,
-            low: candle_tuple.2,
-            close: candle_tuple.3,
-            volume: candle_tuple.4,
-            volume_net: candle_tuple.5,
-            volume_liquidation: candle_tuple.6,
-            value: candle_tuple.7,
-            trade_count: candle_tuple.8,
-            liquidation_count: candle_tuple.9,
-            last_trade_ts: candle_tuple.10,
-            last_trade_id: candle_tuple.11,
-            first_trade_ts: candle_tuple.12,
-            first_trade_id: candle_tuple.13,
-        }
-    }
-
-    // This function will build a placeholder trade with 0 volume and
-    // will populate OHLC from the last trade provided.
-    pub fn new_from_last(
-        _market_id: Uuid,
-        datetime: DateTime<Utc>,
-        last_trade_price: Decimal,
-        last_trade_ts: DateTime<Utc>,
-        last_trade_id: &str,
-    ) -> Self {
-        Self {
-            datetime,
-            open: last_trade_price, // All OHLC are = last trade price
-            high: last_trade_price,
-            low: last_trade_price,
-            close: last_trade_price,
-            volume: dec!(0),
-            volume_net: dec!(0),
-            volume_liquidation: dec!(0),
-            value: dec!(0),
-            trade_count: 0,
-            liquidation_count: 0,
-            last_trade_ts,
-            last_trade_id: last_trade_id.to_string(),
-            first_trade_ts: last_trade_ts,
-            first_trade_id: last_trade_id.to_string(),
-        }
-    }
-
-    pub fn from_trades_for_dr<T: Trade>(
-        trades: &[T],
-        mut last_trade: Option<PrIdTi>,
-        tf: &TimeFrame,
-        dr: &[DateTime<Utc>],
-    ) -> Vec<Self> {
-        // Iterate through dr, filter trades and make candles for each interval
-        // TODO - Add validation that dr start interval has trades if the last trade is None to
-        // prevent panic on unwrap of last trade for ::from_last() call
-        let candles = dr.iter().fold(Vec::new(), |mut v, d| {
-            let filtered_trades: Vec<_> = trades
-                .iter()
-                .filter(|t| t.time().duration_trunc(tf.as_dur()).unwrap() == *d)
-                .collect();
-            let new_candle = match filtered_trades.is_empty() {
-                true => Self::from_last(*d, &last_trade.unwrap()),
-                false => Self::from_trades(*d, &filtered_trades),
-            };
-            last_trade = Some(new_candle.close_as_pridti());
-            v.push(new_candle);
-            v
-        });
-        candles
-    }
-
-    pub fn resample(candles: &[Self], tf: &TimeFrame, dr: &[DateTime<Utc>]) -> Vec<Self> {
-        // Check first that there are candles to resample
-        if candles.is_empty() {
-            // Return original empty vec
-            candles.to_vec()
-        } else {
-            // Create a candle for each date in the daterange
-            // TODO! - Test against drain filter for speed
-            dr.iter().fold(Vec::new(), |mut v, d| {
-                let interval_candles: Vec<_> = candles
-                    .iter()
-                    .filter(|c| c.datetime.duration_trunc(tf.as_dur()).unwrap() == *d)
-                    .cloned()
-                    .collect();
-                let resampled_candle = Self::new_from_candles(*d, &interval_candles);
-                v.push(resampled_candle);
-                v
-            })
-        }
-    }
-
-    pub async fn create_table(
-        pool: &PgPool,
-        market: &MarketDetail,
-        tf: &TimeFrame,
-    ) -> Result<(), sqlx::Error> {
-        // Cannot use query! macro as table does not exist
-        let sql = format!(
-            r#"
-            CREATE TABLE IF NOT EXISTS candles.production_{}_{}_{} (
-                datetime timestamptz NOT NULL,
-                PRIMARY KEY (datetime),
-                open NUMERIC NOT NULL,
-                high NUMERIC NOT NULL,
-                low NUMERIC NOT NULL,
-                close NUMERIC NOT NULL,
-                volume NUMERIC NOT NULL,
-                volume_net NUMERIC NOT NULL,
-                volume_liquidation NUMERIC NOT NULL,
-                value NUMERIC NOT NULL,
-                trade_count BIGINT NOT NULL,
-                liquidation_count BIGINT NOT NULL,
-                last_trade_ts timestamptz NOT NULL,
-                last_trade_id TEXT NOT NULL,
-                first_trade_ts timestamptz NOT NULL,
-                first_trade_id TEXT NOT NULL
-            )
-            "#,
-            market.exchange_name.as_str(),
-            market.as_strip(),
-            tf.as_str(),
-        );
-        sqlx::query(&sql).execute(pool).await?;
-        Ok(())
-    }
-
-    pub async fn insert(
-        &self,
-        pool: &PgPool,
-        market: &MarketDetail,
-        tf: &TimeFrame,
-    ) -> Result<(), sqlx::Error> {
-        // Cannot use query! macro as table may not exist at compile time
-        let sql = format!(
-            r#"
-            INSERT INTO candles.production_{}_{}_{}
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-            "#,
-            market.exchange_name.as_str(),
-            market.as_strip(),
-            tf.as_str(),
-        );
-        sqlx::query(&sql)
-            .bind(self.datetime)
-            .bind(self.open)
-            .bind(self.high)
-            .bind(self.low)
-            .bind(self.close)
-            .bind(self.volume)
-            .bind(self.volume_net)
-            .bind(self.volume_liquidation)
-            .bind(self.value)
-            .bind(self.trade_count)
-            .bind(self.liquidation_count)
-            .bind(self.last_trade_ts)
-            .bind(&self.last_trade_id)
-            .bind(self.first_trade_ts)
-            .bind(&self.first_trade_id)
-            .execute(pool)
-            .await?;
-        Ok(())
-    }
-
-    pub async fn select_gte_dt(
-        pool: &PgPool,
-        market: &MarketDetail,
-        dt: &DateTime<Utc>,
-    ) -> Result<Vec<Self>, sqlx::Error> {
-        let sql = format!(
-            r#"
-            SELECT datetime, open, high, low, close, volume, volume_net, volume_liquidation, value,
-                trade_count, liquidation_count, last_trade_ts, last_trade_id, first_trade_ts,
-                first_trade_id
-            FROM candles.production_{}_{}_{}
-            WHERE datetime >= $1
-            ORDER BY datetime ASC
-            "#,
-            market.exchange_name.as_str(),
-            market.as_strip(),
-            market.tf.as_str(),
-        );
-        let rows = sqlx::query_as::<_, ProductionCandle>(&sql)
-            .bind(dt)
-            .fetch_all(pool)
-            .await?;
-        Ok(rows)
-    }
-
-    pub async fn select_eq_dt(
-        pool: &PgPool,
-        market: &MarketDetail,
-        dt: &DateTime<Utc>,
-    ) -> Result<Self, sqlx::Error> {
-        let sql = format!(
-            r#"
-            SELECT datetime, open, high, low, close, volume, volume_net, volume_liquidation, value,
-                trade_count, liquidation_count, last_trade_ts, last_trade_id, first_trade_ts,
-                first_trade_id
-            FROM candles.production_{}_{}_{}
-            WHERE datetime = $1
-            ORDER BY datetime ASC
-            "#,
-            market.exchange_name.as_str(),
-            market.as_strip(),
-            market.tf.as_str(),
-        );
-        let row = sqlx::query_as::<_, ProductionCandle>(&sql)
-            .bind(dt)
-            .fetch_one(pool)
-            .await?;
-        Ok(row)
-    }
-
-    pub async fn select_first(pool: &PgPool, market: &MarketDetail) -> Result<Self, sqlx::Error> {
-        let sql = format!(
-            r#"
-            SELECT datetime, open, high, low, close, volume, volume_net, volume_liquidation, value,
-                trade_count, liquidation_count, last_trade_ts, last_trade_id, first_trade_ts,
-                first_trade_id
-            FROM candles.production_{}_{}_{}
-            ORDER BY datetime ASC
-            "#,
-            market.exchange_name.as_str(),
-            market.as_strip(),
-            market.tf.as_str(),
-        );
-        let row = sqlx::query_as::<_, ProductionCandle>(&sql)
-            .fetch_one(pool)
-            .await?;
-        Ok(row)
-    }
-    pub async fn select_last_non_zero(
-        pool: &PgPool,
-        market: &MarketDetail,
-    ) -> Result<Self, sqlx::Error> {
-        let sql = format!(
-            r#"
-            SELECT datetime, open, high, low, close, volume, volume_net, volume_liquidation, value,
-                trade_count, liquidation_count, last_trade_ts, last_trade_id, first_trade_ts,
-                first_trade_id
-            FROM candles.production_{}_{}_{}
-            WHERE volume > 0
-            ORDER BY datetime DESC
-            "#,
-            market.exchange_name.as_str(),
-            market.as_strip(),
-            market.tf.as_str(),
-        );
-        let row = sqlx::query_as::<_, ProductionCandle>(&sql)
-            .fetch_one(pool)
-            .await?;
-        Ok(row)
-    }
-
-    // Delete an trades less than a give date for a give market
-    pub async fn delete_lt_dt(
-        pool: &PgPool,
-        market: &MarketDetail,
-        tf: &TimeFrame,
-        dt: &DateTime<Utc>,
-    ) -> Result<(), sqlx::Error> {
-        let sql = format!(
-            r#"
-            DELETE FROM candles.production_{}_{}_{}
-            WHERE datetime < $1
-            "#,
-            market.exchange_name.as_str(),
-            market.as_strip(),
-            tf.as_str(),
-        );
-        sqlx::query(&sql).bind(dt).execute(pool).await?;
-        Ok(())
-    }
-
-    pub async fn delete_gt_dt(
-        pool: &PgPool,
-        market: &MarketDetail,
-        dt: &DateTime<Utc>,
-    ) -> Result<(), sqlx::Error> {
-        let sql = format!(
-            r#"
-            DELETE FROM candles.production_{}_{}_{}
-            WHERE datetime > $1
-            "#,
-            market.exchange_name.as_str(),
-            market.as_strip(),
-            market.tf.as_str(),
-        );
-        sqlx::query(&sql).bind(dt).execute(pool).await?;
-        Ok(())
-    }
-}
-
-impl Candle for ResearchCandle {
-    fn datetime(&self) -> DateTime<Utc> {
-        self.datetime
-    }
-    fn close(&self) -> Decimal {
-        self.close
-    }
-    fn volume(&self) -> Decimal {
-        self.volume
-    }
-}
-
-impl ResearchCandle {
-    pub fn close_as_pridti(&self) -> PrIdTi {
-        PrIdTi {
-            id: self.last_trade_id.parse::<i64>().unwrap(),
-            dt: self.last_trade_ts,
-            price: self.close,
-        }
-    }
-
-    // Takes a Vec of Trade and aggregates into a Candle with the Datetime = the
-    // datetime passed as argument. Candle built from trades in the order they are in
-    // the Vec, sort before calling this function otherwise Open / Close / Datetime may
-    // be incorrect.
-    pub fn new_from_trades<T: Trade>(datetime: DateTime<Utc>, trades: &[T]) -> Self {
-        let candle_tuple = trades.iter().fold(
-            (
-                trades.first().expect("No first trade for candle.").price(), // open
-                Decimal::MIN,                                                // high
-                Decimal::MAX,                                                // low
-                dec!(0),                                                     // close
-                dec!(0),                                                     // volume
-                dec!(0),                                                     // volume buy
-                dec!(0),                                                     // volume sell
-                dec!(0),                                                     // volume liq
-                dec!(0),                                                     // volume liq buy
-                dec!(0),                                                     // volume liq sell
-                dec!(0),                                                     // value
-                dec!(0),                                                     // value buy
-                dec!(0),                                                     // value sell
-                dec!(0),                                                     // value liq
-                dec!(0),                                                     // value liq buy
-                dec!(0),                                                     // value liq sell
-                0,                                                           // count
-                0,                                                           // count buy
-                0,                                                           // count sell
-                0,                                                           // liq count,
-                0,                                                           // liq count buy,
-                0,                                                           // liq count sell,
-                datetime,                                                    // last_trade_ts
-                "".to_string(),                                              // last_trade_id
-                trades.first().expect("No first trade.").time(),             // first_trade_ts
-                trades
-                    .first()
-                    .expect("No first trade.")
-                    .trade_id()
-                    .to_string(), // first_trade_id
-            ),
-            |(
-                o,
-                h,
-                l,
-                _c,
-                v,
-                vb,
-                vs,
-                vl,
-                vlb,
-                vls,
-                u,
-                ub,
-                us,
-                al,
-                alb,
-                als,
-                n,
-                nb,
-                ns,
-                ln,
-                lnb,
-                lns,
-                _ts,
-                _id,
-                fts,
-                fid,
-            ),
-             t| {
-                (
-                    o,                // open
-                    h.max(t.price()), // high
-                    l.min(t.price()), // low
-                    t.price(),        // close
-                    v + t.size(),     // volume
-                    if t.side() == "buy" { vb + t.size() } else { vb },
-                    if t.side() == "sell" {
-                        vs + t.size()
-                    } else {
-                        vs
-                    },
-                    if t.liquidation() { vl + t.size() } else { vl },
-                    if t.liquidation() && t.side() == "buy" {
-                        vlb + t.size()
-                    } else {
-                        vlb
-                    },
-                    if t.liquidation() && t.side() == "sell" {
-                        vls + t.size()
-                    } else {
-                        vls
-                    },
-                    u + (t.size() * t.price()),
-                    if t.side() == "buy" {
-                        ub + (t.size() * t.price())
-                    } else {
-                        ub
-                    },
-                    if t.side() == "sell" {
-                        us + (t.size() * t.price())
-                    } else {
-                        us
-                    },
-                    if t.liquidation() {
-                        al + (t.size() * t.price())
-                    } else {
-                        al
-                    },
-                    if t.liquidation() && t.side() == "buy" {
-                        alb + (t.size() * t.price())
-                    } else {
-                        alb
-                    },
-                    if t.liquidation() && t.side() == "sell" {
-                        als + (t.size() * t.price())
-                    } else {
-                        als
-                    },
-                    n + 1,
-                    if t.side() == "buy" { nb + 1 } else { nb },
-                    if t.side() == "sell" { ns + 1 } else { ns },
-                    if t.liquidation() { ln + 1 } else { ln },
-                    if t.liquidation() && t.side() == "buy" {
-                        lnb + 1
-                    } else {
-                        lnb
-                    },
-                    if t.liquidation() && t.side() == "sell" {
-                        lns + 1
-                    } else {
-                        lns
-                    },
-                    t.time(),
-                    t.trade_id().to_string(),
-                    fts,
-                    fid,
-                )
-            },
-        );
-        Self {
-            datetime,
-            open: candle_tuple.0,
-            high: candle_tuple.1,
-            low: candle_tuple.2,
-            close: candle_tuple.3,
-            volume: candle_tuple.4,
-            volume_buy: candle_tuple.5,
-            volume_sell: candle_tuple.6,
-            volume_liq: candle_tuple.7,
-            volume_liq_buy: candle_tuple.8,
-            volume_liq_sell: candle_tuple.9,
-            value: candle_tuple.10,
-            value_buy: candle_tuple.11,
-            value_sell: candle_tuple.12,
-            value_liq: candle_tuple.13,
-            value_liq_buy: candle_tuple.14,
-            value_liq_sell: candle_tuple.15,
-            trade_count: candle_tuple.16,
-            trade_count_buy: candle_tuple.17,
-            trade_count_sell: candle_tuple.18,
-            liq_count: candle_tuple.19,
-            liq_count_buy: candle_tuple.20,
-            liq_count_sell: candle_tuple.21,
-            last_trade_ts: candle_tuple.22,
-            last_trade_id: candle_tuple.23,
-            first_trade_ts: candle_tuple.24,
-            first_trade_id: candle_tuple.25,
-        }
-    }
-
-    // Reduces the number of if statements in each iteration
-    pub fn new_from_trades_v2<T: Trade>(datetime: DateTime<Utc>, trades: &[T]) -> Self {
         let candle_tuple = trades.iter().fold(
             (
                 trades.first().expect("No first trade for candle.").price(), // open
@@ -1057,6 +381,470 @@ impl ResearchCandle {
             last_trade_id: candle_tuple.23,
             first_trade_ts: candle_tuple.24,
             first_trade_id: candle_tuple.25,
+        }
+    }
+
+    // This function will build a placeholder trade with 0 volume and
+    // will populate OHLC from the last trade provided.
+    pub fn from_last(datetime: DateTime<Utc>, pit: &PrIdTi) -> Self {
+        Self {
+            datetime,
+            open: pit.price, // All OHLC are = last trade price
+            high: pit.price,
+            low: pit.price,
+            close: pit.price,
+            volume: dec!(0),
+            volume_buy: dec!(0),
+            volume_sell: dec!(0),
+            volume_liq: dec!(0),
+            volume_liq_buy: dec!(0),
+            volume_liq_sell: dec!(0),
+            value: dec!(0),
+            value_buy: dec!(0),
+            value_sell: dec!(0),
+            value_liq: dec!(0),
+            value_liq_buy: dec!(0),
+            value_liq_sell: dec!(0),
+            trade_count: 0,
+            trade_count_buy: 0,
+            trade_count_sell: 0,
+            liq_count: 0,
+            liq_count_buy: 0,
+            liq_count_sell: 0,
+            last_trade_ts: pit.dt,
+            last_trade_id: pit.id.to_string(),
+            first_trade_ts: pit.dt,
+            first_trade_id: pit.id.to_string(),
+        }
+    }
+
+    // Takes a Vec of Candles and resamples into a Candle with the Datetime = the
+    // datetime passed as argument. Candle built from candes in the order they are in
+    // the Vec, sort before calling this function otherwise Open / Close may
+    // be incorrect.
+    pub fn new_from_candles(dt: &DateTime<Utc>, candles: &[Self]) -> Self {
+        let first = match candles.first() {
+            Some(c) => c,
+            None => panic!("Cannot build candle from empty vec of candles."),
+        };
+        let candle = candles.iter().fold(
+            (
+                first.open,                   // OPEN
+                Decimal::MIN,                 // HIGH
+                Decimal::MAX,                 // LOW
+                dec!(0),                      // CLOSE
+                dec!(0),                      // VOLUME
+                dec!(0),                      // VOLUME BUY
+                dec!(0),                      // VOLUME SELL
+                dec!(0),                      // VOLUME LIQ
+                dec!(0),                      // VOLUME LIQ BUY
+                dec!(0),                      // VOLUME LIQ SELL
+                dec!(0),                      // VALUE
+                dec!(0),                      // VALUE BUY
+                dec!(0),                      // VALUE SELL
+                dec!(0),                      // VALUE LIQ
+                dec!(0),                      // VALUE LIQ BUY
+                dec!(0),                      // VALUE LIQ SELL
+                0,                            // COUNT
+                0,                            // COUNT BUY
+                0,                            // COUNT SELL
+                0,                            // LIQ COUNT
+                0,                            // LIQ COUNT BUY
+                0,                            // LIQ COUNT SELL
+                *dt,                          // LAST TRADE TS
+                String::new(),                // LAST TRADE ID
+                first.first_trade_ts,         // FIRST TRADE TS
+                first.first_trade_id.clone(), // FIRST TRADE ID
+            ),
+            |(
+                o,
+                h,
+                l,
+                _c,
+                v,
+                vb,
+                vs,
+                vl,
+                vlb,
+                vls,
+                u,
+                ub,
+                us,
+                al,
+                alb,
+                als,
+                n,
+                nb,
+                ns,
+                ln,
+                lnb,
+                lns,
+                _ts,
+                _id,
+                fts,
+                fid,
+            ),
+             c| {
+                (
+                    o,
+                    h.max(c.high),
+                    l.min(c.low),
+                    c.close,
+                    v + c.volume,
+                    vb + c.volume_buy,
+                    vs + c.volume_sell,
+                    vl + c.volume_liq,
+                    vlb + c.volume_liq_buy,
+                    vls + c.volume_liq_sell,
+                    u + c.value,
+                    ub + c.value_buy,
+                    us + c.value_sell,
+                    al + c.value_liq,
+                    alb + c.value_liq_buy,
+                    als + c.value_liq_sell,
+                    n + c.trade_count,
+                    nb + c.trade_count_buy,
+                    ns + c.trade_count_sell,
+                    ln + c.liq_count,
+                    lnb + c.liq_count_buy,
+                    lns + c.liq_count_sell,
+                    c.last_trade_ts,
+                    c.last_trade_id.clone(),
+                    fts,
+                    fid,
+                )
+            },
+        );
+        Self {
+            datetime: *dt,
+            open: candle.0,
+            high: candle.1,
+            low: candle.2,
+            close: candle.3,
+            volume: candle.4,
+            volume_buy: candle.5,
+            volume_sell: candle.6,
+            volume_liq: candle.7,
+            volume_liq_buy: candle.8,
+            volume_liq_sell: candle.9,
+            value: candle.10,
+            value_buy: candle.11,
+            value_sell: candle.12,
+            value_liq: candle.13,
+            value_liq_buy: candle.14,
+            value_liq_sell: candle.15,
+            trade_count: candle.16,
+            trade_count_buy: candle.17,
+            trade_count_sell: candle.18,
+            liq_count: candle.19,
+            liq_count_buy: candle.20,
+            liq_count_sell: candle.21,
+            last_trade_ts: candle.22,
+            last_trade_id: candle.23,
+            first_trade_ts: candle.24,
+            first_trade_id: candle.25,
+        }
+    }
+
+    pub fn from_trades_for_dr<T: Trade>(
+        trades: &[T],
+        mut last_trade: Option<PrIdTi>,
+        tf: &TimeFrame,
+        dr: &[DateTime<Utc>],
+    ) -> Vec<Self> {
+        // Iterate through dr, filter trades and make candles for each interval
+        // TODO - Add validation that dr start interval has trades if the last trade is None to
+        // prevent panic on unwrap of last trade for ::from_last() call
+        let candles = dr.iter().fold(Vec::new(), |mut v, d| {
+            let filtered_trades: Vec<_> = trades
+                .iter()
+                .filter(|t| t.time().duration_trunc(tf.as_dur()).unwrap() == *d)
+                .collect();
+            let new_candle = match filtered_trades.is_empty() {
+                true => Self::from_last(*d, &last_trade.unwrap()),
+                false => Self::from_trades(*d, &filtered_trades),
+            };
+            last_trade = Some(new_candle.close_as_pridti());
+            v.push(new_candle);
+            v
+        });
+        candles
+    }
+
+    pub fn resample(candles: &[Self], tf: &TimeFrame, dr: &[DateTime<Utc>]) -> Vec<Self> {
+        // Check first that there are candles to resample
+        if candles.is_empty() {
+            // Return original empty vec
+            candles.to_vec()
+        } else {
+            // Create a candle for each date in the daterange
+            // TODO! - Test against drain filter for speed
+            dr.iter().fold(Vec::new(), |mut v, d| {
+                let interval_candles: Vec<_> = candles
+                    .iter()
+                    .filter(|c| c.datetime.duration_trunc(tf.as_dur()).unwrap() == *d)
+                    .cloned()
+                    .collect();
+                let resampled_candle = Self::new_from_candles(d, &interval_candles);
+                v.push(resampled_candle);
+                v
+            })
+        }
+    }
+
+    pub async fn create_table(
+        pool: &PgPool,
+        market: &MarketDetail,
+        tf: &TimeFrame,
+    ) -> Result<(), sqlx::Error> {
+        // Cannot use query! macro as table does not exist
+        let sql = format!(
+            r#"
+            CREATE TABLE IF NOT EXISTS candles.research_{}_{}_{} (
+                datetime timestamptz NOT NULL,
+                PRIMARY KEY (datetime),
+                open NUMERIC NOT NULL,
+                high NUMERIC NOT NULL,
+                low NUMERIC NOT NULL,
+                close NUMERIC NOT NULL,
+                volume NUMERIC NOT NULL,
+                volume_buy NUMERIC NOT NULL,
+                volume_sell NUMERIC NOT NULL,
+                volume_liq NUMERIC NOT NULL,
+                volume_liq_buy NUMERIC NOT NULL,
+                volume_liq_sell NUMERIC NOT NULL,
+                value NUMERIC NOT NULL,
+                value_buy NUMERIC NOT NULL,
+                value_sell NUMERIC NOT NULL,
+                value_liq NUMERIC NOT NULL,
+                value_liq_buy NUMERIC NOT NULL,
+                value_liq_sell NUMERIC NOT NULL,
+                trade_count BIGINT NOT NULL,
+                trade_count_buy BIGINT NOT NULL,
+                trade_count_sell BIGINT NOT NULL,
+                liq_count BIGINT NOT NULL,
+                liq_count_buy BIGINT NOT NULL,
+                liq_count_sell BIGINT NOT NULL,
+                last_trade_ts timestamptz NOT NULL,
+                last_trade_id TEXT NOT NULL,
+                first_trade_ts timestamptz NOT NULL,
+                first_trade_id TExT NOT NULL
+            )
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            tf.as_str(),
+        );
+        sqlx::query(&sql).execute(pool).await?;
+        Ok(())
+    }
+
+    pub async fn insert(
+        &self,
+        pool: &PgPool,
+        market: &MarketDetail,
+        tf: &TimeFrame,
+    ) -> Result<(), sqlx::Error> {
+        // Cannot use query! macro as table may not exist at compile time
+        let sql = format!(
+            r#"
+            INSERT INTO candles.production_{}_{}_{}
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+                $19, $20, $21, $22, $23, $24, $25, $26, $27)
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            tf.as_str(),
+        );
+        sqlx::query(&sql)
+            .bind(self.datetime)
+            .bind(self.open)
+            .bind(self.high)
+            .bind(self.low)
+            .bind(self.close)
+            .bind(self.volume)
+            .bind(self.volume_buy)
+            .bind(self.volume_sell)
+            .bind(self.volume_liq)
+            .bind(self.volume_liq_buy)
+            .bind(self.volume_liq_sell)
+            .bind(self.value)
+            .bind(self.value_buy)
+            .bind(self.value_sell)
+            .bind(self.value_liq)
+            .bind(self.value_liq_buy)
+            .bind(self.value_liq_sell)
+            .bind(self.trade_count)
+            .bind(self.trade_count_buy)
+            .bind(self.trade_count_sell)
+            .bind(self.liq_count)
+            .bind(self.liq_count_buy)
+            .bind(self.liq_count_sell)
+            .bind(self.last_trade_ts)
+            .bind(&self.last_trade_id)
+            .bind(self.first_trade_ts)
+            .bind(&self.first_trade_id)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn select_gte_dt(
+        pool: &PgPool,
+        market: &MarketDetail,
+        dt: &DateTime<Utc>,
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        let sql = format!(
+            r#"
+            SELECT datetime, open, high, low, close, volume, volume_buy, volume_sell, volume_liq,
+                volume_liq_buy, volume_liq_sell, value, value_buy, value_sell, value_liq,
+                value_liq_buy, value_liq_sell, trade_count, trade_count_buy, trade_count_sell,
+                liq_count, liq_count_buy, liq_count_sell, last_trade_ts, last_trade_id,
+                first_trade_ts, first_trade_id
+            FROM candles.production_{}_{}_{}
+            WHERE datetime >= $1
+            ORDER BY datetime ASC
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            market.tf.as_str(),
+        );
+        let rows = sqlx::query_as::<_, ProductionCandle>(&sql)
+            .bind(dt)
+            .fetch_all(pool)
+            .await?;
+        Ok(rows)
+    }
+
+    pub async fn select_eq_dt(
+        pool: &PgPool,
+        market: &MarketDetail,
+        dt: &DateTime<Utc>,
+    ) -> Result<Self, sqlx::Error> {
+        let sql = format!(
+            r#"
+            SELECT datetime, open, high, low, close, volume, volume_buy, volume_sell, volume_liq,
+                volume_liq_buy, volume_liq_sell, value, value_buy, value_sell, value_liq,
+                value_liq_buy, value_liq_sell, trade_count, trade_count_buy, trade_count_sell,
+                liq_count, liq_count_buy, liq_count_sell, last_trade_ts, last_trade_id,
+                first_trade_ts, first_trade_id
+            FROM candles.production_{}_{}_{}
+            WHERE datetime = $1
+            ORDER BY datetime ASC
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            market.tf.as_str(),
+        );
+        let row = sqlx::query_as::<_, ProductionCandle>(&sql)
+            .bind(dt)
+            .fetch_one(pool)
+            .await?;
+        Ok(row)
+    }
+
+    pub async fn select_first(pool: &PgPool, market: &MarketDetail) -> Result<Self, sqlx::Error> {
+        let sql = format!(
+            r#"
+            SELECT datetime, open, high, low, close, volume, volume_buy, volume_sell, volume_liq,
+                volume_liq_buy, volume_liq_sell, value, value_buy, value_sell, value_liq,
+                value_liq_buy, value_liq_sell, trade_count, trade_count_buy, trade_count_sell,
+                liq_count, liq_count_buy, liq_count_sell, last_trade_ts, last_trade_id,
+                first_trade_ts, first_trade_id
+            FROM candles.production_{}_{}_{}
+            ORDER BY datetime ASC
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            market.tf.as_str(),
+        );
+        let row = sqlx::query_as::<_, ProductionCandle>(&sql)
+            .fetch_one(pool)
+            .await?;
+        Ok(row)
+    }
+    pub async fn select_last_non_zero(
+        pool: &PgPool,
+        market: &MarketDetail,
+    ) -> Result<Self, sqlx::Error> {
+        let sql = format!(
+            r#"
+            SELECT datetime, open, high, low, close, volume, volume_buy, volume_sell, volume_liq,
+                volume_liq_buy, volume_liq_sell, value, value_buy, value_sell, value_liq,
+                value_liq_buy, value_liq_sell, trade_count, trade_count_buy, trade_count_sell,
+                liq_count, liq_count_buy, liq_count_sell, last_trade_ts, last_trade_id,
+                first_trade_ts, first_trade_id
+            FROM candles.production_{}_{}_{}
+            WHERE volume > 0
+            ORDER BY datetime DESC
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            market.tf.as_str(),
+        );
+        let row = sqlx::query_as::<_, ProductionCandle>(&sql)
+            .fetch_one(pool)
+            .await?;
+        Ok(row)
+    }
+
+    // Delete an trades less than a give date for a give market
+    pub async fn delete_lt_dt(
+        pool: &PgPool,
+        market: &MarketDetail,
+        tf: &TimeFrame,
+        dt: &DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        let sql = format!(
+            r#"
+            DELETE FROM candles.production_{}_{}_{}
+            WHERE datetime < $1
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            tf.as_str(),
+        );
+        sqlx::query(&sql).bind(dt).execute(pool).await?;
+        Ok(())
+    }
+
+    pub async fn delete_gt_dt(
+        pool: &PgPool,
+        market: &MarketDetail,
+        dt: &DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        let sql = format!(
+            r#"
+            DELETE FROM candles.production_{}_{}_{}
+            WHERE datetime > $1
+            "#,
+            market.exchange_name.as_str(),
+            market.as_strip(),
+            market.tf.as_str(),
+        );
+        sqlx::query(&sql).bind(dt).execute(pool).await?;
+        Ok(())
+    }
+}
+
+impl Candle for ResearchCandle {
+    fn datetime(&self) -> DateTime<Utc> {
+        self.datetime
+    }
+    fn close(&self) -> Decimal {
+        self.close
+    }
+    fn volume(&self) -> Decimal {
+        self.volume
+    }
+}
+
+impl ResearchCandle {
+    pub fn close_as_pridti(&self) -> PrIdTi {
+        PrIdTi {
+            id: self.last_trade_id.parse::<i64>().unwrap(),
+            dt: self.last_trade_ts,
+            price: self.close,
         }
     }
 
@@ -1282,45 +1070,6 @@ impl ResearchCandle {
 
     // This function will build a placeholder trade with 0 volume and
     // will populate OHLC from the last trade provided.
-    pub fn new_from_last(
-        datetime: DateTime<Utc>,
-        last_trade_price: Decimal,
-        last_trade_ts: DateTime<Utc>,
-        last_trade_id: &str,
-    ) -> Self {
-        Self {
-            datetime,
-            open: last_trade_price, // All OHLC are = last trade price
-            high: last_trade_price,
-            low: last_trade_price,
-            close: last_trade_price,
-            volume: dec!(0),
-            volume_buy: dec!(0),
-            volume_sell: dec!(0),
-            volume_liq: dec!(0),
-            volume_liq_buy: dec!(0),
-            volume_liq_sell: dec!(0),
-            value: dec!(0),
-            value_buy: dec!(0),
-            value_sell: dec!(0),
-            value_liq: dec!(0),
-            value_liq_buy: dec!(0),
-            value_liq_sell: dec!(0),
-            trade_count: 0,
-            trade_count_buy: 0,
-            trade_count_sell: 0,
-            liq_count: 0,
-            liq_count_buy: 0,
-            liq_count_sell: 0,
-            last_trade_ts,
-            last_trade_id: last_trade_id.to_string(),
-            first_trade_ts: last_trade_ts,
-            first_trade_id: last_trade_id.to_string(),
-        }
-    }
-
-    // This function will build a placeholder trade with 0 volume and
-    // will populate OHLC from the last trade provided.
     pub fn from_last(datetime: DateTime<Utc>, pit: &PrIdTi) -> Self {
         Self {
             datetime,
@@ -1491,11 +1240,23 @@ impl ResearchCandle {
             low: self.low,
             close: self.close,
             volume: self.volume,
-            volume_net: self.volume_buy - self.volume_sell,
-            volume_liquidation: self.volume_liq,
+            volume_buy: self.volume_buy,
+            volume_sell: self.volume_sell,
+            volume_liq: self.volume_liq,
+            volume_liq_buy: self.volume_liq_buy,
+            volume_liq_sell: self.volume_liq_sell,
             value: self.value,
+            value_buy: self.value_buy,
+            value_sell: self.value_sell,
+            value_liq: self.value_liq,
+            value_liq_buy: self.value_liq_buy,
+            value_liq_sell: self.value_liq_sell,
             trade_count: self.trade_count,
-            liquidation_count: self.liq_count,
+            trade_count_buy: self.trade_count_buy,
+            trade_count_sell: self.trade_count_sell,
+            liq_count: self.liq_count,
+            liq_count_buy: self.liq_count_buy,
+            liq_count_sell: self.liq_count_sell,
             last_trade_ts: self.last_trade_ts,
             last_trade_id: self.last_trade_id.clone(),
             first_trade_ts: self.first_trade_ts,
@@ -1841,7 +1602,7 @@ impl ElDorado {
         .unwrap();
         // For each dr - aggregate the candles
         dr.dts.iter().fold(Vec::new(), |mut v, d| {
-            v.push(ProductionCandle::new_from_candles(*d, &candle_map[d]));
+            v.push(ProductionCandle::new_from_candles(d, &candle_map[d]));
             v
         })
     }
