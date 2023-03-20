@@ -18,7 +18,6 @@ use sqlx::PgPool;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::path::PathBuf;
-use uuid::Uuid;
 
 pub trait Candle {
     fn datetime(&self) -> DateTime<Utc>;
@@ -119,29 +118,6 @@ pub struct ResearchCandle {
     pub last_trade_id: String,
     pub first_trade_ts: DateTime<Utc>,
     pub first_trade_id: String,
-}
-
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, sqlx::FromRow)]
-pub struct DailyCandle {
-    pub is_archived: bool,
-    pub datetime: DateTime<Utc>,
-    pub open: Decimal,
-    pub high: Decimal,
-    pub low: Decimal,
-    pub close: Decimal,
-    pub volume: Decimal,
-    pub volume_net: Decimal,
-    pub volume_liquidation: Decimal,
-    pub value: Decimal,
-    pub trade_count: i64,
-    pub liquidation_count: i64,
-    pub last_trade_ts: DateTime<Utc>,
-    pub last_trade_id: String,
-    pub first_trade_ts: DateTime<Utc>,
-    pub first_trade_id: String,
-    pub is_validated: bool,
-    pub market_id: Uuid,
-    pub is_complete: bool,
 }
 
 impl ProductionCandle {
@@ -1484,29 +1460,6 @@ impl ResearchCandle {
     }
 }
 
-impl DailyCandle {
-    pub async fn select_first(pool: &PgPool, market: &MarketDetail) -> Result<Self, sqlx::Error> {
-        let sql = r#"
-            SELECT * FROM candles_01d
-            WHERE market_id = $1
-            ORDER BY datetime
-            "#;
-        let row = sqlx::query_as::<_, DailyCandle>(sql)
-            .bind(market.market_id)
-            .fetch_one(pool)
-            .await?;
-        Ok(row)
-    }
-
-    pub fn open_as_pridti(&self) -> PrIdTi {
-        PrIdTi {
-            id: self.first_trade_id.parse::<i64>().unwrap(),
-            dt: self.first_trade_ts,
-            price: self.open,
-        }
-    }
-}
-
 impl ElDorado {
     pub async fn create_candles_schema(&self, pool: &PgPool) -> Result<(), sqlx::Error> {
         let sql = r#"
@@ -2065,25 +2018,6 @@ impl ElDorado {
                 println!("Other Rest Error, not Reqwest.");
                 false
             }
-        }
-    }
-
-    pub async fn select_first_daily_candle(&self, market: &MarketDetail) -> Option<DailyCandle> {
-        // Check that the daily candle table exists - this table will eventually be dropped
-        if self
-            .table_exists(&self.pools[&Database::ElDorado], "public", "candle_01d")
-            .await
-            .expect("Failed to check candle table.")
-        {
-            // Get first candle for market
-            match DailyCandle::select_first(&self.pools[&Database::ElDorado], market).await {
-                Ok(c) => Some(c),
-                Err(sqlx::Error::RowNotFound) => None,
-                Err(e) => panic!("Other sqlx error: {:?}", e),
-            }
-        } else {
-            // Candle table does not exist, return None
-            None
         }
     }
 

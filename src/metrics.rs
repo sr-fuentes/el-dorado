@@ -24,14 +24,14 @@ impl TimeFrame {
         }
     }
 
-    pub fn lbp_l(&self) -> i64{
+    pub fn lbp_l(&self) -> i64 {
         match self {
             TimeFrame::D01 => 60,
             _ => 0, // To be defined
         }
     }
 
-    pub fn lbp_s(&self) -> i64{
+    pub fn lbp_s(&self) -> i64 {
         match self {
             TimeFrame::D01 => 10,
             _ => 0, // To be defined
@@ -721,14 +721,20 @@ impl ResearchMetric {
                 vtc.push(Decimal::from_i64(can.trade_count).unwrap());
                 vtcnet.push(Decimal::from_i64(can.trade_count_buy - can.trade_count_sell).unwrap());
                 vtcpct.push(
-                    Decimal::from_i64(can.trade_count_buy
-                        .checked_div(can.trade_count)
-                        .unwrap_or(0)).unwrap()
+                    Decimal::from_i64(
+                        can.trade_count_buy
+                            .checked_div(can.trade_count)
+                            .unwrap_or(0),
+                    )
+                    .unwrap(),
                 );
                 // Trade Count Liq
                 vlc.push(Decimal::from_i64(can.liq_count).unwrap());
                 vlcnet.push(Decimal::from_i64(can.liq_count_buy - can.liq_count_sell).unwrap());
-                vlcpct.push(Decimal::from_i64(can.liq_count_buy.checked_div(can.liq_count).unwrap_or(0)).unwrap());
+                vlcpct.push(
+                    Decimal::from_i64(can.liq_count_buy.checked_div(can.liq_count).unwrap_or(0))
+                        .unwrap(),
+                );
                 (
                     can.close, vc, vh, vl, vv, vr, vtr, vuw, vbod, vlw, vvnet, vvpct, vvl, vvlnet,
                     vvlpct, vva, vvanet, vvapct, vval, vvalnet, vvalpct, vtc, vtcnet, vtcpct, vlc,
@@ -746,7 +752,7 @@ impl ResearchMetric {
                 } else {
                     MetricDirection::NC
                 }
-            },
+            }
             None => MetricDirection::NC,
         };
         let ma_l = Metric::ewma(&vecs.1, tf.lbp_l());
@@ -769,8 +775,16 @@ impl ResearchMetric {
             MetricFilter::Equal
         };
         // Set slice ranges
-        let range_start_l = if n_i64.ge(&tf.lbp_l()) { n - tf.lbp_l() as usize } else {usize::MIN};
-        let range_start_s = if n_i64.ge(&tf.lbp_s()) { n - tf.lbp_s() as  usize } else {usize::MIN};
+        let range_start_l = if n_i64.ge(&tf.lbp_l()) {
+            n - tf.lbp_l() as usize
+        } else {
+            usize::MIN
+        };
+        let range_start_s = if n_i64.ge(&tf.lbp_s()) {
+            n - tf.lbp_s() as usize
+        } else {
+            usize::MIN
+        };
         let range_end = n;
         // Set z scores
         let return_z_l = Metric::z(&vecs.5, range_start_l, range_end).round_dp(4);
