@@ -24,6 +24,20 @@ impl TimeFrame {
         }
     }
 
+    pub fn lbp_l(&self) -> i64{
+        match self {
+            TimeFrame::D01 => 60,
+            _ => 0, // To be defined
+        }
+    }
+
+    pub fn lbp_s(&self) -> i64{
+        match self {
+            TimeFrame::D01 => 10,
+            _ => 0, // To be defined
+        }
+    }
+
     pub fn max_len(&self) -> i64 {
         match self {
             TimeFrame::T15 => 9312,
@@ -115,8 +129,8 @@ pub struct ResearchMetric {
     pub atr_l: Decimal,
     pub atr_s: Decimal,
     pub ma_filter: MetricFilter,
-    pub n_filter: MetricFilter,
-    pub prev: MetricFilter,
+    pub atr_filter: MetricFilter,
+    pub direction: MetricDirection,
     pub return_z_l: Decimal,
     pub return_z_s: Decimal,
     pub tr_z_l: Decimal,
@@ -169,19 +183,38 @@ pub struct ResearchMetric {
 #[sqlx(rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum MetricFilter {
-    SML,
-    SLM,
-    MLS,
-    MSL,
-    LMS,
-    LSM,
     SL,
     LS,
     Equal,
+}
+
+impl MetricFilter {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            MetricFilter::SL => "sl",
+            MetricFilter::LS => "ls",
+            MetricFilter::Equal => "equal",
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, sqlx::Type, Eq, PartialEq)]
+#[sqlx(rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum MetricDirection {
     Up,
     Down,
     NC,
-    None,
+}
+
+impl MetricDirection {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            MetricDirection::Up => "up",
+            MetricDirection::Down => "down",
+            MetricDirection::NC => "nc",
+        }
+    }
 }
 
 pub struct Metric {}
@@ -202,14 +235,14 @@ impl Metric {
         // Calculate the deviation mulitple of the last item in candle
         // to standard deviation of the period
         let n = Decimal::from(v[rs..re].len());
-        let shift_mean = v[rs..re].iter().sum::<Decimal>() / n;
-        let shift_sd = (v[rs..re]
+        let mean = v[rs..re].iter().sum::<Decimal>() / n;
+        let sd = (v[rs..re]
             .iter()
-            .fold(dec!(0), |s, x| s + (shift_mean - x).powi(2))
+            .fold(dec!(0), |s, x| s + (mean - x).powi(2))
             / n)
             .sqrt()
             .unwrap();
-        (v[v.len() - 1] - shift_mean) / shift_sd
+        (v[v.len() - 1] - mean) / sd
     }
 
     pub fn dons(c: &[Decimal], h: &[Decimal], l: &[Decimal]) -> Vec<Decimal> {
@@ -303,7 +336,7 @@ impl MetricAP {
                 vl.push(can.low);
                 vv.push(can.volume);
                 va.push(can.value);
-                vn.push(can.volume_net);
+                vn.push(can.volume);
                 // Calc return as current candle close / previous candle close - 1. If first candle
                 // return 0. The initial zero should not be used when calculating mean.
                 let r = match c.is_zero() {
@@ -545,6 +578,308 @@ impl MetricAP {
 }
 
 impl ResearchMetric {
+    pub fn new(market: &MarketDetail, tf: TimeFrame, candles: &[ProductionCandle]) -> Self {
+        let n = candles.len();
+        let n_i64 = n as i64;
+        let datetime = candles[n - 1].datetime;
+        // Iterate through candles and return Vecs of Decimals to use for z calcs
+        let vecs = candles.iter().fold(
+            (
+                Decimal::ZERO, // vecs.0 close
+                Vec::new(),    // vecs.1 [close] - to be used for emas
+                Vec::new(),    // vecs.2 [high] - to be used for dons
+                Vec::new(),    // vecs.3 [low] - to be used for dons
+                Vec::new(),    // vecs.4 [volume] - to be used for z
+                Vec::new(),    // vecs.5 [return] - to be used for z
+                Vec::new(),    // vecs.6 [tr] - to be used for z
+                Vec::new(),    // vecs.7 [upper_wick]
+                Vec::new(),    // vecs.8 [body]
+                Vec::new(),    // vecs.9 [lower_wick]
+                Vec::new(),    // vecs.10 [volume_net]
+                Vec::new(),    // vecs.11 [volume_pct]
+                Vec::new(),    // vecs.12 [volume_liq]
+                Vec::new(),    // vecs.13 [volume_liq_net]
+                Vec::new(),    // vecs.14 [volume_liq_pct]
+                Vec::new(),    // vecs.15 [value]
+                Vec::new(),    // vecs.16 [Value_net]
+                Vec::new(),    // vecs.17 [value_pct]
+                Vec::new(),    // vecs.18 [value_liq]
+                Vec::new(),    // vecs.19 [value_liq_net]
+                Vec::new(),    // vecs.20 [value_liq_pct]
+                Vec::new(),    // vecs.21 [trade_count]
+                Vec::new(),    // vecs.22 [trade_count_net]
+                Vec::new(),    // vecs.23 [trade_count_pct]
+                Vec::new(),    // vecs.24 [liq_count]
+                Vec::new(),    // vecs.25 [liq_count_net]
+                Vec::new(),    // vecs.26 [liq_count_pct]
+                Decimal::ZERO, // vecs.27 high
+                Decimal::ZERO, // vecs.28 low
+            ),
+            |(
+                c,
+                mut vc,
+                mut vh,
+                mut vl,
+                mut vv,
+                mut vr,
+                mut vtr,
+                mut vuw,
+                mut vbod,
+                mut vlw,
+                mut vvnet,
+                mut vvpct,
+                mut vvl,
+                mut vvlnet,
+                mut vvlpct,
+                mut vva,
+                mut vvanet,
+                mut vvapct,
+                mut vval,
+                mut vvalnet,
+                mut vvalpct,
+                mut vtc,
+                mut vtcnet,
+                mut vtcpct,
+                mut vlc,
+                mut vlcnet,
+                mut vlcpct,
+                _h,
+                _l,
+            ),
+             can| {
+                // Map close, high low etc to their vecs
+                vc.push(can.close);
+                vh.push(can.high);
+                vl.push(can.low);
+                vv.push(can.volume);
+                // Calc return as current candle close / prev candle close - 1
+                let r = if !c.is_zero() {
+                    can.close / c - Decimal::ONE
+                } else {
+                    c
+                };
+                vr.push(r);
+                // Calc tr
+                let hl = can.high - can.low;
+                let tr = if !c.is_zero() {
+                    let hpdc = (can.high - c).abs();
+                    let pdcl = (c - can.low).abs();
+                    hl.max(hpdc).max(pdcl)
+                } else {
+                    hl
+                };
+                vtr.push(tr);
+                // Calc wicks
+                vuw.push(
+                    (can.high - can.open.max(can.close))
+                        .checked_div(hl)
+                        .unwrap_or(Decimal::ZERO),
+                );
+                vbod.push(
+                    (can.open - can.close)
+                        .abs()
+                        .checked_div(hl)
+                        .unwrap_or(Decimal::ZERO),
+                );
+                vlw.push(
+                    (can.open.min(can.close) - can.low)
+                        .checked_div(hl)
+                        .unwrap_or(Decimal::ZERO),
+                );
+                // Volume
+                vvnet.push(can.volume_buy - can.volume_sell);
+                vvpct.push(
+                    can.volume_buy
+                        .checked_div(can.volume)
+                        .unwrap_or(Decimal::ZERO),
+                );
+                // Volume Liq
+                vvl.push(can.volume_liq);
+                vvlnet.push(can.volume_liq_buy - can.volume_liq_sell);
+                vvlpct.push(
+                    can.volume_liq_buy
+                        .checked_div(can.volume_liq)
+                        .unwrap_or(Decimal::ZERO),
+                );
+                // Value
+                vva.push(can.value);
+                vvanet.push(can.value_buy - can.value_sell);
+                vvapct.push(
+                    can.value_buy
+                        .checked_div(can.value)
+                        .unwrap_or(Decimal::ZERO),
+                );
+                // Value Liq
+                vval.push(can.value_liq);
+                vvalnet.push(can.value_liq_buy - can.value_liq_sell);
+                vvalpct.push(
+                    can.value_liq_buy
+                        .checked_div(can.value_liq)
+                        .unwrap_or(Decimal::ZERO),
+                );
+                // Trade Count
+                vtc.push(Decimal::from_i64(can.trade_count).unwrap());
+                vtcnet.push(Decimal::from_i64(can.trade_count_buy - can.trade_count_sell).unwrap());
+                vtcpct.push(
+                    Decimal::from_i64(can.trade_count_buy
+                        .checked_div(can.trade_count)
+                        .unwrap_or(0)).unwrap()
+                );
+                // Trade Count Liq
+                vlc.push(Decimal::from_i64(can.liq_count).unwrap());
+                vlcnet.push(Decimal::from_i64(can.liq_count_buy - can.liq_count_sell).unwrap());
+                vlcpct.push(Decimal::from_i64(can.liq_count_buy.checked_div(can.liq_count).unwrap_or(0)).unwrap());
+                (
+                    can.close, vc, vh, vl, vv, vr, vtr, vuw, vbod, vlw, vvnet, vvpct, vvl, vvlnet,
+                    vvlpct, vva, vvanet, vvapct, vval, vvalnet, vvalpct, vtc, vtcnet, vtcpct, vlc,
+                    vlcnet, vlcpct, can.high, can.low,
+                )
+            },
+        );
+        // Set filters
+        let direction = match vecs.7.last() {
+            Some(r) => {
+                if *r > Decimal::ZERO {
+                    MetricDirection::Up
+                } else if *r < Decimal::ZERO {
+                    MetricDirection::Down
+                } else {
+                    MetricDirection::NC
+                }
+            },
+            None => MetricDirection::NC,
+        };
+        let ma_l = Metric::ewma(&vecs.1, tf.lbp_l());
+        let ma_s = Metric::ewma(&vecs.1, tf.lbp_s());
+        let ma_filter = if ma_l > ma_s {
+            MetricFilter::LS
+        } else if ma_l < ma_s {
+            MetricFilter::SL
+        } else {
+            MetricFilter::Equal
+        };
+        // Set atrs
+        let atr_l = Metric::ewma(&vecs.6, tf.lbp_l());
+        let atr_s = Metric::ewma(&vecs.6, tf.lbp_s());
+        let atr_filter = if atr_l > atr_s {
+            MetricFilter::LS
+        } else if atr_l < atr_s {
+            MetricFilter::SL
+        } else {
+            MetricFilter::Equal
+        };
+        // Set slice ranges
+        let range_start_l = if n_i64.ge(&tf.lbp_l()) { n - tf.lbp_l() as usize } else {usize::MIN};
+        let range_start_s = if n_i64.ge(&tf.lbp_s()) { n - tf.lbp_s() as  usize } else {usize::MIN};
+        let range_end = n;
+        // Set z scores
+        let return_z_l = Metric::z(&vecs.5, range_start_l, range_end).round_dp(4);
+        let return_z_s = Metric::z(&vecs.5, range_start_s, range_end).round_dp(4);
+        let tr_z_l = Metric::z(&vecs.6, range_start_l, range_end).round_dp(4);
+        let tr_z_s = Metric::z(&vecs.6, range_start_s, range_end).round_dp(4);
+        let upper_wick_z_l = Metric::z(&vecs.7, range_start_l, range_end).round_dp(4);
+        let upper_wick_z_s = Metric::z(&vecs.7, range_start_s, range_end).round_dp(4);
+        let body_z_l = Metric::z(&vecs.8, range_start_l, range_end).round_dp(4);
+        let body_z_s = Metric::z(&vecs.8, range_start_s, range_end).round_dp(4);
+        let lower_wick_z_l = Metric::z(&vecs.9, range_start_l, range_end).round_dp(4);
+        let lower_wick_z_s = Metric::z(&vecs.9, range_start_s, range_end).round_dp(4);
+        let volume_z_l = Metric::z(&vecs.4, range_start_l, range_end).round_dp(4);
+        let volume_z_s = Metric::z(&vecs.4, range_start_s, range_end).round_dp(4);
+        let volume_net_z_l = Metric::z(&vecs.10, range_start_l, range_end).round_dp(4);
+        let volume_net_z_s = Metric::z(&vecs.10, range_start_s, range_end).round_dp(4);
+        let volume_pct_z_l = Metric::z(&vecs.11, range_start_l, range_end).round_dp(4);
+        let volume_pct_z_s = Metric::z(&vecs.11, range_start_s, range_end).round_dp(4);
+        let volume_liq_z_l = Metric::z(&vecs.12, range_start_l, range_end).round_dp(4);
+        let volume_liq_z_s = Metric::z(&vecs.12, range_start_s, range_end).round_dp(4);
+        let volume_liq_net_z_l = Metric::z(&vecs.13, range_start_l, range_end).round_dp(4);
+        let volume_liq_net_z_s = Metric::z(&vecs.13, range_start_s, range_end).round_dp(4);
+        let volume_liq_pct_z_l = Metric::z(&vecs.14, range_start_l, range_end).round_dp(4);
+        let volume_liq_pct_z_s = Metric::z(&vecs.14, range_start_s, range_end).round_dp(4);
+        let value_z_l = Metric::z(&vecs.15, range_start_l, range_end).round_dp(4);
+        let value_z_s = Metric::z(&vecs.15, range_start_s, range_end).round_dp(4);
+        let value_net_z_l = Metric::z(&vecs.16, range_start_l, range_end).round_dp(4);
+        let value_net_z_s = Metric::z(&vecs.16, range_start_s, range_end).round_dp(4);
+        let value_pct_z_l = Metric::z(&vecs.17, range_start_l, range_end).round_dp(4);
+        let value_pct_z_s = Metric::z(&vecs.17, range_start_s, range_end).round_dp(4);
+        let value_liq_z_l = Metric::z(&vecs.18, range_start_l, range_end).round_dp(4);
+        let value_liq_z_s = Metric::z(&vecs.18, range_start_s, range_end).round_dp(4);
+        let value_liq_net_z_l = Metric::z(&vecs.19, range_start_l, range_end).round_dp(4);
+        let value_liq_net_z_s = Metric::z(&vecs.19, range_start_s, range_end).round_dp(4);
+        let value_liq_pct_z_l = Metric::z(&vecs.20, range_start_l, range_end).round_dp(4);
+        let value_liq_pct_z_s = Metric::z(&vecs.20, range_start_s, range_end).round_dp(4);
+        let trade_count_z_l = Metric::z(&vecs.21, range_start_l, range_end).round_dp(4);
+        let trade_count_z_s = Metric::z(&vecs.21, range_start_s, range_end).round_dp(4);
+        let trade_count_net_z_l = Metric::z(&vecs.22, range_start_l, range_end).round_dp(4);
+        let trade_count_net_z_s = Metric::z(&vecs.22, range_start_s, range_end).round_dp(4);
+        let trade_count_pct_z_l = Metric::z(&vecs.23, range_start_l, range_end).round_dp(4);
+        let trade_count_pct_z_s = Metric::z(&vecs.23, range_start_s, range_end).round_dp(4);
+        let liq_count_z_l = Metric::z(&vecs.24, range_start_l, range_end).round_dp(4);
+        let liq_count_z_s = Metric::z(&vecs.24, range_start_s, range_end).round_dp(4);
+        let liq_count_net_z_l = Metric::z(&vecs.25, range_start_l, range_end).round_dp(4);
+        let liq_count_net_z_s = Metric::z(&vecs.25, range_start_s, range_end).round_dp(4);
+        let liq_count_pct_z_l = Metric::z(&vecs.26, range_start_l, range_end).round_dp(4);
+        let liq_count_pct_z_s = Metric::z(&vecs.26, range_start_s, range_end).round_dp(4);
+        Self {
+            market_id: market.market_id,
+            tf,
+            datetime,
+            high: vecs.27,
+            low: vecs.28,
+            close: vecs.0,
+            atr_l,
+            atr_s,
+            ma_filter,
+            atr_filter,
+            direction,
+            return_z_l,
+            return_z_s,
+            tr_z_l,
+            tr_z_s,
+            upper_wick_z_l,
+            upper_wick_z_s,
+            body_z_l,
+            body_z_s,
+            lower_wick_z_l,
+            lower_wick_z_s,
+            volume_z_l,
+            volume_z_s,
+            volume_net_z_l,
+            volume_net_z_s,
+            volume_pct_z_l,
+            volume_pct_z_s,
+            volume_liq_z_l,
+            volume_liq_z_s,
+            volume_liq_net_z_l,
+            volume_liq_net_z_s,
+            volume_liq_pct_z_l,
+            volume_liq_pct_z_s,
+            value_z_l,
+            value_z_s,
+            value_net_z_l,
+            value_net_z_s,
+            value_pct_z_l,
+            value_pct_z_s,
+            value_liq_z_l,
+            value_liq_z_s,
+            value_liq_net_z_l,
+            value_liq_net_z_s,
+            value_liq_pct_z_l,
+            value_liq_pct_z_s,
+            trade_count_z_l,
+            trade_count_z_s,
+            trade_count_net_z_l,
+            trade_count_net_z_s,
+            trade_count_pct_z_l,
+            trade_count_pct_z_s,
+            liq_count_z_l,
+            liq_count_z_s,
+            liq_count_net_z_l,
+            liq_count_net_z_s,
+            liq_count_pct_z_l,
+            liq_count_pct_z_s,
+        }
+    }
+
     pub fn from_file(pb: &PathBuf) -> Vec<Self> {
         let file = File::open(pb).expect("Failed to open file.");
         let mut metrics = Vec::new();
@@ -568,8 +903,8 @@ impl ResearchMetric {
                 atr_l NUMERIC NOT NULL,
                 atr_s NUMERIC NOT NULL,
                 ma_filter TEXT NOT NULL,
-                n_filter TEXT NOT NULL,
-                prev TEXT NOT NULL,
+                atr_filter TEXT NOT NULL,
+                direction TEXT NOT NULL,
                 return_z_l NUMERIC NOT NULL,
                 return_z_s NUMERIC NOT NULL,
                 tr_z_l NUMERIC NOT NULL,
@@ -626,7 +961,7 @@ impl ResearchMetric {
     pub async fn insert(&self, pool: &PgPool) -> Result<(), sqlx::Error> {
         let sql = r#"
             INSERT INTO research_metrics (
-                market_id, tf, datetime, high, low, close, atr_l, atr_s, ma_filter, n_filter, prev,
+                market_id, tf, datetime, high, low, close, atr_l, atr_s, ma_filter, atr_filter, direction,
                 return_z_l, return_z_s, tr_z_l, tr_z_s, upper_wick_z_l, upper_wick_z_s, body_z_l,
                 body_z_s, lower_wick_z_l, lower_wick_z_s, volume_z_l, volume_z_s, volume_net_z_l,
                 volume_net_z_s, volume_pct_z_l, volume_pct_z_s, volume_liq_z_l, volume_liq_z_s,
@@ -656,9 +991,9 @@ impl ResearchMetric {
             .bind(self.close)
             .bind(self.atr_l)
             .bind(self.atr_s)
-            .bind(&self.ma_filter)
-            .bind(&self.n_filter)
-            .bind(&self.prev)
+            .bind(self.ma_filter.as_str())
+            .bind(self.atr_filter.as_str())
+            .bind(self.direction.as_str())
             .bind(self.return_z_l)
             .bind(self.return_z_s)
             .bind(self.tr_z_l)
@@ -718,8 +1053,8 @@ impl ResearchMetric {
                 tf as "tf: TimeFrame",
                 datetime, high, low, close, atr_l, atr_s, 
                 ma_filter as "ma_filter: MetricFilter",
-                n_filter as "n_filter: MetricFilter", 
-                prev as "prev: MetricFilter",
+                atr_filter as "atr_filter: MetricFilter", 
+                direction as "direction: MetricDirection",
                 return_z_l, return_z_s, tr_z_l, tr_z_s, upper_wick_z_l, upper_wick_z_s, body_z_l,
                 body_z_s, lower_wick_z_l, lower_wick_z_s, volume_z_l, volume_z_s, volume_net_z_l,
                 volume_net_z_s, volume_pct_z_l, volume_pct_z_s, volume_liq_z_l, volume_liq_z_s,
@@ -746,8 +1081,8 @@ impl ResearchMetric {
                 tf as "tf: TimeFrame",
                 datetime, high, low, close, atr_l, atr_s, 
                 ma_filter as "ma_filter: MetricFilter",
-                n_filter as "n_filter: MetricFilter", 
-                prev as "prev: MetricFilter",
+                atr_filter as "atr_filter: MetricFilter", 
+                direction as "direction: MetricDirection",
                 return_z_l, return_z_s, tr_z_l, tr_z_s, upper_wick_z_l, upper_wick_z_s, body_z_l,
                 body_z_s, lower_wick_z_l, lower_wick_z_s, volume_z_l, volume_z_s, volume_net_z_l,
                 volume_net_z_s, volume_pct_z_l, volume_pct_z_s, volume_liq_z_l, volume_liq_z_s,
@@ -779,8 +1114,8 @@ impl ResearchMetric {
                 tf as "tf: TimeFrame",
                 datetime, high, low, close, atr_l, atr_s, 
                 ma_filter as "ma_filter: MetricFilter",
-                n_filter as "n_filter: MetricFilter", 
-                prev as "prev: MetricFilter",
+                atr_filter as "atr_filter: MetricFilter", 
+                direction as "direction: MetricDirection",
                 return_z_l, return_z_s, tr_z_l, tr_z_s, upper_wick_z_l, upper_wick_z_s, body_z_l,
                 body_z_s, lower_wick_z_l, lower_wick_z_s, volume_z_l, volume_z_s, volume_net_z_l,
                 volume_net_z_s, volume_pct_z_l, volume_pct_z_s, volume_liq_z_l, volume_liq_z_s,
