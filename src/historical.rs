@@ -52,7 +52,7 @@ impl ElDorado {
                 println!("No metrics.");
             } else {
                 for m in hb.1.metrics.as_ref().unwrap().iter() {
-                    println!("Metric: {}\t{}\t{}", m.time_frame, m.lbp, m.datetime);
+                    println!("Metric: {}\t{}", m.tf, m.datetime);
                 }
             }
         }

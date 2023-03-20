@@ -4,7 +4,7 @@ use crate::{
     eldorado::ElDorado,
     exchanges::ExchangeName,
     markets::MarketDetail,
-    metrics::MetricAP,
+    metrics::ResearchMetric,
     trades::PrIdTi,
     utilities::{DateRange, TimeFrame},
 };
@@ -16,7 +16,7 @@ pub struct Heartbeat {
     pub ts: DateTime<Utc>,
     pub last: PrIdTi,
     pub candles: HashMap<TimeFrame, Vec<ProductionCandle>>,
-    pub metrics: Option<Vec<MetricAP>>,
+    pub metrics: Option<Vec<ResearchMetric>>,
 }
 
 impl ElDorado {
@@ -50,7 +50,7 @@ impl ElDorado {
         };
         // Delete metrics for markets
         for market in self.markets.iter() {
-            MetricAP::delete_by_market(&self.pools[&Database::ElDorado], market)
+            ResearchMetric::delete_by_market(&self.pools[&Database::ElDorado], market)
                 .await
                 .expect("Failed to delete metrics.");
         }
@@ -192,7 +192,7 @@ impl ElDorado {
         // There are no intervals to process but metrics need to be updated
         println!("Updating and inserting metrics.");
         let metrics = self.calc_metrics_all_tfs(market, heartbeat);
-        self.insert_metrics_ap(&metrics).await;
+        self.insert_metrics(&metrics).await;
         Some(Heartbeat {
             ts: heartbeat.ts,
             last: heartbeat.last,
@@ -218,7 +218,7 @@ impl ElDorado {
         base_candles.append(&mut candles);
         candles_map.insert(base_tf, base_candles);
         // Start metrics vec
-        let mut metrics = MetricAP::new(market, base_tf, &candles_map[&base_tf]);
+        let mut metrics = vec![ResearchMetric::new(market, base_tf, &candles_map[&base_tf])];
         // For each time frame - either append new candle for interval or clone existing
         for tf in TimeFrame::time_frames().iter().skip(1) {
             let hb_last = heartbeat.candles[tf].last().unwrap();
@@ -238,8 +238,7 @@ impl ElDorado {
                 let mut candles = heartbeat.candles[tf].clone();
                 candles.append(&mut resampled_candles);
                 // Calc metrics on new candle vec
-                let mut more_metrics = MetricAP::new(market, *tf, &candles);
-                metrics.append(&mut more_metrics);
+                metrics.push(ResearchMetric::new(market, *tf, &candles));
                 candles_map.insert(*tf, candles);
             } else {
                 // // Interval end does not create new interval for timeframe
@@ -249,7 +248,7 @@ impl ElDorado {
             }
         }
         // Insert metrics to db
-        self.insert_metrics_ap(&metrics).await;
+        self.insert_metrics(&metrics).await;
         // Update the market last candle
         market
             .update_last_candle(&self.pools[&Database::ElDorado], &last_ts)

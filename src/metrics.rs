@@ -1150,6 +1150,19 @@ impl ResearchMetric {
         Ok(rows)
     }
 
+    pub async fn delete_by_market(pool: &PgPool, market: &MarketDetail) -> Result<(), sqlx::Error> {
+        let sql = r#"
+            DELETE FROM research_metrics
+            WHERE market_id = $1
+            AND market_name = $2
+            "#;
+        sqlx::query(sql)
+            .bind(market.market_id)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
     pub fn map_by_id_tf(metrics: &[Self]) -> HashMap<Uuid, HashMap<TimeFrame, Vec<Self>>> {
         let mut map: HashMap<Uuid, HashMap<TimeFrame, Vec<ResearchMetric>>> = HashMap::new();
         for metric in metrics.iter() {
@@ -1224,7 +1237,7 @@ impl ResearchMetric {
 }
 
 impl ElDorado {
-    pub async fn insert_metrics_ap(&self, metrics: &[MetricAP]) {
+    pub async fn insert_metrics(&self, metrics: &[ResearchMetric]) {
         for metric in metrics.iter() {
             metric
                 .insert(&self.pools[&Database::ElDorado])
@@ -1237,12 +1250,12 @@ impl ElDorado {
         &self,
         market: &MarketDetail,
         heartbeat: &Heartbeat,
-    ) -> Vec<MetricAP> {
+    ) -> Vec<ResearchMetric> {
         let mut metrics = Vec::new();
         for tf in TimeFrame::time_frames().iter() {
             println!("Calculating metrics for {} - {}", market.market_name, tf);
-            let mut tf_metrics = MetricAP::new(market, *tf, &heartbeat.candles[tf]);
-            metrics.append(&mut tf_metrics);
+            let tf_metric = ResearchMetric::new(market, *tf, &heartbeat.candles[tf]);
+            metrics.push(tf_metric)
         }
         metrics
     }
