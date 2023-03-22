@@ -214,7 +214,7 @@ impl WebSocket {
                         Err(e) => {
                             println!("Failed to parse gdax trade from serde json value.");
                             println!("Value: {:?}", v2);
-                            panic!("Error: {:?}", e);
+                            println!("Error: {:?}", e);
                         }
                     }
                 }
