@@ -168,13 +168,9 @@ impl ElDorado {
         // Select the first trade for the market in the eldorado database. For <0.3 markets, this
         // will be in the 01d_candles table if it exists. For >=0.4 markets, this will be the first
         // full day production candle for the market.
-        match self.select_first_daily_candle(market).await {
-            Some(c) => Some(c.open_as_pridti()),
-            None => self
-                .select_first_production_candle_full_day(market)
-                .await
-                .map(|c| c.open_as_pridti()),
-        }
+        self.select_first_production_candle_full_day(market)
+            .await
+            .map(|c| c.open_as_pridti())
     }
 
     // Return the last trade of the day for a given trade. For example: if the trade given was
@@ -188,8 +184,9 @@ impl ElDorado {
         let mut t = trade.clone();
         let mut trades = Vec::new();
         while t.time < end {
-            // Prevent 429 errors by only requesting 1 per second
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            // Prevent 429 errors by only requesting 2 per second - expected to run 4x instances
+            // to meet rate limit of 10 / seccond
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             let mut new_trades = match self.clients[&market.exchange_name]
                 .get_gdax_trades(
                     &market.market_name,
@@ -230,7 +227,7 @@ impl ElDorado {
         let mut trades = Vec::new();
         while t.time > end {
             // Prevent 429 errors by only requesting 1 per second
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             let mut new_trades = match self.clients[&market.exchange_name]
                 .get_gdax_trades(
                     &market.market_name,

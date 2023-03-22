@@ -214,50 +214,7 @@
     },
     "query": "\n            SELECT instance_type as \"instance_type: InstanceType\",\n                droplet,\n                exchange_name as \"exchange_name: Option<ExchangeName>\",\n                instance_status as \"instance_status: InstanceStatus\",\n                restart, last_restart_ts, restart_count, num_markets, last_update_ts,\n                last_message_ts\n            FROM instances\n            WHERE instance_type = $1\n            "
   },
-  "34a87af57f943a17968609a01bc929b6e64e30bf008ed3007765424a22ff3a6c": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Timestamptz",
-          "Uuid"
-        ]
-      }
-    },
-    "query": "\n            UPDATE markets\n            SET last_candle  = $1\n            WHERE market_id = $2\n            "
-  },
-  "3656e7faa8f268850c1682b6868ad8d53d5d65cb4b8d1c5c476cbd39ed7e7b2d": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Timestamptz",
-          "Text",
-          "Uuid"
-        ]
-      }
-    },
-    "query": "\n            UPDATE market_trade_details\n            SET (next_trade_day, next_status) = ($1, $2)\n            WHERE market_id = $3\n            "
-  },
-  "4169c5651444cba56813bd6d2d1bd891c065ddbddec842175bb2cd5729d103e6": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Timestamptz",
-          "Text",
-          "Timestamptz",
-          "Text",
-          "Uuid"
-        ]
-      }
-    },
-    "query": "\n            UPDATE market_trade_details\n            SET (first_trade_ts, first_trade_id, last_trade_ts, last_trade_id) = ($1, $2, $3, $4)\n            WHERE market_id = $5\n            "
-  },
-  "44aaa9bcda32d52f102d519845703a8f5b8203bc074a543a9f0d67b157f540bc": {
+  "2831e493074130384b4b465e6934a0d23c57204140603d38377c43d3bf3c1086": {
     "describe": {
       "columns": [
         {
@@ -306,12 +263,12 @@
           "type_info": "Text"
         },
         {
-          "name": "n_filter: MetricFilter",
+          "name": "atr_filter: MetricFilter",
           "ordinal": 9,
           "type_info": "Text"
         },
         {
-          "name": "prev: MetricFilter",
+          "name": "direction: MetricDirection",
           "ordinal": 10,
           "type_info": "Text"
         },
@@ -611,7 +568,50 @@
         ]
       }
     },
-    "query": "\n            SELECT market_id,\n                tf as \"tf: TimeFrame\",\n                datetime, high, low, close, atr_l, atr_s, \n                ma_filter as \"ma_filter: MetricFilter\",\n                n_filter as \"n_filter: MetricFilter\", \n                prev as \"prev: MetricFilter\",\n                return_z_l, return_z_s, tr_z_l, tr_z_s, upper_wick_z_l, upper_wick_z_s, body_z_l,\n                body_z_s, lower_wick_z_l, lower_wick_z_s, volume_z_l, volume_z_s, volume_net_z_l,\n                volume_net_z_s, volume_pct_z_l, volume_pct_z_s, volume_liq_z_l, volume_liq_z_s,\n                volume_liq_net_z_l, volume_liq_net_z_s, volume_liq_pct_z_l, volume_liq_pct_z_s,\n                value_z_l, value_z_s, value_net_z_l, value_net_z_s, value_pct_z_l, value_pct_z_s,\n                value_liq_z_l, value_liq_z_s, value_liq_net_z_l, value_liq_net_z_s,\n                value_liq_pct_z_l, value_liq_pct_z_s, trade_count_z_l, trade_count_z_s,\n                trade_count_net_z_l, trade_count_net_z_s, trade_count_pct_z_l, trade_count_pct_z_s,\n                liq_count_z_l, liq_count_z_s, liq_count_net_z_l, liq_count_net_z_s,\n                liq_count_pct_z_l, liq_count_pct_z_s\n            FROM research_metrics\n            WHERE market_id = $1\n            "
+    "query": "\n            SELECT market_id,\n                tf as \"tf: TimeFrame\",\n                datetime, high, low, close, atr_l, atr_s, \n                ma_filter as \"ma_filter: MetricFilter\",\n                atr_filter as \"atr_filter: MetricFilter\", \n                direction as \"direction: MetricDirection\",\n                return_z_l, return_z_s, tr_z_l, tr_z_s, upper_wick_z_l, upper_wick_z_s, body_z_l,\n                body_z_s, lower_wick_z_l, lower_wick_z_s, volume_z_l, volume_z_s, volume_net_z_l,\n                volume_net_z_s, volume_pct_z_l, volume_pct_z_s, volume_liq_z_l, volume_liq_z_s,\n                volume_liq_net_z_l, volume_liq_net_z_s, volume_liq_pct_z_l, volume_liq_pct_z_s,\n                value_z_l, value_z_s, value_net_z_l, value_net_z_s, value_pct_z_l, value_pct_z_s,\n                value_liq_z_l, value_liq_z_s, value_liq_net_z_l, value_liq_net_z_s,\n                value_liq_pct_z_l, value_liq_pct_z_s, trade_count_z_l, trade_count_z_s,\n                trade_count_net_z_l, trade_count_net_z_s, trade_count_pct_z_l, trade_count_pct_z_s,\n                liq_count_z_l, liq_count_z_s, liq_count_net_z_l, liq_count_net_z_s,\n                liq_count_pct_z_l, liq_count_pct_z_s\n            FROM research_metrics\n            WHERE market_id = $1\n            "
+  },
+  "34a87af57f943a17968609a01bc929b6e64e30bf008ed3007765424a22ff3a6c": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Timestamptz",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            UPDATE markets\n            SET last_candle  = $1\n            WHERE market_id = $2\n            "
+  },
+  "3656e7faa8f268850c1682b6868ad8d53d5d65cb4b8d1c5c476cbd39ed7e7b2d": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Timestamptz",
+          "Text",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            UPDATE market_trade_details\n            SET (next_trade_day, next_status) = ($1, $2)\n            WHERE market_id = $3\n            "
+  },
+  "4169c5651444cba56813bd6d2d1bd891c065ddbddec842175bb2cd5729d103e6": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Timestamptz",
+          "Text",
+          "Timestamptz",
+          "Text",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            UPDATE market_trade_details\n            SET (first_trade_ts, first_trade_id, last_trade_ts, last_trade_id) = ($1, $2, $3, $4)\n            WHERE market_id = $5\n            "
   },
   "4b8107f386c99b0c73a7ab1ec469238ecee4f6a4592def6ad026cb5ab10caca4": {
     "describe": {
@@ -715,7 +715,7 @@
     },
     "query": "\n            SELECT market_id,\n                exchange_name as \"exchange_name: ExchangeName\",\n                market_name, \n                market_type as \"market_type: MarketType\", \n                base,\n                base_step,\n                base_min,\n                quote, \n                quote_step,\n                status as \"status: MarketStatus\",\n                tradable,\n                mita,\n                tf as \"tf: TimeFrame\",\n                last_candle,\n                asset_id\n            FROM markets\n            "
   },
-  "59218a3c24744250f089c1926b921fd0eb9c0010ce2a9073f22eb942a95d9156": {
+  "531cd14c54fb49bc963441b3ec175af8e2584c0d50e6bc59336e2f484b812309": {
     "describe": {
       "columns": [
         {
@@ -764,12 +764,12 @@
           "type_info": "Text"
         },
         {
-          "name": "n_filter: MetricFilter",
+          "name": "atr_filter: MetricFilter",
           "ordinal": 9,
           "type_info": "Text"
         },
         {
-          "name": "prev: MetricFilter",
+          "name": "direction: MetricDirection",
           "ordinal": 10,
           "type_info": "Text"
         },
@@ -1064,12 +1064,10 @@
         false
       ],
       "parameters": {
-        "Left": [
-          "UuidArray"
-        ]
+        "Left": []
       }
     },
-    "query": "\n            SELECT market_id,\n                tf as \"tf: TimeFrame\",\n                datetime, high, low, close, atr_l, atr_s, \n                ma_filter as \"ma_filter: MetricFilter\",\n                n_filter as \"n_filter: MetricFilter\", \n                prev as \"prev: MetricFilter\",\n                return_z_l, return_z_s, tr_z_l, tr_z_s, upper_wick_z_l, upper_wick_z_s, body_z_l,\n                body_z_s, lower_wick_z_l, lower_wick_z_s, volume_z_l, volume_z_s, volume_net_z_l,\n                volume_net_z_s, volume_pct_z_l, volume_pct_z_s, volume_liq_z_l, volume_liq_z_s,\n                volume_liq_net_z_l, volume_liq_net_z_s, volume_liq_pct_z_l, volume_liq_pct_z_s,\n                value_z_l, value_z_s, value_net_z_l, value_net_z_s, value_pct_z_l, value_pct_z_s,\n                value_liq_z_l, value_liq_z_s, value_liq_net_z_l, value_liq_net_z_s,\n                value_liq_pct_z_l, value_liq_pct_z_s, trade_count_z_l, trade_count_z_s,\n                trade_count_net_z_l, trade_count_net_z_s, trade_count_pct_z_l, trade_count_pct_z_s,\n                liq_count_z_l, liq_count_z_s, liq_count_net_z_l, liq_count_net_z_s,\n                liq_count_pct_z_l, liq_count_pct_z_s\n            FROM research_metrics\n            WHERE market_id = ANY($1)\n            "
+    "query": "\n            SELECT market_id,\n                tf as \"tf: TimeFrame\",\n                datetime, high, low, close, atr_l, atr_s, \n                ma_filter as \"ma_filter: MetricFilter\",\n                atr_filter as \"atr_filter: MetricFilter\", \n                direction as \"direction: MetricDirection\",\n                return_z_l, return_z_s, tr_z_l, tr_z_s, upper_wick_z_l, upper_wick_z_s, body_z_l,\n                body_z_s, lower_wick_z_l, lower_wick_z_s, volume_z_l, volume_z_s, volume_net_z_l,\n                volume_net_z_s, volume_pct_z_l, volume_pct_z_s, volume_liq_z_l, volume_liq_z_s,\n                volume_liq_net_z_l, volume_liq_net_z_s, volume_liq_pct_z_l, volume_liq_pct_z_s,\n                value_z_l, value_z_s, value_net_z_l, value_net_z_s, value_pct_z_l, value_pct_z_s,\n                value_liq_z_l, value_liq_z_s, value_liq_net_z_l, value_liq_net_z_s,\n                value_liq_pct_z_l, value_liq_pct_z_s, trade_count_z_l, trade_count_z_s,\n                trade_count_net_z_l, trade_count_net_z_s, trade_count_pct_z_l, trade_count_pct_z_s,\n                liq_count_z_l, liq_count_z_s, liq_count_net_z_l, liq_count_net_z_s,\n                liq_count_pct_z_l, liq_count_pct_z_s\n            FROM research_metrics\n            "
   },
   "59b74fb6c45cf3453fdeceea8a72ff239c80314c355857e0f39667be70577af8": {
     "describe": {
@@ -1920,6 +1918,362 @@
     },
     "query": "\n            SELECT market_id, market_start_ts, first_trade_ts, first_trade_id, last_trade_ts,\n                last_trade_id, previous_trade_day,\n                previous_status as \"previous_status: MarketDataStatus\",\n                next_trade_day,\n                next_status as \"next_status: MarketDataStatus\"\n            FROM market_trade_details\n            "
   },
+  "d1f1c1c7fa1a584e8dc72f4ca73633429199a90df01992b90e390ce193ebed07": {
+    "describe": {
+      "columns": [
+        {
+          "name": "market_id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "tf: TimeFrame",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "datetime",
+          "ordinal": 2,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "high",
+          "ordinal": 3,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "low",
+          "ordinal": 4,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "close",
+          "ordinal": 5,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "atr_l",
+          "ordinal": 6,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "atr_s",
+          "ordinal": 7,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "ma_filter: MetricFilter",
+          "ordinal": 8,
+          "type_info": "Text"
+        },
+        {
+          "name": "atr_filter: MetricFilter",
+          "ordinal": 9,
+          "type_info": "Text"
+        },
+        {
+          "name": "direction: MetricDirection",
+          "ordinal": 10,
+          "type_info": "Text"
+        },
+        {
+          "name": "return_z_l",
+          "ordinal": 11,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "return_z_s",
+          "ordinal": 12,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "tr_z_l",
+          "ordinal": 13,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "tr_z_s",
+          "ordinal": 14,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "upper_wick_z_l",
+          "ordinal": 15,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "upper_wick_z_s",
+          "ordinal": 16,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "body_z_l",
+          "ordinal": 17,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "body_z_s",
+          "ordinal": 18,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "lower_wick_z_l",
+          "ordinal": 19,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "lower_wick_z_s",
+          "ordinal": 20,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "volume_z_l",
+          "ordinal": 21,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "volume_z_s",
+          "ordinal": 22,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "volume_net_z_l",
+          "ordinal": 23,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "volume_net_z_s",
+          "ordinal": 24,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "volume_pct_z_l",
+          "ordinal": 25,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "volume_pct_z_s",
+          "ordinal": 26,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "volume_liq_z_l",
+          "ordinal": 27,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "volume_liq_z_s",
+          "ordinal": 28,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "volume_liq_net_z_l",
+          "ordinal": 29,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "volume_liq_net_z_s",
+          "ordinal": 30,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "volume_liq_pct_z_l",
+          "ordinal": 31,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "volume_liq_pct_z_s",
+          "ordinal": 32,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "value_z_l",
+          "ordinal": 33,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "value_z_s",
+          "ordinal": 34,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "value_net_z_l",
+          "ordinal": 35,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "value_net_z_s",
+          "ordinal": 36,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "value_pct_z_l",
+          "ordinal": 37,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "value_pct_z_s",
+          "ordinal": 38,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "value_liq_z_l",
+          "ordinal": 39,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "value_liq_z_s",
+          "ordinal": 40,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "value_liq_net_z_l",
+          "ordinal": 41,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "value_liq_net_z_s",
+          "ordinal": 42,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "value_liq_pct_z_l",
+          "ordinal": 43,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "value_liq_pct_z_s",
+          "ordinal": 44,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "trade_count_z_l",
+          "ordinal": 45,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "trade_count_z_s",
+          "ordinal": 46,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "trade_count_net_z_l",
+          "ordinal": 47,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "trade_count_net_z_s",
+          "ordinal": 48,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "trade_count_pct_z_l",
+          "ordinal": 49,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "trade_count_pct_z_s",
+          "ordinal": 50,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "liq_count_z_l",
+          "ordinal": 51,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "liq_count_z_s",
+          "ordinal": 52,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "liq_count_net_z_l",
+          "ordinal": 53,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "liq_count_net_z_s",
+          "ordinal": 54,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "liq_count_pct_z_l",
+          "ordinal": 55,
+          "type_info": "Numeric"
+        },
+        {
+          "name": "liq_count_pct_z_s",
+          "ordinal": 56,
+          "type_info": "Numeric"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "UuidArray"
+        ]
+      }
+    },
+    "query": "\n            SELECT market_id,\n                tf as \"tf: TimeFrame\",\n                datetime, high, low, close, atr_l, atr_s, \n                ma_filter as \"ma_filter: MetricFilter\",\n                atr_filter as \"atr_filter: MetricFilter\", \n                direction as \"direction: MetricDirection\",\n                return_z_l, return_z_s, tr_z_l, tr_z_s, upper_wick_z_l, upper_wick_z_s, body_z_l,\n                body_z_s, lower_wick_z_l, lower_wick_z_s, volume_z_l, volume_z_s, volume_net_z_l,\n                volume_net_z_s, volume_pct_z_l, volume_pct_z_s, volume_liq_z_l, volume_liq_z_s,\n                volume_liq_net_z_l, volume_liq_net_z_s, volume_liq_pct_z_l, volume_liq_pct_z_s,\n                value_z_l, value_z_s, value_net_z_l, value_net_z_s, value_pct_z_l, value_pct_z_s,\n                value_liq_z_l, value_liq_z_s, value_liq_net_z_l, value_liq_net_z_s,\n                value_liq_pct_z_l, value_liq_pct_z_s, trade_count_z_l, trade_count_z_s,\n                trade_count_net_z_l, trade_count_net_z_s, trade_count_pct_z_l, trade_count_pct_z_s,\n                liq_count_z_l, liq_count_z_s, liq_count_net_z_l, liq_count_net_z_s,\n                liq_count_pct_z_l, liq_count_pct_z_s\n            FROM research_metrics\n            WHERE market_id = ANY($1)\n            "
+  },
   "da9570d0b629d8c12c2d05d8939a8e3b27fc6eb459fbeb345877899c7026d96a": {
     "describe": {
       "columns": [
@@ -2249,359 +2603,5 @@
       }
     },
     "query": "\n            SELECT EXISTS (\n                SELECT FROM\n                    pg_tables\n                WHERE\n                    schemaname = $1 AND\n                    tablename = $2\n            ) as \"exists!\";\n            "
-  },
-  "fb35ebc46c0318e1496023f03acdd671aec868a1a8e2da2e5bd74ffc8f79da92": {
-    "describe": {
-      "columns": [
-        {
-          "name": "market_id",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        },
-        {
-          "name": "tf: TimeFrame",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "datetime",
-          "ordinal": 2,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "high",
-          "ordinal": 3,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "low",
-          "ordinal": 4,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "close",
-          "ordinal": 5,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "atr_l",
-          "ordinal": 6,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "atr_s",
-          "ordinal": 7,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "ma_filter: MetricFilter",
-          "ordinal": 8,
-          "type_info": "Text"
-        },
-        {
-          "name": "n_filter: MetricFilter",
-          "ordinal": 9,
-          "type_info": "Text"
-        },
-        {
-          "name": "prev: MetricFilter",
-          "ordinal": 10,
-          "type_info": "Text"
-        },
-        {
-          "name": "return_z_l",
-          "ordinal": 11,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "return_z_s",
-          "ordinal": 12,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "tr_z_l",
-          "ordinal": 13,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "tr_z_s",
-          "ordinal": 14,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "upper_wick_z_l",
-          "ordinal": 15,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "upper_wick_z_s",
-          "ordinal": 16,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "body_z_l",
-          "ordinal": 17,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "body_z_s",
-          "ordinal": 18,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "lower_wick_z_l",
-          "ordinal": 19,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "lower_wick_z_s",
-          "ordinal": 20,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "volume_z_l",
-          "ordinal": 21,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "volume_z_s",
-          "ordinal": 22,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "volume_net_z_l",
-          "ordinal": 23,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "volume_net_z_s",
-          "ordinal": 24,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "volume_pct_z_l",
-          "ordinal": 25,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "volume_pct_z_s",
-          "ordinal": 26,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "volume_liq_z_l",
-          "ordinal": 27,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "volume_liq_z_s",
-          "ordinal": 28,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "volume_liq_net_z_l",
-          "ordinal": 29,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "volume_liq_net_z_s",
-          "ordinal": 30,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "volume_liq_pct_z_l",
-          "ordinal": 31,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "volume_liq_pct_z_s",
-          "ordinal": 32,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "value_z_l",
-          "ordinal": 33,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "value_z_s",
-          "ordinal": 34,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "value_net_z_l",
-          "ordinal": 35,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "value_net_z_s",
-          "ordinal": 36,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "value_pct_z_l",
-          "ordinal": 37,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "value_pct_z_s",
-          "ordinal": 38,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "value_liq_z_l",
-          "ordinal": 39,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "value_liq_z_s",
-          "ordinal": 40,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "value_liq_net_z_l",
-          "ordinal": 41,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "value_liq_net_z_s",
-          "ordinal": 42,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "value_liq_pct_z_l",
-          "ordinal": 43,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "value_liq_pct_z_s",
-          "ordinal": 44,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "trade_count_z_l",
-          "ordinal": 45,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "trade_count_z_s",
-          "ordinal": 46,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "trade_count_net_z_l",
-          "ordinal": 47,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "trade_count_net_z_s",
-          "ordinal": 48,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "trade_count_pct_z_l",
-          "ordinal": 49,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "trade_count_pct_z_s",
-          "ordinal": 50,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "liq_count_z_l",
-          "ordinal": 51,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "liq_count_z_s",
-          "ordinal": 52,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "liq_count_net_z_l",
-          "ordinal": 53,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "liq_count_net_z_s",
-          "ordinal": 54,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "liq_count_pct_z_l",
-          "ordinal": 55,
-          "type_info": "Numeric"
-        },
-        {
-          "name": "liq_count_pct_z_s",
-          "ordinal": 56,
-          "type_info": "Numeric"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": []
-      }
-    },
-    "query": "\n            SELECT market_id,\n                tf as \"tf: TimeFrame\",\n                datetime, high, low, close, atr_l, atr_s, \n                ma_filter as \"ma_filter: MetricFilter\",\n                n_filter as \"n_filter: MetricFilter\", \n                prev as \"prev: MetricFilter\",\n                return_z_l, return_z_s, tr_z_l, tr_z_s, upper_wick_z_l, upper_wick_z_s, body_z_l,\n                body_z_s, lower_wick_z_l, lower_wick_z_s, volume_z_l, volume_z_s, volume_net_z_l,\n                volume_net_z_s, volume_pct_z_l, volume_pct_z_s, volume_liq_z_l, volume_liq_z_s,\n                volume_liq_net_z_l, volume_liq_net_z_s, volume_liq_pct_z_l, volume_liq_pct_z_s,\n                value_z_l, value_z_s, value_net_z_l, value_net_z_s, value_pct_z_l, value_pct_z_s,\n                value_liq_z_l, value_liq_z_s, value_liq_net_z_l, value_liq_net_z_s,\n                value_liq_pct_z_l, value_liq_pct_z_s, trade_count_z_l, trade_count_z_s,\n                trade_count_net_z_l, trade_count_net_z_s, trade_count_pct_z_l, trade_count_pct_z_s,\n                liq_count_z_l, liq_count_z_s, liq_count_net_z_l, liq_count_net_z_s,\n                liq_count_pct_z_l, liq_count_pct_z_s\n            FROM research_metrics\n            "
   }
 }
