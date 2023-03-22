@@ -576,7 +576,7 @@ impl ProductionCandle {
         // Cannot use query! macro as table does not exist
         let sql = format!(
             r#"
-            CREATE TABLE IF NOT EXISTS candles.research_{}_{}_{} (
+            CREATE TABLE IF NOT EXISTS candles.production_{}_{}_{} (
                 datetime timestamptz NOT NULL,
                 PRIMARY KEY (datetime),
                 open NUMERIC NOT NULL,

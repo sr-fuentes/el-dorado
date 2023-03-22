@@ -27,14 +27,40 @@ impl TimeFrame {
     pub fn lbp_l(&self) -> i64 {
         match self {
             TimeFrame::D01 => 60,
-            _ => 0, // To be defined
+            TimeFrame::H12 => 90,
+            TimeFrame::H08 => 180,
+            TimeFrame::H06 => 180,
+            TimeFrame::H04 => 270,
+            TimeFrame::H03 => 360,
+            TimeFrame::H02 => 270,
+            TimeFrame::H01 => 360,
+            TimeFrame::T30 => 630,
+            TimeFrame::T15 => 540,
+            TimeFrame::T05 => 180,
+            TimeFrame::T03 => 180,
+            TimeFrame::T01 => 360,
+            TimeFrame::S30 => 360,
+            TimeFrame::S15 => 270,
         }
     }
 
     pub fn lbp_s(&self) -> i64 {
         match self {
             TimeFrame::D01 => 10,
-            _ => 0, // To be defined
+            TimeFrame::H12 => 60,
+            TimeFrame::H08 => 45,
+            TimeFrame::H06 => 30,
+            TimeFrame::H04 => 21,
+            TimeFrame::H03 => 45,
+            TimeFrame::H02 => 60,
+            TimeFrame::H01 => 90,
+            TimeFrame::T30 => 60,
+            TimeFrame::T15 => 90,
+            TimeFrame::T05 => 21,
+            TimeFrame::T03 => 21,
+            TimeFrame::T01 => 60,
+            TimeFrame::S30 => 60,
+            TimeFrame::S15 => 90,
         }
     }
 
@@ -222,7 +248,7 @@ pub struct Metric {}
 impl Metric {
     pub fn ewma(v: &[Decimal], lbp: i64) -> Decimal {
         // Set k = smoothing factor
-        let k = dec!(2) / (Decimal::from_i64(lbp).unwrap() + dec!(1));
+        let k = dec!(2) / (Decimal::from_i64(lbp).unwrap() + Decimal::ONE);
         let ik = dec!(1.0) - k;
         let mut ewma = v[0];
         for i in v.iter().skip(1) {
@@ -242,7 +268,9 @@ impl Metric {
             / n)
             .sqrt()
             .unwrap();
-        (v[v.len() - 1] - mean) / sd
+        (v[v.len() - 1] - mean)
+            .checked_div(sd)
+            .unwrap_or(Decimal::ZERO)
     }
 
     pub fn dons(c: &[Decimal], h: &[Decimal], l: &[Decimal]) -> Vec<Decimal> {
@@ -1154,7 +1182,6 @@ impl ResearchMetric {
         let sql = r#"
             DELETE FROM research_metrics
             WHERE market_id = $1
-            AND market_name = $2
             "#;
         sqlx::query(sql)
             .bind(market.market_id)
