@@ -115,6 +115,26 @@ impl ElDorado {
         Ok(result.exists)
     }
 
+    // Checks if a table exists in a given database connect with the scheme and full table
+    // name given.
+    pub async fn schema_exists(&self, pool: &PgPool, schema: &str) -> Result<bool, sqlx::Error> {
+        println!("Checking schema exists for {}", schema);
+        let result = sqlx::query!(
+            r#"
+            SELECT EXISTS (
+                SELECT FROM
+                    pg_tables
+                WHERE
+                    schemaname = $1
+            ) as "exists!";
+            "#,
+            schema,
+        )
+        .fetch_one(pool)
+        .await?;
+        Ok(result.exists)
+    }
+
     pub async fn get_input<U: std::str::FromStr>(&self, prompt: &str) -> U {
         loop {
             let mut input = String::new();

@@ -1673,6 +1673,26 @@
     },
     "query": "\n            SELECT\n                market_id,\n                exchange_name as \"exchange_name: ExchangeName\",\n                market_name,\n                tf as \"tf: TimeFrame\",\n                first_candle_dt, first_trade_dt, first_trade_price, first_trade_id,\n                last_candle_dt, last_trade_dt, last_trade_price, last_trade_id,\n                next_month\n            FROM market_archive_details\n            "
   },
+  "a67df25a57b6729178dbcb446035ff36ac776bce09234f71301c6b8a8538d227": {
+    "describe": {
+      "columns": [
+        {
+          "name": "exists!",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Name"
+        ]
+      }
+    },
+    "query": "\n            SELECT EXISTS (\n                SELECT FROM\n                    pg_tables\n                WHERE\n                    schemaname = $1\n            ) as \"exists!\";\n            "
+  },
   "a7b724fba3e83d8867b1d28b6e3e23034c8edb7b6b1c2409d286cbbf38d6c956": {
     "describe": {
       "columns": [],
