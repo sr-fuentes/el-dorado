@@ -1488,7 +1488,7 @@ impl ElDorado {
             ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
             ExchangeName::Gdax => Database::Gdax,
         };
-        self.table_exists(&self.pools[&db], "candles", &table)
+        ElDorado::table_exists(&self.pools[&db], "candles", &table)
             .await
             .expect("Failed to check table.")
     }

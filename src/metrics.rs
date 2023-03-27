@@ -772,15 +772,11 @@ impl ResearchMetric {
         );
         // Set filters
         let direction = match vecs.7.last() {
-            Some(r) => {
-                if *r > Decimal::ZERO {
-                    MetricDirection::Up
-                } else if *r < Decimal::ZERO {
-                    MetricDirection::Down
-                } else {
-                    MetricDirection::NC
-                }
-            }
+            Some(r) => match r.cmp(&Decimal::ZERO) {
+                std::cmp::Ordering::Less => MetricDirection::Down,
+                std::cmp::Ordering::Equal => MetricDirection::NC,
+                std::cmp::Ordering::Greater => MetricDirection::Up,
+            },
             None => MetricDirection::NC,
         };
         let ma_l = Metric::ewma(&vecs.1, tf.lbp_l());

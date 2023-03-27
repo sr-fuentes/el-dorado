@@ -91,7 +91,6 @@ impl ElDorado {
     // Checks if a table exists in a given database connect with the scheme and full table
     // name given.
     pub async fn table_exists(
-        &self,
         pool: &PgPool,
         schema: &str,
         table: &str,
@@ -117,7 +116,7 @@ impl ElDorado {
 
     // Checks if a table exists in a given database connect with the scheme and full table
     // name given.
-    pub async fn schema_exists(&self, pool: &PgPool, schema: &str) -> Result<bool, sqlx::Error> {
+    pub async fn schema_exists(pool: &PgPool, schema: &str) -> Result<bool, sqlx::Error> {
         println!("Checking schema exists for {}", schema);
         let result = sqlx::query!(
             r#"
@@ -135,7 +134,7 @@ impl ElDorado {
         Ok(result.exists)
     }
 
-    pub async fn get_input<U: std::str::FromStr>(&self, prompt: &str) -> U {
+    pub async fn get_input<U: std::str::FromStr>(prompt: &str) -> U {
         loop {
             let mut input = String::new();
 
@@ -159,13 +158,12 @@ impl ElDorado {
     }
 
     pub async fn get_input_with_timer<U: std::str::FromStr>(
-        &self,
         seconds: u64,
         prompt: &str,
     ) -> Option<U> {
         tokio::select! {
             _ = tokio::time::sleep(tokio::time::Duration::from_secs(seconds)) => None,
-            res2 = self.get_input(prompt) => Some(res2),
+            res2 = Self::get_input(prompt) => Some(res2),
         }
     }
 

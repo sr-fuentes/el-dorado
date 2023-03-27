@@ -986,7 +986,11 @@ impl ElDorado {
                 println!("Volume does not match, fail qc and move to next market.");
                 false
             } else {
-                let input: Option<String> = self.get_input_with_timer(15, "Volume does not match, what do you want to do? Enter 'Y' to use qc trades:").await;
+                let input: Option<String> = ElDorado::get_input_with_timer(
+                    15,
+                    "Volume does not match, what do you want to do? Enter 'Y' to use qc trades:",
+                )
+                .await;
                 match input {
                     Some(s) => match s.to_lowercase().as_str() {
                         "y" | "yes" => {

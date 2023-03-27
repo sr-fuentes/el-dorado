@@ -1128,7 +1128,7 @@ impl ElDorado {
         markets: &Option<Vec<MarketDetail>>,
     ) -> Option<MarketDetail> {
         // Get user input
-        let market: String = self.get_input("Please enter market: ").await;
+        let market: String = ElDorado::get_input("Please enter market: ").await;
         // Validate input
         match markets {
             Some(ms) => ms.iter().cloned().find(|m| m.market_name == market),
