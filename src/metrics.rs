@@ -75,14 +75,23 @@ impl TimeFrame {
         }
     }
 
-    pub fn prev(&self) -> TimeFrame {
+    pub fn resample_from(&self) -> TimeFrame {
         match self {
-            TimeFrame::T15 => TimeFrame::T15,
+            TimeFrame::S15 => TimeFrame::S15,
+            TimeFrame::S30 => TimeFrame::S15,
+            TimeFrame::T01 => TimeFrame::S15,
+            TimeFrame::T03 => TimeFrame::T01,
+            TimeFrame::T05 => TimeFrame::T01,
+            TimeFrame::T15 => TimeFrame::T05,
+            TimeFrame::T30 => TimeFrame::T15,
             TimeFrame::H01 => TimeFrame::T15,
+            TimeFrame::H02 => TimeFrame::H01,
+            TimeFrame::H03 => TimeFrame::H01,
             TimeFrame::H04 => TimeFrame::H01,
+            TimeFrame::H06 => TimeFrame::H01,
+            TimeFrame::H08 => TimeFrame::H04,
             TimeFrame::H12 => TimeFrame::H04,
             TimeFrame::D01 => TimeFrame::H12,
-            _ => TimeFrame::T15, // To be defined
         }
     }
 }
