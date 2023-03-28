@@ -2073,10 +2073,13 @@ impl ElDorado {
         // Create file and write candles
         println!("Writing S15 candles for the month.");
         self.write_research_candles_to_file(&pb, candles);
-        let mut resampled_candles = candles.to_owned();
+        // Create map to store resampled candles for larger timeframes
+        let mut candles_map = HashMap::new();
+        candles_map.insert(TimeFrame::S15, candles.to_owned());
         // Resample and write for other time frames
-        for tf in TimeFrame::all_time_frames().iter().skip(1) {
-            resampled_candles = self.resample_research_candles_by_hashmap(&resampled_candles, tf);
+        for tf in TimeFrame::atfs().iter().skip(1) {
+            let resampled_candles =
+                self.resample_research_candles_by_hashmap(&candles_map[&tf.resample_from()], tf);
             let pb = self.prep_candle_archive_path(market, dt, tf);
             println!(
                 "Writing {} {} candles for the month.",
@@ -2084,6 +2087,7 @@ impl ElDorado {
                 tf.as_str()
             );
             self.write_research_candles_to_file(&pb, &resampled_candles);
+            candles_map.insert(*tf, resampled_candles);
         }
     }
 
