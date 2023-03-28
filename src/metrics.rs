@@ -1284,7 +1284,7 @@ impl ElDorado {
         heartbeat: &Heartbeat,
     ) -> Vec<ResearchMetric> {
         let mut metrics = Vec::new();
-        for tf in TimeFrame::time_frames().iter() {
+        for tf in TimeFrame::tfs().iter() {
             println!("Calculating metrics for {} - {}", market.market_name, tf);
             let tf_metric = ResearchMetric::new(market, *tf, &heartbeat.candles[tf]);
             metrics.push(tf_metric)

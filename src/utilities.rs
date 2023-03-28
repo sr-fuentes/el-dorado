@@ -367,19 +367,19 @@ impl TimeFrame {
         }
     }
 
-    pub fn time_frames() -> Vec<TimeFrame> {
-        let time_frames = vec![
+    pub fn tfs() -> Vec<TimeFrame> {
+        let tfs = vec![
             TimeFrame::T15,
             TimeFrame::H01,
             TimeFrame::H04,
             TimeFrame::H12,
             TimeFrame::D01,
         ];
-        time_frames
+        tfs
     }
 
-    pub fn all_time_frames() -> Vec<TimeFrame> {
-        let time_frames = vec![
+    pub fn atfs() -> Vec<TimeFrame> {
+        let atfs = vec![
             TimeFrame::S15,
             TimeFrame::S30,
             TimeFrame::T01,
@@ -396,7 +396,7 @@ impl TimeFrame {
             TimeFrame::H12,
             TimeFrame::D01,
         ];
-        time_frames
+        atfs
     }
 
     pub fn is_gt_timeframe(&self, dt1: DateTime<Utc>, dt2: DateTime<Utc>) -> bool {

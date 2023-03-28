@@ -658,14 +658,17 @@ impl ElDorado {
         let base_tf = market.tf;
         println!("Mapping base tf {} from production candles.", base_tf);
         candles_map.insert(base_tf, candles);
-        for tf in TimeFrame::time_frames().iter().skip(1) {
-            // Filter candles from flor of new timeframe
-            let last_candle_prev = candles_map[&tf.prev()].last().unwrap().datetime;
-            let filtered_candles: Vec<_> = candles_map[&tf.prev()]
+        for tf in TimeFrame::tfs().iter().skip(1) {
+            // Filter candles from floor of new timeframe
+            // TF Prev is last divisible tf to use as base resample. This improves performance from
+            // resampling from base tf each time and prevents resample of non-divisible tf
+            // (ie resampleing T05 from T03 candles)
+            let last_candle_prev = candles_map[&tf.resample_from()].last().unwrap().datetime;
+            let filtered_candles: Vec<_> = candles_map[&tf.resample_from()]
                 .iter()
                 .filter(|c| {
                     c.datetime
-                        < (last_candle_prev + tf.prev().as_dur())
+                        < (last_candle_prev + tf.resample_from().as_dur())
                             .duration_trunc(tf.as_dur())
                             .unwrap()
                 })

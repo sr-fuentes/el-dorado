@@ -216,14 +216,16 @@ impl ElDorado {
         let base_tf = market.tf;
         let mut base_candles = heartbeat.candles[&base_tf].clone();
         base_candles.append(&mut candles);
+        // Candle map contains resampled candles hashed by TF
         candles_map.insert(base_tf, base_candles);
         // Start metrics vec
         let mut metrics = vec![ResearchMetric::new(market, base_tf, &candles_map[&base_tf])];
         // For each time frame - either append new candle for interval or clone existing
-        for tf in TimeFrame::time_frames().iter().skip(1) {
+        for tf in TimeFrame::tfs().iter().skip(1) {
             let hb_last = heartbeat.candles[tf].last().unwrap();
             if hb_last.datetime + tf.as_dur() < interval_end.duration_trunc(tf.as_dur()).unwrap() {
-                // Resample new candles to tf and add to tf candles
+                // Resample new candles to tf from base_tf and add to tf candles
+                // Assumes tf is divisible by base tf
                 let new_candles: Vec<_> = candles_map[&base_tf]
                     .iter()
                     .filter(|c| {
