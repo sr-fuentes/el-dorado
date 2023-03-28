@@ -2078,7 +2078,8 @@ impl ElDorado {
         candles_map.insert(TimeFrame::S15, candles.to_owned());
         // Resample and write for other time frames
         for tf in TimeFrame::atfs().iter().skip(1) {
-            let resampled_candles = self.resample_research_candles_by_hashmap(&candles_map[&tf.resample_from()], tf);
+            let resampled_candles =
+                self.resample_research_candles_by_hashmap(&candles_map[&tf.resample_from()], tf);
             let pb = self.prep_candle_archive_path(market, dt, tf);
             println!(
                 "Writing {} {} candles for the month.",

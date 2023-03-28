@@ -67,7 +67,6 @@ async fn main() {
         //     let ig = Inquisidor::new().await;
         //     ig.monitor().await;
         // }
-        None => println!("Please run with subcommands: `run` `refresh` `stream` or `archive`."),
-        _ => unreachable!(), // CLAP will error out before running this arm
+        _ => println!("Please run with subcommands: `run` `refresh` `stream` or `archive`."),
     }
 }
