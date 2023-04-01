@@ -26,19 +26,19 @@ impl TimeFrame {
 
     pub fn lbp_l(&self) -> i64 {
         match self {
-            TimeFrame::D01 => 60,
+            TimeFrame::D01 => 90,
             TimeFrame::H12 => 90,
-            TimeFrame::H08 => 180,
+            TimeFrame::H08 => 90,
             TimeFrame::H06 => 180,
             TimeFrame::H04 => 270,
             TimeFrame::H03 => 360,
-            TimeFrame::H02 => 270,
+            TimeFrame::H02 => 360,
             TimeFrame::H01 => 360,
             TimeFrame::T30 => 630,
             TimeFrame::T15 => 540,
-            TimeFrame::T05 => 180,
-            TimeFrame::T03 => 180,
-            TimeFrame::T01 => 360,
+            TimeFrame::T05 => 540,
+            TimeFrame::T03 => 540,
+            TimeFrame::T01 => 630,
             TimeFrame::S30 => 360,
             TimeFrame::S15 => 270,
         }
@@ -47,8 +47,8 @@ impl TimeFrame {
     pub fn lbp_s(&self) -> i64 {
         match self {
             TimeFrame::D01 => 10,
-            TimeFrame::H12 => 60,
-            TimeFrame::H08 => 45,
+            TimeFrame::H12 => 14,
+            TimeFrame::H08 => 21,
             TimeFrame::H06 => 30,
             TimeFrame::H04 => 21,
             TimeFrame::H03 => 45,
@@ -56,8 +56,8 @@ impl TimeFrame {
             TimeFrame::H01 => 90,
             TimeFrame::T30 => 60,
             TimeFrame::T15 => 90,
-            TimeFrame::T05 => 21,
-            TimeFrame::T03 => 21,
+            TimeFrame::T05 => 90,
+            TimeFrame::T03 => 60,
             TimeFrame::T01 => 60,
             TimeFrame::S30 => 60,
             TimeFrame::S15 => 90,
