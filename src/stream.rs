@@ -102,6 +102,11 @@ impl ElDorado {
                         println!("to_string(): {:?}", perr.to_string());
                         true
                     }
+                    ProtocolError::ResetWithoutClosingHandshake => {
+                        println!("Error Kind: Protocol ResetWithoutClosingHandshake.");
+                        println!("to_string(): {:?}", perr.to_string());
+                        true
+                    }
                     _ => {
                         println!("Other WSError::Tungstenite protocol error {:?}", perr);
                         println!("to_string(): {:?}", perr.to_string());
