@@ -6,7 +6,7 @@ use crate::{
 };
 use chrono::{DateTime, Utc};
 use futures::StreamExt;
-use std::io::ErrorKind;
+use std::io::{ErrorKind};
 use tokio_tungstenite::tungstenite::error::ProtocolError;
 
 impl ElDorado {
@@ -47,36 +47,44 @@ impl ElDorado {
             let data = ws.next().await.expect("No data received.");
             // Process next item
             match data {
-                Ok(d) => self.process_ws_data(d).await,
+                Ok(d) => {
+                    match self.process_ws_data(d).await {
+                        Ok(_) => (),
+                        Err(e) => {
+                            break self.handle_sqlx_error(e);
+                        }
+                    };
+                }
                 Err(e) => {
-                    let restart = self.handle_ws_error(e).await;
-                    break restart;
+                    break self.handle_ws_error(e);
                 }
             }
         }
     }
 
-    pub async fn process_ws_data(&self, d: (Option<String>, Data)) {
+    pub async fn process_ws_data(&self, d: (Option<String>, Data)) -> Result<(), sqlx::Error> {
         match d {
-            (Some(market), Data::FtxTrade(trade)) => trade
-                .insert(
-                    &self.pools[&Database::Ftx],
-                    &self.market_names[&self.instance.exchange_name.unwrap()][&market],
-                )
-                .await
-                .expect("Failed to insert trade into db."),
-            (Some(market), Data::GdaxTrade(trade)) => trade
-                .insert(
-                    &self.pools[&Database::Gdax],
-                    &self.market_names[&self.instance.exchange_name.unwrap()][&market],
-                )
-                .await
-                .expect("Failed to insert trade into db."),
+            (Some(market), Data::FtxTrade(trade)) => {
+                trade
+                    .insert(
+                        &self.pools[&Database::Ftx],
+                        &self.market_names[&self.instance.exchange_name.unwrap()][&market],
+                    )
+                    .await
+            }
+            (Some(market), Data::GdaxTrade(trade)) => {
+                trade
+                    .insert(
+                        &self.pools[&Database::Gdax],
+                        &self.market_names[&self.instance.exchange_name.unwrap()][&market],
+                    )
+                    .await
+            }
             (None, d) => panic!("Market missing from ws data: {:?}", d),
         }
     }
 
-    pub async fn handle_ws_error(&self, e: WsError) -> bool {
+    fn handle_ws_error(&self, e: WsError) -> bool {
         match e {
             WsError::Tungstenite(e) => match e {
                 tokio_tungstenite::tungstenite::Error::Io(ioerr) => match ioerr.kind() {
@@ -120,6 +128,20 @@ impl ElDorado {
                 }
             },
             _ => panic!("Other WsError {:?}", e),
+        }
+    }
+
+    fn handle_sqlx_error(&self, e: sqlx::Error) -> bool {
+        match e {
+            sqlx::Error::Io(ioerr) => match ioerr.kind() {
+                ErrorKind::ConnectionReset => {
+                    println!("Error Kind: ConnectionReset.");
+                    println!("to_string(): {:?}", ioerr.to_string());
+                    true
+                }
+                _ => false,
+            },
+            _ => false,
         }
     }
 

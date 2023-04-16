@@ -214,11 +214,15 @@ impl ElDorado {
         let last_pridti = last.close_as_pridti();
         let mut candles_map = HashMap::new();
         let base_tf = market.tf;
+        println!("Copying base candles.");
         let mut base_candles = heartbeat.candles[&base_tf].clone();
+        println!("Appending new candles to base candles.");
         base_candles.append(&mut candles);
         // Candle map contains resampled candles hashed by TF
+        println!("Inserting base candles into candles map.");
         candles_map.insert(base_tf, base_candles);
         // Start metrics vec
+        println!("Creating metrics for base tf.");
         let mut metrics = vec![ResearchMetric::new(market, base_tf, &candles_map[&base_tf])];
         // For each time frame - either append new candle for interval or clone existing
         for tf in TimeFrame::tfs().iter().skip(1) {
@@ -226,6 +230,7 @@ impl ElDorado {
             if hb_last.datetime + tf.as_dur() < interval_end.duration_trunc(tf.as_dur()).unwrap() {
                 // Resample new candles to tf from base_tf and add to tf candles
                 // Assumes tf is divisible by base tf
+                println!("Filtering new candles for {} tf.", tf);
                 let new_candles: Vec<_> = candles_map[&base_tf]
                     .iter()
                     .filter(|c| {
@@ -234,29 +239,42 @@ impl ElDorado {
                     })
                     .cloned()
                     .collect();
+                println!(
+                    "Resampling {} new base candles for {} tf",
+                    new_candles.len(),
+                    tf
+                );
                 let mut resampled_candles = self.resample_production_candles(&new_candles, tf);
                 println!("Filtered new candles for {}: {:?}", tf, new_candles);
                 println!("{} new {} resampled candles.", resampled_candles.len(), tf);
+                println!("Cloning heartbeat candles for tf");
                 let mut candles = heartbeat.candles[tf].clone();
+                println!("Appending resampled candles to candles.");
                 candles.append(&mut resampled_candles);
                 // Calc metrics on new candle vec
+                println!("Creating metrics for {} tf.", tf);
                 metrics.push(ResearchMetric::new(market, *tf, &candles));
+                println!("Inserting candles into candle map for {} tf", tf);
                 candles_map.insert(*tf, candles);
             } else {
                 // // Interval end does not create new interval for timeframe
                 // println!("Interval end of {} does not create new interval for {}. Last candle datetime for {}: {}",
                 //     )
+                println!("No resample for {} tf. Inserting candles into map.", tf);
                 candles_map.insert(*tf, heartbeat.candles[tf].clone());
             }
         }
         // Insert metrics to db
+        println!("Inserting {} metrics into db", metrics.len());
         self.insert_metrics(&metrics).await;
         // Update the market last candle
+        println!("Update market last candle dt.");
         market
             .update_last_candle(&self.pools[&Database::ElDorado], &last_ts)
             .await
             .expect("Failed to update market last candle.");
         // Return the new heartbeat
+        println!("Returning new heartbeat.");
         Heartbeat {
             ts: last_ts,
             last: last_pridti,

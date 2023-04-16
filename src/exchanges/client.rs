@@ -99,6 +99,8 @@ impl RestClient {
             .send()
             .await?;
 
+        // println!("Text: {:?}", response.text().await?);
+        // panic!();
         match self.exchange {
             ExchangeName::Ftx | ExchangeName::FtxUs => self.handle_ftx_response(response).await,
             ExchangeName::Gdax => self.handle_gdax_response(response).await,
