@@ -1523,6 +1523,7 @@ impl ElDorado {
         candles: &[ResearchCandle],
         tf: &TimeFrame,
     ) -> Vec<ProductionCandle> {
+        // TODO - Can this be refactored more efficiently with capacity declarations for hm and vec?
         // Convert the candle during the maping process to hashmap, then resample already converted
         let mut candle_map: HashMap<DateTime<Utc>, Vec<ProductionCandle>> = HashMap::new();
         for candle in candles.iter() {

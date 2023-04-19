@@ -55,6 +55,16 @@ impl fmt::Display for PrIdTi {
     }
 }
 
+impl PrIdTi {
+    pub fn min() -> Self {
+        Self {
+            dt: DateTime::<Utc>::MIN_UTC,
+            id: i64::MIN,
+            price: Decimal::MIN,
+        }
+    }
+}
+
 impl ElDorado {
     pub async fn initialize_trade_schema_and_tables(&self) -> DateTime<Utc> {
         match self.instance.exchange_name.unwrap() {
