@@ -1281,12 +1281,21 @@ impl ElDorado {
     pub fn calc_metrics_all_tfs(
         &self,
         market: &MarketDetail,
-        heartbeat: &Heartbeat,
+        heartbeats: &mut HashMap<String, Heartbeat>,
     ) -> Vec<ResearchMetric> {
         let mut metrics = Vec::new();
         for tf in TimeFrame::tfs().iter() {
             println!("Calculating metrics for {} - {}", market.market_name, tf);
-            let tf_metric = ResearchMetric::new(market, *tf, &heartbeat.candles[tf]);
+            let tf_metric = ResearchMetric::new(
+                market,
+                *tf,
+                heartbeats
+                    .get(&market.market_name)
+                    .unwrap()
+                    .candles
+                    .get(tf)
+                    .unwrap(),
+            );
             metrics.push(tf_metric)
         }
         metrics
