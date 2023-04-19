@@ -6,7 +6,7 @@ use crate::{
 };
 use chrono::{DateTime, Utc};
 use futures::StreamExt;
-use std::io::{ErrorKind};
+use std::io::ErrorKind;
 use tokio_tungstenite::tungstenite::error::ProtocolError;
 
 impl ElDorado {
