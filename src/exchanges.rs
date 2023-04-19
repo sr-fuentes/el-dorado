@@ -1,5 +1,6 @@
 use crate::{configuration::Database, eldorado::ElDorado};
 use chrono::{DateTime, Utc};
+use serde::Deserialize;
 use sqlx::PgPool;
 use std::convert::{TryFrom, TryInto};
 use uuid::Uuid;
@@ -22,8 +23,9 @@ pub struct Exchange {
     pub last_refresh_dt: DateTime<Utc>,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, sqlx::Type, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, sqlx::Type, Hash, Deserialize)]
 #[sqlx(rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
 pub enum ExchangeName {
     Ftx,
     FtxUs,
