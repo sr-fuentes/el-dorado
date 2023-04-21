@@ -367,6 +367,10 @@ impl TimeFrame {
         }
     }
 
+    pub fn per_day(&self) -> i64 {
+        86400 / self.as_secs()
+    }
+
     pub fn tfs() -> Vec<TimeFrame> {
         let tfs = vec![
             TimeFrame::T15,

@@ -19,6 +19,17 @@ pub struct Heartbeat {
     pub metrics: Option<Vec<ResearchMetric>>,
 }
 
+impl Heartbeat {
+    pub fn new() -> Self {
+        Self {
+            ts: DateTime::<Utc>::MIN_UTC,
+            last: PrIdTi::min(),
+            candles: HashMap::with_capacity(TimeFrame::tfs().len()),
+            metrics: None,
+        }
+    }
+}
+
 impl ElDorado {
     // Run Mita instance.
     // Stream trades from websocket to trade tables.
@@ -63,7 +74,8 @@ impl ElDorado {
         tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
         // self.instance.update_status(&InstanceStatus::Sync).await;
         // Sync candles from start to current time frame
-        let mut heartbeats = self.sync().await;
+        let mut heartbeats: HashMap<String, Heartbeat> = HashMap::new();
+        self.sync(&mut heartbeats).await;
         println!("Starting MITA loop.");
         // self.instance.update_status(&InstanceStatus::Active).await;
         let restart = self.run_mita(&mut heartbeats).await;
