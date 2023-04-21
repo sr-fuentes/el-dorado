@@ -798,8 +798,8 @@ impl ResearchMetric {
             MetricFilter::Equal
         };
         // Set atrs
-        let atr_l = Metric::ewma(&vecs.6, tf.lbp_l());
-        let atr_s = Metric::ewma(&vecs.6, tf.lbp_s());
+        let atr_l = Metric::ewma(&vecs.6, tf.lbp_l()).round_dp(8);
+        let atr_s = Metric::ewma(&vecs.6, tf.lbp_s()).round_dp(8);
         let atr_filter = if atr_l > atr_s {
             MetricFilter::LS
         } else if atr_l < atr_s {
