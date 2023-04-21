@@ -127,6 +127,7 @@ impl ElDorado {
                     panic!();
                 }
             },
+            WsError::TimeSinceLastMsg => true,
             _ => panic!("Other WsError {:?}", e),
         }
     }
@@ -139,9 +140,16 @@ impl ElDorado {
                     println!("to_string(): {:?}", ioerr.to_string());
                     true
                 }
-                _ => false,
+                ek => {
+                    println!("Error Kind: {}.", ek);
+                    println!("to_string(): {:?}", ioerr.to_string());
+                    false
+                }
             },
-            _ => false,
+            e => {
+                println!("E to_string(): {:?}", e.to_string());
+                false
+            }
         }
     }
 

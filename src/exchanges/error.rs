@@ -20,6 +20,8 @@ pub enum WsError {
     MissingSubscriptionConfirmation,
     #[error("Socket is not authenticated")]
     SocketNotAuthenticated,
+    #[error("Too much time has elapsed since last message")]
+    TimeSinceLastMsg,
     #[error(transparent)]
     Tungstenite(#[from] tungstenite::Error),
     #[error(transparent)]

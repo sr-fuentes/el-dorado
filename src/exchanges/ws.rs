@@ -1,6 +1,7 @@
 use crate::exchanges::{
     error::WsError, ftx::Trade as FtxTrade, gdax::Trade as GdaxTrade, ExchangeName,
 };
+use chrono::{DateTime, Duration as CDuration, Utc};
 use futures::{
     ready,
     task::{Context, Poll},
@@ -21,6 +22,7 @@ pub struct WebSocket {
     buf: VecDeque<(Option<String>, Data)>,
     ping_timer: Interval,
     exchange: ExchangeName,
+    last_msg: Option<DateTime<Utc>>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -90,7 +92,15 @@ impl WebSocket {
             buf: VecDeque::new(),
             ping_timer: time::interval(Duration::from_secs(15)),
             exchange: *exchange,
+            last_msg: None,
         })
+    }
+
+    pub fn time_since_msg(&self) -> Option<CDuration> {
+        match self.last_msg {
+            Some(t) => Some(Utc::now() - t),
+            None => None,
+        }
     }
 
     pub async fn ping(&mut self) -> Result<(), WsError> {
@@ -128,19 +138,20 @@ impl WebSocket {
             };
             println!("Message: {}", message);
             self.stream.send(message).await?;
+            self.last_msg = Some(Utc::now());
             // Confirmation should arrive within 100 updates
             for _ in 0..100 {
                 let response = self.next_response().await?;
                 match response {
                     Response::Ftx(r) => match r.r#type {
                         Type::Subscribed => continue 'channels,
-                        _ => self.handle_response(Response::Ftx(r)),
+                        _ => self.handle_response(Response::Ftx(r))?,
                     },
                     Response::Gdax(v) => {
                         if v["type"] == "subscriptions" {
                             continue 'channels;
                         } else {
-                            self.handle_response(Response::Gdax(v))
+                            self.handle_response(Response::Gdax(v))?
                         }
                     }
                 }
@@ -159,6 +170,7 @@ impl WebSocket {
                             self.ping().await?;
                         },
                         Some(msg) = self.stream.next() => {
+                            self.last_msg = Some(Utc::now());
                             let msg = msg?;
                             if let Message::Text(text) = msg {
                                 // println!("Text: {}", text);
@@ -171,21 +183,39 @@ impl WebSocket {
                     }
                 }
                 ExchangeName::Gdax => {
-                    if let Some(msg) = self.stream.next().await {
-                        // println!("msg: {:?}", msg);
-                        let msg = msg?;
-                        if let Message::Text(text) = msg {
-                            // println!("Text: {}", text);
-                            let response: Value = serde_json::from_str(&text)?;
-                            return Ok(Response::Gdax(response));
-                        }
+                    tokio::select! {
+                        _ = self.ping_timer.tick() => {
+                            // Check that message has been received in last 5 seconds
+                            match self.time_since_msg() {
+                                Some(t) => {
+                                    if t > CDuration::seconds(5) {
+                                        println!("{} since last message.", t);
+                                        self.stream.close(None).await?;
+                                        return Err(WsError::TimeSinceLastMsg)}
+                                }
+                                None => {
+                                    println!("No last message.");
+                                    self.stream.close(None).await?;
+                                    return Err(WsError::TimeSinceLastMsg)
+                                }
+                            };
+                        },
+                        Some(msg) = self.stream.next() => {
+                            self.last_msg = Some(Utc::now());
+                            let msg = msg?;
+                            if let Message::Text(text) = msg {
+                                // println!("Text: {}", text);
+                                let response: Value = serde_json::from_str(&text)?;
+                                return Ok(Response::Gdax(response));
+                            }
+                        },
                     }
                 }
             }
         }
     }
 
-    fn handle_response(&mut self, response: Response) {
+    fn handle_response(&mut self, response: Response) -> Result<(), WsError> {
         match response {
             Response::Ftx(r) => {
                 if let Some(data) = r.data {
@@ -217,9 +247,15 @@ impl WebSocket {
                             println!("Error: {:?}", e);
                         }
                     }
+                } else if v["type"] == "heartbeat" {
+                    // TODO match heartbeat and put on queue
+                } else {
+                    println!("Other message: {:?}", v);
+                    return Err(WsError::TimeSinceLastMsg);
                 }
             }
         }
+        Ok(())
     }
 }
 
@@ -244,7 +280,7 @@ impl Stream for WebSocket {
                     }
                 }
             };
-            self.handle_response(response);
+            self.handle_response(response)?;
         }
     }
 }
