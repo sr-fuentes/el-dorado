@@ -1,7 +1,7 @@
 use crate::{
     candles::ResearchCandle,
     configuration::Database,
-    eldorado::ElDorado,
+    eldorado::{ElDorado, ElDoradoError},
     exchanges::{gdax::Product, ExchangeName},
     trades::{PrIdTi, Trade},
     utilities::TimeFrame,
@@ -1062,62 +1062,65 @@ impl ElDorado {
         (markets, market_ids)
     }
 
-    pub async fn select_markets_eligible_for_fill(&self) -> Option<Vec<MarketDetail>> {
+    pub async fn select_markets_eligible_for_fill(
+        &self,
+    ) -> Result<Option<Vec<MarketDetail>>, ElDoradoError> {
         // Eligibility based on active status and existing last candle
         // Select active markets from eldorado db
         let markets =
             MarketDetail::select_by_status(&self.pools[&Database::ElDorado], &MarketStatus::Active)
-                .await
-                .expect("Failed to select market details.");
+                .await?;
         // Filter for markets with a last candle
         let eligible_markets: Vec<MarketDetail> = markets
             .into_iter()
             .filter(|m| m.last_candle.is_some() && m.exchange_name == ExchangeName::Gdax)
             .collect();
         if !eligible_markets.is_empty() {
-            Some(eligible_markets)
+            Ok(Some(eligible_markets))
         } else {
-            None
+            Ok(None)
         }
     }
 
-    pub async fn select_markets_eligible_for_archive(&self) -> Option<Vec<MarketDetail>> {
+    pub async fn select_markets_eligible_for_archive(
+        &self,
+    ) -> Result<Option<Vec<MarketDetail>>, ElDoradoError> {
         // Eligibility based on if there is a market candle detail record created for market
         // Select markets with market candle detail
-        let markets = MarketDetail::select_all_join_candle_detail(&self.pools[&Database::ElDorado])
-            .await
-            .expect("Failed to select markets.");
+        let markets =
+            MarketDetail::select_all_join_candle_detail(&self.pools[&Database::ElDorado]).await?;
         // Filter for markets that are currently active
         let eligible_markets: Vec<MarketDetail> = markets
             .into_iter()
             .filter(|m| m.status == MarketStatus::Active)
             .collect();
         if !eligible_markets.is_empty() {
-            Some(eligible_markets)
+            Ok(Some(eligible_markets))
         } else {
-            None
+            Ok(None)
         }
     }
 
-    pub async fn select_market_trade_detail(&self, market: &MarketDetail) -> MarketTradeDetail {
+    pub async fn select_market_trade_detail(
+        &self,
+        market: &MarketDetail,
+    ) -> Result<MarketTradeDetail, ElDoradoError> {
         // Try selecting record from database
         match MarketTradeDetail::select(&self.pools[&Database::ElDorado], market).await {
-            Ok(mtd) => mtd,
+            Ok(mtd) => Ok(mtd),
             Err(sqlx::Error::RowNotFound) => {
                 // First get the first for the market - either production candle or 01d candle if
                 // legacy format. Try the 01d candle first.
-                match self.select_first_eld_trade_as_pridti(market).await {
+                match self.select_first_eld_trade_as_pridti(market).await? {
                     Some(p) => {
                         let mtd = MarketTradeDetail::new(market, &p).await;
-                        mtd.insert(&self.pools[&Database::ElDorado])
-                            .await
-                            .expect("Failed to insert mtd.");
-                        mtd
+                        mtd.insert(&self.pools[&Database::ElDorado]).await?;
+                        Ok(mtd)
                     }
                     None => panic!("No first candle to make market trade detail."),
                 }
             }
-            Err(e) => panic!("SQLX Error: {:?}", e),
+            Err(e) => Err(ElDoradoError::Sqlx(e)),
         }
     }
 

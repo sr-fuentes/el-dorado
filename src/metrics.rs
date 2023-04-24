@@ -1,8 +1,13 @@
-use std::{collections::HashMap, fs::File, path::PathBuf};
+use std::{cmp::Ordering, collections::HashMap, fs::File, path::PathBuf};
 
 use crate::{
-    candles::ProductionCandle, configuration::Database, eldorado::ElDorado,
-    exchanges::ExchangeName, markets::MarketDetail, mita::Heartbeat, utilities::TimeFrame,
+    candles::ProductionCandle,
+    configuration::Database,
+    eldorado::{ElDorado, ElDoradoError},
+    exchanges::ExchangeName,
+    markets::MarketDetail,
+    mita::Heartbeat,
+    utilities::TimeFrame,
 };
 use chrono::{DateTime, Utc};
 use csv::Reader;
@@ -782,30 +787,26 @@ impl ResearchMetric {
         // Set filters
         let direction = match vecs.7.last() {
             Some(r) => match r.cmp(&Decimal::ZERO) {
-                std::cmp::Ordering::Less => MetricDirection::Down,
-                std::cmp::Ordering::Equal => MetricDirection::NC,
-                std::cmp::Ordering::Greater => MetricDirection::Up,
+                Ordering::Less => MetricDirection::Down,
+                Ordering::Equal => MetricDirection::NC,
+                Ordering::Greater => MetricDirection::Up,
             },
             None => MetricDirection::NC,
         };
         let ma_l = Metric::ewma(&vecs.1, tf.lbp_l());
         let ma_s = Metric::ewma(&vecs.1, tf.lbp_s());
-        let ma_filter = if ma_l > ma_s {
-            MetricFilter::LS
-        } else if ma_l < ma_s {
-            MetricFilter::SL
-        } else {
-            MetricFilter::Equal
+        let ma_filter = match ma_l.cmp(&ma_s) {
+            Ordering::Greater => MetricFilter::LS,
+            Ordering::Less => MetricFilter::SL,
+            Ordering::Equal => MetricFilter::Equal,
         };
         // Set atrs
         let atr_l = Metric::ewma(&vecs.6, tf.lbp_l()).round_dp(8);
         let atr_s = Metric::ewma(&vecs.6, tf.lbp_s()).round_dp(8);
-        let atr_filter = if atr_l > atr_s {
-            MetricFilter::LS
-        } else if atr_l < atr_s {
-            MetricFilter::SL
-        } else {
-            MetricFilter::Equal
+        let atr_filter = match atr_l.cmp(&atr_s) {
+            Ordering::Greater => MetricFilter::LS,
+            Ordering::Less => MetricFilter::SL,
+            Ordering::Equal => MetricFilter::Equal,
         };
         // Set slice ranges
         let range_start_l = if n_i64.ge(&tf.lbp_l()) {
@@ -1269,13 +1270,11 @@ impl ResearchMetric {
 }
 
 impl ElDorado {
-    pub async fn insert_metrics(&self, metrics: &[ResearchMetric]) {
+    pub async fn insert_metrics(&self, metrics: &[ResearchMetric]) -> Result<(), ElDoradoError> {
         for metric in metrics.iter() {
-            metric
-                .insert(&self.pools[&Database::ElDorado])
-                .await
-                .expect("Failed to insert metric.");
+            metric.insert(&self.pools[&Database::ElDorado]).await?;
         }
+        Ok(())
     }
 
     pub fn calc_metrics_all_tfs(

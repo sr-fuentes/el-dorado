@@ -1,9 +1,8 @@
 use crate::{
     configuration::Database,
-    eldorado::ElDorado,
+    eldorado::{ElDorado, ElDoradoError},
     exchanges::{
-        error::RestError, ftx::Trade as FtxTrade, gdax::Candle as GdaxCandle,
-        gdax::Trade as GdaxTrade, ExchangeName,
+        ftx::Trade as FtxTrade, gdax::Candle as GdaxCandle, gdax::Trade as GdaxTrade, ExchangeName,
     },
     markets::{MarketArchiveDetail, MarketCandleDetail, MarketDetail},
     trades::{PrIdTi, Trade},
@@ -260,44 +259,42 @@ impl ProductionCandle {
                             0,
                         )
                     }
+                } else if t.liquidation() {
+                    (
+                        dec!(0),
+                        t.size(),
+                        t.size(),
+                        dec!(0),
+                        t.size(),
+                        dec!(0),
+                        value,
+                        value,
+                        dec!(0),
+                        value,
+                        0,
+                        1,
+                        1,
+                        0,
+                        1,
+                    )
                 } else {
-                    if t.liquidation() {
-                        (
-                            dec!(0),
-                            t.size(),
-                            t.size(),
-                            dec!(0),
-                            t.size(),
-                            dec!(0),
-                            value,
-                            value,
-                            dec!(0),
-                            value,
-                            0,
-                            1,
-                            1,
-                            0,
-                            1,
-                        )
-                    } else {
-                        (
-                            dec!(0),
-                            t.size(),
-                            dec!(0),
-                            dec!(0),
-                            dec!(0),
-                            dec!(0),
-                            value,
-                            dec!(0),
-                            dec!(0),
-                            dec!(0),
-                            0,
-                            1,
-                            0,
-                            0,
-                            0,
-                        )
-                    }
+                    (
+                        dec!(0),
+                        t.size(),
+                        dec!(0),
+                        dec!(0),
+                        dec!(0),
+                        dec!(0),
+                        value,
+                        dec!(0),
+                        dec!(0),
+                        dec!(0),
+                        0,
+                        1,
+                        0,
+                        0,
+                        0,
+                    )
                 };
                 (
                     o,                // open
@@ -944,44 +941,42 @@ impl ResearchCandle {
                             0,
                         )
                     }
+                } else if t.liquidation() {
+                    (
+                        dec!(0),
+                        t.size(),
+                        t.size(),
+                        dec!(0),
+                        t.size(),
+                        dec!(0),
+                        value,
+                        value,
+                        dec!(0),
+                        value,
+                        0,
+                        1,
+                        1,
+                        0,
+                        1,
+                    )
                 } else {
-                    if t.liquidation() {
-                        (
-                            dec!(0),
-                            t.size(),
-                            t.size(),
-                            dec!(0),
-                            t.size(),
-                            dec!(0),
-                            value,
-                            value,
-                            dec!(0),
-                            value,
-                            0,
-                            1,
-                            1,
-                            0,
-                            1,
-                        )
-                    } else {
-                        (
-                            dec!(0),
-                            t.size(),
-                            dec!(0),
-                            dec!(0),
-                            dec!(0),
-                            dec!(0),
-                            value,
-                            dec!(0),
-                            dec!(0),
-                            dec!(0),
-                            0,
-                            1,
-                            0,
-                            0,
-                            0,
-                        )
-                    }
+                    (
+                        dec!(0),
+                        t.size(),
+                        dec!(0),
+                        dec!(0),
+                        dec!(0),
+                        dec!(0),
+                        value,
+                        dec!(0),
+                        dec!(0),
+                        dec!(0),
+                        0,
+                        1,
+                        0,
+                        0,
+                        0,
+                    )
                 };
                 (
                     o,                // open
@@ -1474,7 +1469,7 @@ impl ElDorado {
         market: &MarketDetail,
         tf: &TimeFrame,
         candle: &CandleType,
-    ) -> bool {
+    ) -> Result<bool, sqlx::Error> {
         // Get the full trade table name and then check self fn for table and schema
         // ie research_ftx_btcperp_s15 or production_ftx_btcperp_t15
         let table = format!(
@@ -1488,9 +1483,7 @@ impl ElDorado {
             ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
             ExchangeName::Gdax => Database::Gdax,
         };
-        ElDorado::table_exists(&self.pools[&db], "candles", &table)
-            .await
-            .expect("Failed to check table.")
+        ElDorado::table_exists(&self.pools[&db], "candles", &table).await
     }
 
     pub fn convert_research_candles(&self, candles: &[ResearchCandle]) -> Vec<ProductionCandle> {
@@ -1679,10 +1672,10 @@ impl ElDorado {
         mcd: &Option<MarketCandleDetail>,
         dt: &DateTime<Utc>,
         pb: &PathBuf,
-    ) -> Option<Vec<ResearchCandle>> {
+    ) -> Result<Option<Vec<ResearchCandle>>, ElDoradoError> {
         // Load trade for given date and market
         match market.exchange_name {
-            ExchangeName::Ftx | ExchangeName::FtxUs => None,
+            ExchangeName::Ftx | ExchangeName::FtxUs => Ok(None),
             ExchangeName::Gdax => {
                 let (trades_vec, trades_hm) = self.read_gdax_trades_from_file(pb, &TimeFrame::S15);
                 if trades_vec.is_empty() {
@@ -1701,11 +1694,11 @@ impl ElDorado {
                                 &(*dt + Duration::days(1)),
                                 &TimeFrame::S15,
                             );
-                            Some(ResearchCandle::from_trades_hm_for_dr(
+                            Ok(Some(ResearchCandle::from_trades_hm_for_dr(
                                 &trades_hm, last_trade, &dr,
-                            ))
+                            )))
                         }
-                        None => None,
+                        None => Ok(None),
                     }
                 } else {
                     let last_trade = mcd.as_ref().map(|m| PrIdTi {
@@ -1725,9 +1718,9 @@ impl ElDorado {
                         dr.first().unwrap(),
                         dr.last().unwrap()
                     );
-                    Some(ResearchCandle::from_trades_hm_for_dr(
+                    Ok(Some(ResearchCandle::from_trades_hm_for_dr(
                         &trades_hm, last_trade, &dr,
-                    ))
+                    )))
                 }
             }
         }
@@ -1738,16 +1731,14 @@ impl ElDorado {
         market: &MarketDetail,
         dt: &DateTime<Utc>,
         last_trade: Option<PrIdTi>,
-    ) -> Option<Vec<ProductionCandle>> {
+    ) -> Result<Option<Vec<ProductionCandle>>, sqlx::Error> {
         // Select trades for the given date
         match market.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
-                let trades = FtxTrade::select_all(&self.pools[&Database::Ftx], market, dt)
-                    .await
-                    .expect("Failed to select trades.");
+                let trades = FtxTrade::select_all(&self.pools[&Database::Ftx], market, dt).await?;
                 if trades.is_empty() {
                     // TODO: Handle case where there are no trades for the day (Kraken in Jan 2018)
-                    None
+                    Ok(None)
                 } else {
                     let dr = self.create_candles_dr_for_dt(
                         &market.tf,
@@ -1761,18 +1752,17 @@ impl ElDorado {
                         dr.first().unwrap(),
                         dr.last().unwrap()
                     );
-                    Some(ProductionCandle::from_trades_for_dr(
+                    Ok(Some(ProductionCandle::from_trades_for_dr(
                         &trades, last_trade, &market.tf, &dr,
-                    ))
+                    )))
                 }
             }
             ExchangeName::Gdax => {
-                let trades = GdaxTrade::select_all(&self.pools[&Database::Gdax], market, dt)
-                    .await
-                    .expect("Failed to select trades.");
+                let trades =
+                    GdaxTrade::select_all(&self.pools[&Database::Gdax], market, dt).await?;
                 if trades.is_empty() {
                     // TODO: Handle case where there are no trades for the day (Kraken in Jan 2018)
-                    None
+                    Ok(None)
                 } else {
                     let dr = self.create_candles_dr_for_dt(
                         &market.tf,
@@ -1786,9 +1776,9 @@ impl ElDorado {
                         dr.first().unwrap(),
                         dr.last().unwrap()
                     );
-                    Some(ProductionCandle::from_trades_for_dr(
+                    Ok(Some(ProductionCandle::from_trades_for_dr(
                         &trades, last_trade, &market.tf, &dr,
-                    ))
+                    )))
                 }
             }
         }
@@ -1848,12 +1838,12 @@ impl ElDorado {
         market: &MarketDetail,
         dr: &DateRange,
         last_trade: &PrIdTi,
-    ) -> Option<Vec<ProductionCandle>> {
+    ) -> Result<Option<Vec<ProductionCandle>>, ElDoradoError> {
         match market.exchange_name {
-            ExchangeName::Ftx | ExchangeName::FtxUs => None,
+            ExchangeName::Ftx | ExchangeName::FtxUs => Ok(None),
             ExchangeName::Gdax => {
                 // Get the trades for the interval
-                self.select_gdax_trades_for_interval(market, dr).await.map(
+                Ok(self.select_gdax_trades_for_interval(market, dr).await?.map(
                     |trades|  // Make candles with the trades
                         ProductionCandle::from_trades_for_dr(
                             &trades,
@@ -1861,7 +1851,7 @@ impl ElDorado {
                             &market.tf,
                             &dr.dts,
                         ),
-                )
+                ))
             }
         }
     }
@@ -1916,17 +1906,15 @@ impl ElDorado {
         &self,
         market: &MarketDetail,
         candles: &[ProductionCandle],
-    ) {
+    ) -> Result<(), ElDoradoError> {
         let db = match market.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
             ExchangeName::Gdax => Database::Gdax,
         };
         for candle in candles.iter() {
-            candle
-                .insert(&self.pools[&db], market, &market.tf)
-                .await
-                .expect("Failed to insert candle.");
+            candle.insert(&self.pools[&db], market, &market.tf).await?;
         }
+        Ok(())
     }
 
     pub async fn insert_research_candles(&self, market: &MarketDetail, candles: &[ResearchCandle]) {
@@ -1948,7 +1936,7 @@ impl ElDorado {
         &self,
         market: &MarketDetail,
         dt: &DateTime<Utc>,
-    ) -> Option<GdaxCandle> {
+    ) -> Result<Option<GdaxCandle>, ElDoradoError> {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             match self.clients[&ExchangeName::Gdax]
@@ -1962,62 +1950,12 @@ impl ElDorado {
             {
                 Ok(result) => {
                     if !result.is_empty() {
-                        return Some(result.first().expect("Expected first item.").clone());
+                        return Ok(Some(result.first().expect("Expected first item.").clone()));
                     } else {
-                        return None;
+                        return Ok(None);
                     }
                 }
-                Err(e) => {
-                    if self.handle_candle_rest_error(&e).await {
-                        continue;
-                    } else {
-                        panic!("Unhandled rest error: {:?}", e);
-                    }
-                }
-            }
-        }
-    }
-
-    pub async fn handle_candle_rest_error(&self, e: &RestError) -> bool {
-        match e {
-            RestError::Reqwest(e) => {
-                if e.is_timeout() || e.is_connect() || e.is_request() {
-                    println!("Timeout/Connect/Request Error. Retry in 30 secs. {:?}", e);
-                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                    true
-                } else if e.is_status() {
-                    match e.status() {
-                        Some(s) => match s.as_u16() {
-                            500 | 502 | 503 | 504 | 520 | 522 | 530 => {
-                                // Server error, keep trying every 30 seconds
-                                println!("{} status code. Retry in 30 secs. {:?}", s, e);
-                                tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                                true
-                            }
-                            429 => {
-                                // Too many requests, chill for 90 seconds
-                                println!("{} status code. Retry in 90 secs. {:?}", s, e);
-                                tokio::time::sleep(tokio::time::Duration::from_secs(90)).await;
-                                true
-                            }
-                            _ => {
-                                println!("{} status code not handled. Panic.", s);
-                                false
-                            }
-                        },
-                        None => {
-                            println!("No status code for request error.");
-                            false
-                        }
-                    }
-                } else {
-                    println!("Other Reqwest Error. Panic.");
-                    false
-                }
-            }
-            _ => {
-                println!("Other Rest Error, not Reqwest.");
-                false
+                Err(e) => self.handle_rest_error(e).await?,
             }
         }
     }
@@ -2025,11 +1963,11 @@ impl ElDorado {
     pub async fn select_first_production_candle_full_day(
         &self,
         market: &MarketDetail,
-    ) -> Option<ProductionCandle> {
+    ) -> Result<Option<ProductionCandle>, ElDoradoError> {
         // Check that candle table exists
         if self
             .candle_table_exists(market, &market.tf, &CandleType::Production)
-            .await
+            .await?
         {
             // Get first production candle
             let db = match market.exchange_name {
@@ -2040,26 +1978,25 @@ impl ElDorado {
                 Ok(c) => {
                     // Validate candle is start of day and has volume
                     if c.datetime == c.datetime.duration_trunc(Duration::days(1)).unwrap() {
-                        Some(c)
+                        Ok(Some(c))
                     } else {
-                        Some(
+                        Ok(Some(
                             ProductionCandle::select_eq_dt(
                                 &self.pools[&db],
                                 market,
                                 &(c.datetime.duration_trunc(Duration::days(1)).unwrap()
                                     + Duration::days(1)),
                             )
-                            .await
-                            .expect("Failed to select candle."),
-                        )
+                            .await?,
+                        ))
                     }
                 }
-                Err(sqlx::Error::RowNotFound) => None,
-                Err(e) => panic!("Other sqlx error: {:?}", e),
+                Err(sqlx::Error::RowNotFound) => Ok(None),
+                Err(e) => Err(ElDoradoError::Sqlx(e)),
             }
         } else {
             // No production candles for market - return None
-            None
+            Ok(None)
         }
     }
 

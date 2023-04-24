@@ -1,7 +1,7 @@
 use crate::{
     configuration::Database,
-    eldorado::ElDorado,
-    exchanges::{error::RestError, ftx::Trade as FtxTrade, gdax::Trade as GdaxTrade, ExchangeName},
+    eldorado::{ElDorado, ElDoradoError},
+    exchanges::{ftx::Trade as FtxTrade, gdax::Trade as GdaxTrade, ExchangeName},
     markets::MarketDetail,
     utilities::{DateRange, TimeFrame},
 };
@@ -66,23 +66,21 @@ impl PrIdTi {
 }
 
 impl ElDorado {
-    pub async fn initialize_trade_schema_and_tables(&self) -> DateTime<Utc> {
+    pub async fn initialize_trade_schema_and_tables(&self) -> Result<DateTime<Utc>, sqlx::Error> {
         match self.instance.exchange_name.unwrap() {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
                 self.create_trades_schema(&self.pools[&Database::Ftx])
-                    .await
-                    .expect("Failed to create ftx/ftxus trade schema.");
+                    .await?;
             }
             ExchangeName::Gdax => {
                 self.create_trades_schema(&self.pools[&Database::Gdax])
-                    .await
-                    .expect("Failed to create gdax trade schema.");
+                    .await?;
             }
         }
         // Create trade tables for each market for today if they don't exist
         let today = Utc::now().duration_trunc(Duration::days(1)).unwrap();
-        self.create_trade_tables_all_markets(today).await;
-        today
+        self.create_trade_tables_all_markets(today).await?;
+        Ok(today)
     }
 
     pub async fn create_trades_schema(&self, pool: &PgPool) -> Result<(), sqlx::Error> {
@@ -93,43 +91,52 @@ impl ElDorado {
         Ok(())
     }
 
-    pub async fn create_trade_table(&self, market: &MarketDetail, dt: DateTime<Utc>) {
+    pub async fn create_trade_table(
+        &self,
+        market: &MarketDetail,
+        dt: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
         match market.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
-                FtxTrade::create_table(&self.pools[&Database::Ftx], market, dt)
-                    .await
-                    .expect("Failed to create ftx/ftxus trade table.");
+                FtxTrade::create_table(&self.pools[&Database::Ftx], market, dt).await?;
             }
             ExchangeName::Gdax => {
-                GdaxTrade::create_table(&self.pools[&Database::Gdax], market, dt)
-                    .await
-                    .expect("Failed to create gdax trade table.");
+                GdaxTrade::create_table(&self.pools[&Database::Gdax], market, dt).await?;
             }
         }
+        Ok(())
     }
 
-    pub async fn create_trade_tables_all_markets(&self, dt: DateTime<Utc>) {
+    pub async fn create_trade_tables_all_markets(
+        &self,
+        dt: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
         for market in self.markets.iter() {
-            self.create_trade_table(market, dt).await;
+            self.create_trade_table(market, dt).await?;
         }
+        Ok(())
     }
 
     pub async fn create_future_trade_tables_all_markets(
         &self,
         mut dt: DateTime<Utc>,
-    ) -> DateTime<Utc> {
+    ) -> Result<DateTime<Utc>, sqlx::Error> {
         // If the date given is less than 2 days in the future, increment the date and
         // create tables for the date before returning it
         if dt < Utc::now().duration_trunc(Duration::days(1)).unwrap() + Duration::days(2) {
             dt += Duration::days(1);
-            self.create_trade_tables_all_markets(dt).await;
-            dt
+            self.create_trade_tables_all_markets(dt).await?;
+            Ok(dt)
         } else {
-            dt
+            Ok(dt)
         }
     }
 
-    pub async fn trade_table_exists(&self, market: &MarketDetail, dt: &DateTime<Utc>) -> bool {
+    pub async fn trade_table_exists(
+        &self,
+        market: &MarketDetail,
+        dt: &DateTime<Utc>,
+    ) -> Result<bool, sqlx::Error> {
         // Get the full trade table name and then check self fn for table and schema
         let table = format!(
             "{}_{}_{}",
@@ -141,21 +148,22 @@ impl ElDorado {
             ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
             ExchangeName::Gdax => Database::Gdax,
         };
-        ElDorado::table_exists(&self.pools[&db], "trades", &table)
-            .await
-            .expect("Failed to check table.")
+        ElDorado::table_exists(&self.pools[&db], "trades", &table).await
     }
 
-    pub async fn select_first_ws_timeid(&self, market: &MarketDetail) -> Option<PrIdTi> {
+    pub async fn select_first_ws_timeid(
+        &self,
+        market: &MarketDetail,
+    ) -> Result<Option<PrIdTi>, ElDoradoError> {
         // Select the first trade from database table after the start of the instance
         match market.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
                 match FtxTrade::select_one_gt_dt(&self.pools[&Database::Ftx], market, self.start_dt)
                     .await
                 {
-                    Ok(t) => Some(t.as_pridti()),
-                    Err(sqlx::Error::RowNotFound) => None,
-                    Err(e) => panic!("Sqlx::Error: {:?}", e),
+                    Ok(t) => Ok(Some(t.as_pridti())),
+                    Err(sqlx::Error::RowNotFound) => Ok(None),
+                    Err(e) => Err(ElDoradoError::Sqlx(e)),
                 }
             }
             ExchangeName::Gdax => {
@@ -166,21 +174,25 @@ impl ElDorado {
                 )
                 .await
                 {
-                    Ok(t) => Some(t.as_pridti()),
-                    Err(sqlx::Error::RowNotFound) => None,
-                    Err(e) => panic!("Sqlx::Error: {:?}", e),
+                    Ok(t) => Ok(Some(t.as_pridti())),
+                    Err(sqlx::Error::RowNotFound) => Ok(None),
+                    Err(e) => Err(ElDoradoError::Sqlx(e)),
                 }
             }
         }
     }
 
-    pub async fn select_first_eld_trade_as_pridti(&self, market: &MarketDetail) -> Option<PrIdTi> {
+    pub async fn select_first_eld_trade_as_pridti(
+        &self,
+        market: &MarketDetail,
+    ) -> Result<Option<PrIdTi>, ElDoradoError> {
         // Select the first trade for the market in the eldorado database. For <0.3 markets, this
         // will be in the 01d_candles table if it exists. For >=0.4 markets, this will be the first
         // full day production candle for the market.
-        self.select_first_production_candle_full_day(market)
-            .await
-            .map(|c| c.open_as_pridti())
+        Ok(self
+            .select_first_production_candle_full_day(market)
+            .await?
+            .map(|c| c.open_as_pridti()))
     }
 
     // Return the last trade of the day for a given trade. For example: if the trade given was
@@ -189,7 +201,7 @@ impl ElDorado {
         &self,
         market: &MarketDetail,
         trade: &GdaxTrade,
-    ) -> GdaxTrade {
+    ) -> Result<GdaxTrade, ElDoradoError> {
         let end = trade.time.duration_trunc(Duration::days(1)).unwrap() + Duration::days(1);
         let mut t = trade.clone();
         let mut trades = Vec::new();
@@ -208,11 +220,8 @@ impl ElDorado {
             {
                 Ok(result) => result,
                 Err(e) => {
-                    if self.handle_trade_rest_error(&e).await {
-                        continue;
-                    } else {
-                        panic!("Rest Error: {:?}", e);
-                    }
+                    self.handle_rest_error(e).await?;
+                    continue;
                 }
             };
             // Sort the new trades
@@ -222,7 +231,7 @@ impl ElDorado {
             trades.append(&mut new_trades);
         }
         let vec_trades: Vec<GdaxTrade> = trades.iter().filter(|t| t.time < end).cloned().collect();
-        vec_trades.last().unwrap().clone()
+        Ok(vec_trades.last().unwrap().clone())
     }
 
     // Return the last trade of the prev day for a given trade. For example: if the trade given was
@@ -231,7 +240,7 @@ impl ElDorado {
         &self,
         market: &MarketDetail,
         trade: &GdaxTrade,
-    ) -> GdaxTrade {
+    ) -> Result<GdaxTrade, ElDoradoError> {
         let end = trade.time.duration_trunc(Duration::days(1)).unwrap();
         let mut t = trade.clone();
         let mut trades = Vec::new();
@@ -249,11 +258,8 @@ impl ElDorado {
             {
                 Ok(result) => result,
                 Err(e) => {
-                    if self.handle_trade_rest_error(&e).await {
-                        continue;
-                    } else {
-                        panic!("Rest Error: {:?}", e);
-                    }
+                    self.handle_rest_error(e).await?;
+                    continue;
                 }
             };
             // Sort the new trades
@@ -264,7 +270,7 @@ impl ElDorado {
         }
         trades.sort_by_key(|t| t.trade_id);
         let vec_trades: Vec<GdaxTrade> = trades.iter().filter(|t| t.time < end).cloned().collect();
-        vec_trades.last().unwrap().clone()
+        Ok(vec_trades.last().unwrap().clone())
     }
 
     // This function relies on the trade tables to already be created. Do not call if there is no
@@ -305,7 +311,7 @@ impl ElDorado {
         // last_trade: &PrIdTi,
         mut last_trade_id: i32,
         last_trade_dt: &DateTime<Utc>,
-    ) -> Vec<GdaxTrade> {
+    ) -> Result<Vec<GdaxTrade>, ElDoradoError> {
         // Start with the last trade prior to the interval start. Get the next 1000 trades, move the
         // last trade to be equal to the last trade received and continue until the timestamp of
         // the last trade is greater than the interval end timestamp
@@ -330,11 +336,8 @@ impl ElDorado {
             {
                 Ok(result) => result,
                 Err(e) => {
-                    if self.handle_trade_rest_error(&e).await {
-                        continue;
-                    } else {
-                        panic!("Rest Error: {:?}", e);
-                    }
+                    self.handle_rest_error(e).await?;
+                    continue;
                 }
             };
             // Sort the new trades
@@ -372,11 +375,11 @@ impl ElDorado {
             // Add new trades to trades vec
             trades.append(&mut filtered_trades);
         }
-        trades
+        Ok(trades
             .iter()
             .filter(|t| t.time >= *interval_start)
             .cloned()
-            .collect()
+            .collect())
     }
 
     pub async fn get_gdax_trades_for_interval_backward(
@@ -386,7 +389,7 @@ impl ElDorado {
         interval_end: &DateTime<Utc>,
         mut first_trade_id: i32,
         first_trade_dt: &DateTime<Utc>,
-    ) -> Vec<GdaxTrade> {
+    ) -> Result<Vec<GdaxTrade>, ElDoradoError> {
         // Start with the frist trade after the interval end. Get the 1000 trades after the first.
         // Move the first to be equal to the first that was received and continue until the time
         // of the first trade is less than the interval start time stamp or the trade id == 1
@@ -405,11 +408,8 @@ impl ElDorado {
             {
                 Ok(result) => result,
                 Err(e) => {
-                    if self.handle_trade_rest_error(&e).await {
-                        continue;
-                    } else {
-                        panic!("Rest Error: {:?}", e);
-                    }
+                    self.handle_rest_error(e).await?;
+                    continue;
                 }
             };
             // Get the earliest trade from the new trades and add the trades to the trades vec
@@ -440,14 +440,14 @@ impl ElDorado {
             };
             trades.append(&mut filtered_trades);
         }
-        trades
+        Ok(trades)
     }
 
     pub async fn get_gdax_next_trade(
         &self,
         market: &MarketDetail,
         trade: &GdaxTrade,
-    ) -> Option<GdaxTrade> {
+    ) -> Result<Option<GdaxTrade>, ElDoradoError> {
         // Get the next trade after the gdax trade provided
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
@@ -455,14 +455,8 @@ impl ElDorado {
                 .get_gdax_next_trade(market.market_name.as_str(), trade.trade_id as i32)
                 .await
             {
-                Ok(result) => return result,
-                Err(e) => {
-                    if self.handle_trade_rest_error(&e).await {
-                        continue;
-                    } else {
-                        panic!("Unhandled Rest Error: {:?}", e);
-                    }
-                }
+                Ok(result) => return Ok(result),
+                Err(e) => self.handle_rest_error(e).await?,
             }
         }
     }
@@ -471,7 +465,7 @@ impl ElDorado {
         &self,
         market: &MarketDetail,
         trade: &GdaxTrade,
-    ) -> Option<GdaxTrade> {
+    ) -> Result<Option<GdaxTrade>, ElDoradoError> {
         // Get the first trade before the gdax trade provided
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
@@ -479,58 +473,8 @@ impl ElDorado {
                 .get_gdax_previous_trade(market.market_name.as_str(), trade.trade_id as i32)
                 .await
             {
-                Ok(result) => return result,
-                Err(e) => {
-                    if self.handle_trade_rest_error(&e).await {
-                        continue;
-                    } else {
-                        panic!("Unhandled Rest Error: {:?}", e);
-                    }
-                }
-            }
-        }
-    }
-
-    pub async fn handle_trade_rest_error(&self, e: &RestError) -> bool {
-        match e {
-            RestError::Reqwest(e) => {
-                if e.is_timeout() || e.is_connect() || e.is_request() {
-                    println!("Timeout/Connect/Request Error. Retry in 30 secs. {:?}", e);
-                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                    true
-                } else if e.is_status() {
-                    match e.status() {
-                        Some(s) => match s.as_u16() {
-                            500 | 502 | 503 | 504 | 520 | 522 | 530 => {
-                                // Server error, keep trying every 30 seconds
-                                println!("{} status code. Retry in 30 secs. {:?}", s, e);
-                                tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
-                                true
-                            }
-                            429 => {
-                                // Too many requests, chill for 90 seconds
-                                println!("{} status code. Retry in 90 secs. {:?}", s, e);
-                                tokio::time::sleep(tokio::time::Duration::from_secs(90)).await;
-                                true
-                            }
-                            _ => {
-                                println!("{} status code not handled. Panic.", s);
-                                false
-                            }
-                        },
-                        None => {
-                            println!("No status code for request error.");
-                            false
-                        }
-                    }
-                } else {
-                    println!("Other Reqwest Error. Panic.");
-                    false
-                }
-            }
-            _ => {
-                println!("Other Rest Error, not Reqwest.");
-                false
+                Ok(result) => return Ok(result),
+                Err(e) => self.handle_rest_error(e).await?,
             }
         }
     }
@@ -541,7 +485,7 @@ impl ElDorado {
         &self,
         market: &MarketDetail,
         dr: &DateRange,
-    ) -> Option<Vec<GdaxTrade>> {
+    ) -> Result<Option<Vec<GdaxTrade>>, ElDoradoError> {
         // Assert that the dr has dates and is not empty
         println!(
             "Selecting trades gte {} and lt {}",
@@ -568,17 +512,16 @@ impl ElDorado {
                         &dr.first,
                         &(dr.last + market.tf.as_dur()),
                     )
-                    .await
-                    .expect("Failed to select trades.");
+                    .await?;
                     trades.append(&mut db_trades);
                 }
                 if !trades.is_empty() {
-                    Some(trades)
+                    Ok(Some(trades))
                 } else {
-                    None
+                    Ok(None)
                 }
             }
-            None => None,
+            None => Ok(None),
         }
     }
 

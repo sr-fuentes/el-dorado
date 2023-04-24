@@ -1,7 +1,7 @@
 use crate::{
     candles::ProductionCandle,
     configuration::Database,
-    eldorado::ElDorado,
+    eldorado::{ElDorado, ElDoradoError},
     exchanges::ExchangeName,
     markets::MarketDetail,
     metrics::ResearchMetric,
@@ -30,74 +30,81 @@ impl Heartbeat {
     }
 }
 
+impl Default for Heartbeat {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ElDorado {
     // Run Mita instance.
     // Stream trades from websocket to trade tables.
     // Fill trades from start to current websocket stream
     // On candle interval, create candle and metrics
-    pub async fn mita(&mut self) -> bool {
+    pub async fn mita(&mut self) -> Result<(), ElDoradoError> {
         // Set restart value to false, error handling must explicitly set back to true
         self.instance.restart = false;
-        self.initialize_mita().await;
+        self.initialize_mita().await?;
         // self.instance.update_status(&InstanceStatus::New).await;
-        let restart = tokio::select! {
+        tokio::select! {
             res2 = self.stream() => res2,
             res1 = self.sync_and_run_mita() => res1,
-        };
-        restart
+        }
     }
 
-    async fn initialize_mita(&self) {
+    async fn initialize_mita(&self) -> Result<(), ElDoradoError> {
         // Create any candle schemas that are needed
         match &self.markets.first().unwrap().exchange_name {
-            ExchangeName::Ftx | ExchangeName::FtxUs => self
-                .create_candles_schema(&self.pools[&Database::Ftx])
-                .await
-                .expect("Failed to create candle schema."),
-            ExchangeName::Gdax => self
-                .create_candles_schema(&self.pools[&Database::Gdax])
-                .await
-                .expect("Failed to create candle schema."),
+            ExchangeName::Ftx | ExchangeName::FtxUs => {
+                self.create_candles_schema(&self.pools[&Database::Ftx])
+                    .await?
+            }
+            ExchangeName::Gdax => {
+                self.create_candles_schema(&self.pools[&Database::Gdax])
+                    .await?
+            }
         };
         // Delete metrics for markets
         for market in self.markets.iter() {
-            ResearchMetric::delete_by_market(&self.pools[&Database::ElDorado], market)
-                .await
-                .expect("Failed to delete metrics.");
+            ResearchMetric::delete_by_market(&self.pools[&Database::ElDorado], market).await?;
         }
+        Ok(())
     }
 
     // Sync by determiniting the last good state and filling trades from that state to the current
     // first streamed trade. Then and Run Mita loop
-    async fn sync_and_run_mita(&self) -> bool {
+    async fn sync_and_run_mita(&self) -> Result<(), ElDoradoError> {
         // Wait for 5 seconds for stream to start
-        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
         // self.instance.update_status(&InstanceStatus::Sync).await;
         // Sync candles from start to current time frame
         let mut heartbeats: HashMap<String, Heartbeat> = HashMap::new();
-        self.sync(&mut heartbeats).await;
+        self.sync(&mut heartbeats).await?;
         println!("Starting MITA loop.");
         // self.instance.update_status(&InstanceStatus::Active).await;
-        let restart = self.run_mita(&mut heartbeats).await;
-        restart
+        self.run_mita(&mut heartbeats).await
     }
 
     // Run the Mita instance - at each interval for each market - aggregate trades into new candle
     // resample if needed and publish metrics with new candle datapoint
-    async fn run_mita(&self, heartbeats: &mut HashMap<String, Heartbeat>) -> bool {
+    async fn run_mita(
+        &self,
+        heartbeats: &mut HashMap<String, Heartbeat>,
+    ) -> Result<(), ElDoradoError> {
         loop {
             // Set loop timestamp
             let dt = Utc::now();
             // For each market, check if loop datetime is greater than market heartbeat
             for market in self.markets.iter() {
-                match self.check_interval(market, &heartbeats[&market.market_name], &dt) {
-                    Some(end) => self.process_interval(market, heartbeats, &end).await,
-                    None => continue,
-                };
+                if let Some(end) =
+                    self.check_interval(market, &heartbeats[&market.market_name], &dt)
+                {
+                    self.process_interval(market, heartbeats, &end).await?;
+                }
             }
             // Reload heartbeats if needed (ie when a candle validation is updated)
             // Sleep for 200 ms to give control back to tokio scheduler
-            tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
         }
     }
 
@@ -138,7 +145,7 @@ impl ElDorado {
         market: &MarketDetail,
         heartbeats: &mut HashMap<String, Heartbeat>,
         interval_end: &DateTime<Utc>,
-    ) {
+    ) -> Result<(), ElDoradoError> {
         // Check first if the metrics is empty or not - inital run will have empty metric, then
         // Create date range of intervals to process - most of the time this will be for one
         // interval but may involve multiple intervals if the sync is long
@@ -149,10 +156,11 @@ impl ElDorado {
             .is_some()
         {
             self.process_interval_new_interval(market, heartbeats, interval_end)
-                .await
+                .await?
         } else {
-            self.process_interval_no_metrics(market, heartbeats).await
+            self.process_interval_no_metrics(market, heartbeats).await?
         }
+        Ok(())
     }
 
     async fn process_interval_new_interval(
@@ -160,7 +168,7 @@ impl ElDorado {
         market: &MarketDetail,
         heartbeats: &mut HashMap<String, Heartbeat>,
         interval_end: &DateTime<Utc>,
-    ) {
+    ) -> Result<(), ElDoradoError> {
         println!(
             "Process new interval for {} with dt {}.",
             market.market_name, interval_end
@@ -175,29 +183,31 @@ impl ElDorado {
                     &dr,
                     &heartbeats.get(&market.market_name).unwrap().last,
                 )
-                .await
+                .await?
             {
                 println!("Inserting {} production candles.", candles.len());
-                self.insert_production_candles(market, &candles).await;
+                self.insert_production_candles(market, &candles).await?;
                 println!("Updating heartbeat.");
                 self.update_heartbeat(market, heartbeats, candles, interval_end)
-                    .await;
+                    .await?;
             }
         }
+        Ok(())
     }
 
     async fn process_interval_no_metrics(
         &self,
         market: &MarketDetail,
         heartbeats: &mut HashMap<String, Heartbeat>,
-    ) {
+    ) -> Result<(), ElDoradoError> {
         // There are no intervals to process but metrics need to be updated
         println!("Updating and inserting metrics.");
         let metrics = self.calc_metrics_all_tfs(market, heartbeats);
-        self.insert_metrics(&metrics).await;
+        self.insert_metrics(&metrics).await?;
         heartbeats
             .entry(market.market_name.clone())
             .and_modify(|hb| hb.metrics = Some(metrics));
+        Ok(())
     }
 
     async fn update_heartbeat(
@@ -206,31 +216,29 @@ impl ElDorado {
         heartbeats: &mut HashMap<String, Heartbeat>,
         mut candles: Vec<ProductionCandle>,
         interval_end: &DateTime<Utc>,
-    ) {
+    ) -> Result<(), ElDoradoError> {
         // Create hashmap for timeframes and candles
         let last = candles.last().expect("Expected candle in Vec.");
         let last_ts = last.datetime;
         let last_pridti = last.close_as_pridti();
-        // let mut candles_map = HashMap::new();
-        let base_tf = market.tf;
         println!("Appending new candles to base candles in heartbeat.");
         heartbeats
             .entry(market.market_name.clone())
             .and_modify(|hb| {
                 hb.candles
-                    .entry(base_tf)
+                    .entry(market.tf)
                     .and_modify(|v| v.append(&mut candles));
             });
         // Start metrics vec
         println!("Creating metrics for base tf.");
         let mut metrics = vec![ResearchMetric::new(
             market,
-            base_tf,
-            &heartbeats
+            market.tf,
+            heartbeats
                 .get(&market.market_name)
                 .unwrap()
                 .candles
-                .get(&base_tf)
+                .get(&market.tf)
                 .unwrap(),
         )];
         // For each time frame - either append new candle for interval or clone existing
@@ -239,7 +247,7 @@ impl ElDorado {
                 .get(&market.market_name)
                 .unwrap()
                 .candles
-                .get(&tf)
+                .get(tf)
                 .unwrap()
                 .last()
                 .unwrap();
@@ -251,7 +259,7 @@ impl ElDorado {
                     .get(&market.market_name)
                     .unwrap()
                     .candles
-                    .get(&base_tf)
+                    .get(&market.tf)
                     .unwrap()
                     .iter()
                     .filter(|c| {
@@ -276,17 +284,16 @@ impl ElDorado {
                             .entry(*tf)
                             .and_modify(|v| v.append(&mut resampled_candles));
                     });
-                // candles.append(&mut resampled_candles);
                 // Calc metrics on new candle vec
                 println!("Creating metrics for {} tf.", tf);
                 metrics.push(ResearchMetric::new(
                     market,
                     *tf,
-                    &heartbeats
+                    heartbeats
                         .get(&market.market_name)
                         .unwrap()
                         .candles
-                        .get(&tf)
+                        .get(tf)
                         .unwrap(),
                 ));
             } else {
@@ -298,13 +305,12 @@ impl ElDorado {
         }
         // Insert metrics to db
         println!("Inserting {} metrics into db", metrics.len());
-        self.insert_metrics(&metrics).await;
+        self.insert_metrics(&metrics).await?;
         // Update the market last candle
         println!("Update market last candle dt.");
         market
             .update_last_candle(&self.pools[&Database::ElDorado], &last_ts)
-            .await
-            .expect("Failed to update market last candle.");
+            .await?;
         // Updateing the new heartbeat
         println!("Updating heartbeat with new metrics.");
         heartbeats
@@ -314,6 +320,7 @@ impl ElDorado {
                 hb.last = last_pridti;
                 hb.ts = last_ts;
             });
+        Ok(())
     }
 }
 

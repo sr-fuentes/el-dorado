@@ -97,10 +97,7 @@ impl WebSocket {
     }
 
     pub fn time_since_msg(&self) -> Option<CDuration> {
-        match self.last_msg {
-            Some(t) => Some(Utc::now() - t),
-            None => None,
-        }
+        self.last_msg.map(|t| Utc::now() - t)
     }
 
     pub async fn ping(&mut self) -> Result<(), WsError> {

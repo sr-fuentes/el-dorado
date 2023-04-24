@@ -37,7 +37,7 @@ async fn main() {
             // the first trades of exchange.
             match ElDorado::new().await {
                 Some(eld) => match eld.prompt_market_input(&None).await {
-                    Some(m) => eld.fill(&Some(m), false).await,
+                    Some(m) => eld.fill(&Some(m), false).await.expect("Failed to fill."),
                     None => println!("No valid market to fill."),
                 },
                 None => println!("Could not create El Dorado insance."),
@@ -47,7 +47,7 @@ async fn main() {
             // Archive any monthly trades into candle archives, update market archive table
             match ElDorado::new().await {
                 Some(eld) => match eld.prompt_market_input(&None).await {
-                    Some(m) => eld.archive(&Some(m)).await,
+                    Some(m) => eld.archive(&Some(m)).await.expect("Failed to archive."),
                     None => println!("No valid market to archive."),
                 },
                 None => println!("Could not create El Dorado instance."),

@@ -1,13 +1,18 @@
 use crate::{
     configuration::{Database, Settings},
-    exchanges::{client::RestClient, ExchangeName},
+    exchanges::{
+        client::RestClient,
+        error::{RestError, WsError},
+        ExchangeName,
+    },
     instances::{Instance, InstanceType},
     markets::{MarketDetail, MarketStatus},
     utilities::Twilio,
 };
 use chrono::{DateTime, Duration, Utc};
 use sqlx::PgPool;
-use std::{collections::HashMap, convert::TryInto};
+use std::{collections::HashMap, convert::TryInto, io::ErrorKind};
+use thiserror::Error;
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -22,6 +27,18 @@ pub struct ElDorado {
     pub storage_path: String,
     pub start_dt: DateTime<Utc>,
     pub sync_days: i64,
+}
+
+#[derive(Debug, Error)]
+pub enum ElDoradoError {
+    #[error(transparent)]
+    Reqwest(#[from] reqwest::Error),
+    #[error(transparent)]
+    Sqlx(#[from] sqlx::Error),
+    #[error(transparent)]
+    WsError(#[from] WsError),
+    #[error(transparent)]
+    RestError(#[from] RestError),
 }
 
 impl ElDorado {
@@ -101,29 +118,20 @@ impl ElDorado {
         // let mut restart = self.instance.restart;
         while self.instance.restart {
             self.start_dt = Utc::now();
-            let restart = match self.instance.instance_type {
+            let result = match self.instance.instance_type {
                 InstanceType::Ig => self.inquisidor().await,
                 InstanceType::Mita => self.mita().await,
                 InstanceType::Conqui => return,
             };
-            (
-                self.instance.restart,
-                self.instance.restart_count,
-                self.instance.last_restart_ts,
-            ) = self.process_restart(restart).await;
-            // match self.instance.restart {
-            //     true => self.update_instance_status(&InstanceStatus::Restart).await,
-            //     false => self.update_instance_status(&InstanceStatus::Shutdown).await,
-            // }
+            if let Err(e) = result {
+                self.process_restart(self.handle_error_for_restart(e)).await;
+            };
         }
     }
 
     // Review the restart parameter that was returned from the instance run. If instructed to
     // restart, sleep for the scheduled time and update restart atttributes on the instance
-    pub async fn process_restart(
-        &self,
-        restart: bool,
-    ) -> (bool, Option<i32>, Option<DateTime<Utc>>) {
+    pub async fn process_restart(&mut self, restart: bool) {
         // If time from last restart is more than 24 hours - sleep 5 seconds before restart, else
         // follow pattern to increase time as restarts increase
         let (sleep_duration, restart_count) = if self.instance.last_restart_ts.is_none()
@@ -140,15 +148,17 @@ impl ElDorado {
         if restart {
             println!("Sleeping for {:?} before restarting.", sleep_duration);
             tokio::time::sleep(tokio::time::Duration::from_secs(sleep_duration)).await;
-            (restart, Some(restart_count), Some(Utc::now()))
+            self.instance.restart = restart;
+            self.instance.restart_count = Some(restart_count);
+            self.instance.last_restart_ts = Some(Utc::now());
         } else {
             println!("No restart. Shutdown.");
-            (
-                restart,
-                self.instance.restart_count,
-                self.instance.last_restart_ts,
-            )
         }
+        // Update instance status
+        // match self.instance.restart {
+        //     true => self.update_instance_status(&InstanceStatus::Restart).await,
+        //     false => self.update_instance_status(&InstanceStatus::Shutdown).await,
+        // }
     }
 
     // Create hashmap of database pool connections based on instance type.
@@ -229,6 +239,84 @@ impl ElDorado {
                 .expect("Failed to connect to El Dorado database."),
         );
         pools
+    }
+
+    pub fn handle_error_for_restart(&self, e: ElDoradoError) -> bool {
+        match e {
+            ElDoradoError::Sqlx(e) => self.handle_sqlx_error_for_restart(e),
+            ElDoradoError::Reqwest(e) => self.handle_reqwest_error_for_restart(e),
+            ElDoradoError::WsError(e) => self.handle_ws_error_for_restart(e),
+            _ => false,
+        }
+    }
+
+    pub fn handle_sqlx_error_for_restart(&self, e: sqlx::Error) -> bool {
+        match e {
+            sqlx::Error::Io(ioerr) => match ioerr.kind() {
+                ErrorKind::ConnectionReset => {
+                    println!("Error Kind: ConnectionReset.");
+                    println!("to_string(): {:?}", ioerr.to_string());
+                    true
+                }
+                ek => {
+                    println!("Error Kind: {}.", ek);
+                    println!("to_string(): {:?}", ioerr.to_string());
+                    true
+                }
+            },
+            e => {
+                println!("E to_string(): {:?}", e.to_string());
+                false
+            }
+        }
+    }
+
+    pub fn handle_reqwest_error_for_restart(&self, _e: reqwest::Error) -> bool {
+        false
+    }
+
+    pub async fn handle_rest_error(&self, e: RestError) -> Result<(), ElDoradoError> {
+        match e {
+            RestError::Reqwest(e) => {
+                if e.is_timeout() || e.is_connect() || e.is_request() {
+                    println!("Timeout/Connect/Request Error. Retry in 30 secs. {:?}", e);
+                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                    Ok(())
+                } else if e.is_status() {
+                    match e.status() {
+                        Some(s) => match s.as_u16() {
+                            500 | 502 | 503 | 504 | 520 | 522 | 530 => {
+                                // Server error, keep trying every 30 seconds
+                                println!("{} status code. Retry in 30 secs. {:?}", s, e);
+                                tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                                Ok(())
+                            }
+                            429 => {
+                                // Too many requests, chill for 90 seconds
+                                println!("{} status code. Retry in 90 secs. {:?}", s, e);
+                                tokio::time::sleep(tokio::time::Duration::from_secs(90)).await;
+                                Ok(())
+                            }
+                            _ => {
+                                println!("{} status code not handled. Return err.", s);
+                                Err(ElDoradoError::Reqwest(e))
+                            }
+                        },
+                        None => {
+                            println!("No status code for request error.");
+                            Err(ElDoradoError::Reqwest(e))
+                        }
+                    }
+                } else {
+                    println!("Other Reqwest Error. Panic.");
+                    Err(ElDoradoError::Reqwest(e))
+                }
+            }
+            _ => {
+                println!("Other Rest Error, not Reqwest.");
+                Err(ElDoradoError::RestError(e))
+            }
+        }
     }
 }
 
