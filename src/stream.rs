@@ -1,6 +1,6 @@
 use crate::{
     configuration::Database,
-    eldorado::ElDorado,
+    eldorado::{ElDorado, ElDoradoError},
     exchanges::{error::WsError, ws::Channel, ws::Data, ws::WebSocket, ExchangeName},
     trades::Trade,
 };
@@ -10,55 +10,29 @@ use std::io::ErrorKind;
 use tokio_tungstenite::tungstenite::error::ProtocolError;
 
 impl ElDorado {
-    pub async fn stream(&self) -> bool {
+    pub async fn stream(&self) -> Result<(), ElDoradoError> {
         // Configure schema and create trade tables for the current day
-        let today = self.initialize_trade_schema_and_tables().await;
+        let today = self.initialize_trade_schema_and_tables().await?;
         // Migration of MITA stream. Write from websocket to trades database
-        self.stream_to_db(today).await
-        // REFACTOR to shared hashmap instead of writing to db
-        // self.stream_to_hm().await
+        self.stream_to_db(today).await?;
+        Ok(())
     }
 
-    pub async fn stream_to_db(&self, mut dt: DateTime<Utc>) -> bool {
+    pub async fn stream_to_db(&self, mut dt: DateTime<Utc>) -> Result<(), ElDoradoError> {
         // Initiate channels for websocket and tables for database
         let channels = self.initialize_channels().await;
         // Create ws client
-        let mut ws = WebSocket::connect(&self.instance.exchange_name.unwrap())
-            .await
-            .expect("Failed to connect to ws.");
+        let mut ws = WebSocket::connect(&self.instance.exchange_name.unwrap()).await?;
         // Subscribe to trades channels for each market
-        match ws.subscribe(channels).await {
-            Ok(_) => {}
-            Err(WsError::MissingSubscriptionConfirmation) => {
-                println!("Missing subscription confirmation, sleep 5s and restart.");
-                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                return true;
-            }
-            Err(e) => {
-                println!("Subscription error: {:?}", e);
-                return false;
-            }
-        };
+        ws.subscribe(channels).await?;
         // Loop forever writing each trade to the database and create new trade tables for each day
         loop {
             // Check the working date and create the next day's table if needed
-            dt = self.create_future_trade_tables_all_markets(dt).await;
+            dt = self.create_future_trade_tables_all_markets(dt).await?;
             // Get next websocket item
-            let data = ws.next().await.expect("No data received.");
+            let data = ws.next().await.expect("No data received.")?;
             // Process next item
-            match data {
-                Ok(d) => {
-                    match self.process_ws_data(d).await {
-                        Ok(_) => (),
-                        Err(e) => {
-                            break self.handle_sqlx_error(e);
-                        }
-                    };
-                }
-                Err(e) => {
-                    break self.handle_ws_error(e);
-                }
-            }
+            self.process_ws_data(data).await?
         }
     }
 
@@ -84,7 +58,7 @@ impl ElDorado {
         }
     }
 
-    fn handle_ws_error(&self, e: WsError) -> bool {
+    pub fn handle_ws_error_for_restart(&self, e: WsError) -> bool {
         match e {
             WsError::Tungstenite(e) => match e {
                 tokio_tungstenite::tungstenite::Error::Io(ioerr) => match ioerr.kind() {
@@ -121,6 +95,15 @@ impl ElDorado {
                         panic!();
                     }
                 },
+                tokio_tungstenite::tungstenite::Error::Http(r) => {
+                    if r.status().is_server_error() {
+                        println!("Server error - retry");
+                        true
+                    } else {
+                        println!("Other http error {:?}", r);
+                        false
+                    }
+                }
                 _ => {
                     println!("Other WSError::Tungstenite error {:?}", e);
                     println!("to_string(): {:?}", e.to_string());
@@ -128,28 +111,11 @@ impl ElDorado {
                 }
             },
             WsError::TimeSinceLastMsg => true,
-            _ => panic!("Other WsError {:?}", e),
-        }
-    }
-
-    fn handle_sqlx_error(&self, e: sqlx::Error) -> bool {
-        match e {
-            sqlx::Error::Io(ioerr) => match ioerr.kind() {
-                ErrorKind::ConnectionReset => {
-                    println!("Error Kind: ConnectionReset.");
-                    println!("to_string(): {:?}", ioerr.to_string());
-                    true
-                }
-                ek => {
-                    println!("Error Kind: {}.", ek);
-                    println!("to_string(): {:?}", ioerr.to_string());
-                    false
-                }
-            },
-            e => {
-                println!("E to_string(): {:?}", e.to_string());
-                false
+            WsError::MissingSubscriptionConfirmation => {
+                println!("Missing subscription confirmation, sleep 5s and restart.");
+                true
             }
+            _ => panic!("Other WsError {:?}", e),
         }
     }
 
