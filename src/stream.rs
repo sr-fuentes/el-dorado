@@ -6,19 +6,26 @@ use crate::{
 };
 use chrono::{DateTime, Utc};
 use futures::StreamExt;
-use std::io::ErrorKind;
+use std::{
+    collections::HashMap,
+    io::ErrorKind,
+    sync::{Arc, Mutex},
+};
 use tokio_tungstenite::tungstenite::error::ProtocolError;
+use uuid::Uuid;
+
+type Db = Arc<Mutex<HashMap<Uuid, (DateTime<Utc>, i64)>>>;
 
 impl ElDorado {
-    pub async fn stream(&self) -> Result<(), ElDoradoError> {
+    pub async fn stream(&self, db: Db) -> Result<(), ElDoradoError> {
         // Configure schema and create trade tables for the current day
         let today = self.initialize_trade_schema_and_tables().await?;
         // Migration of MITA stream. Write from websocket to trades database
-        self.stream_to_db(today).await?;
+        self.stream_to_db(db, today).await?;
         Ok(())
     }
 
-    pub async fn stream_to_db(&self, mut dt: DateTime<Utc>) -> Result<(), ElDoradoError> {
+    pub async fn stream_to_db(&self, db: Db, mut dt: DateTime<Utc>) -> Result<(), ElDoradoError> {
         // Initiate channels for websocket and tables for database
         let channels = self.initialize_channels().await;
         // Create ws client
@@ -32,11 +39,15 @@ impl ElDorado {
             // Get next websocket item
             let data = ws.next().await.expect("No data received.")?;
             // Process next item
-            self.process_ws_data(data).await?
+            self.process_ws_data(db.clone(), data).await?
         }
     }
 
-    pub async fn process_ws_data(&self, d: (Option<String>, Data)) -> Result<(), sqlx::Error> {
+    pub async fn process_ws_data(
+        &self,
+        db: Db,
+        d: (Option<String>, Data),
+    ) -> Result<(), sqlx::Error> {
         match d {
             (Some(market), Data::FtxTrade(trade)) => {
                 trade
@@ -53,6 +64,14 @@ impl ElDorado {
                         &self.market_names[&self.instance.exchange_name.unwrap()][&market],
                     )
                     .await
+            }
+            (Some(market), Data::GdaxHb(hb)) => {
+                let mut db = db.lock().unwrap();
+                db.insert(
+                    self.market_names[&self.instance.exchange_name.unwrap()][&market].market_id,
+                    (hb.time, hb.last_trade_id),
+                );
+                Ok(())
             }
             (None, d) => panic!("Market missing from ws data: {:?}", d),
         }

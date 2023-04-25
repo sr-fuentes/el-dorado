@@ -12,12 +12,22 @@ use crate::{
 };
 use chrono::{DateTime, Duration, DurationRound, Utc};
 use csv::Writer;
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use std::{collections::HashMap, path::Path, path::PathBuf};
+use std::{
+    collections::HashMap,
+    path::Path,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
+use uuid::Uuid;
+
+type Db = Arc<Mutex<HashMap<Uuid, (DateTime<Utc>, i64)>>>;
 
 impl ElDorado {
     pub async fn sync(
         &self,
+        db: Db,
         heartbeats: &mut HashMap<String, Heartbeat>,
     ) -> Result<(), ElDoradoError> {
         // let mut heartbeats: HashMap<String, Heartbeat> = HashMap::new();
@@ -43,7 +53,7 @@ impl ElDorado {
                 "Candles Loaded: {:?}",
                 heartbeats.get(&market.market_name).unwrap().candles.len()
             );
-            let first_trade: PrIdTi = self.calculate_sync_end(market).await?;
+            let first_trade: PrIdTi = self.calculate_sync_end(db.clone(), market).await?;
             println!("Sync End: {:?}", first_trade.dt);
             // Fill the trades and aggregate to candles for start to end period
             self.fill_trades_and_make_candles(market, heartbeats, first_trade)
@@ -468,6 +478,7 @@ impl ElDorado {
             .candle_table_exists(market, &market.tf, &CandleType::Production)
             .await?
         {
+            println!("Candle table exists. Using Eld start.");
             self.use_eld_start(market, heartbeats).await?;
         } else {
             // No production candles, create the candle table and return None
@@ -617,21 +628,44 @@ impl ElDorado {
     // The end of the sync is the first trade from the websocket stream. Check the table for the
     // trade and return the id and timestamp. If there is no trade, sleep for interval and check
     // again until a trade is found.
-    async fn calculate_sync_end(&self, market: &MarketDetail) -> Result<PrIdTi, ElDoradoError> {
+    async fn calculate_sync_end(
+        &self,
+        db: Db,
+        market: &MarketDetail,
+    ) -> Result<PrIdTi, ElDoradoError> {
         println!(
             "Fetching first {} trade from ws after {:?}.",
             market.market_name, self.start_dt
         );
         loop {
-            match self.select_first_ws_timeid(market).await? {
-                // There is a first trade, return it in TimeId format
-                Some(t) => break Ok(t),
-                // There are no trades in the db, sleep and check again in 5 seconds
+            let hb = {
+                let db = db.lock().unwrap();
+                db.get(&market.market_id).copied()
+            };
+            println!("hb: {:?}", hb);
+            match hb {
+                Some(di) => {
+                    let pridti = PrIdTi {
+                        dt: di.0 + Duration::microseconds(1),
+                        id: di.1,
+                        price: Decimal::MIN,
+                    };
+                    break Ok(pridti);
+                }
                 None => {
                     println!("Awaiting first ws trade for {}.", market.market_name);
-                    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
                 }
             }
+            // match self.select_first_ws_timeid(market).await? {
+            //     // There is a first trade, return it in TimeId format
+            //     Some(t) => break Ok(t),
+            //     // There are no trades in the db, sleep and check again in 5 seconds
+            //     None => {
+            //         println!("Awaiting first ws trade for {}.", market.market_name);
+            //         tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            //     }
+            // }
         }
     }
 

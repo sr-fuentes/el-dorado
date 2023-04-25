@@ -10,6 +10,16 @@ use sqlx::PgPool;
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
 #[serde(rename_all = "snake_case")]
+pub struct Heartbeat {
+    pub r#type: String,
+    pub time: DateTime<Utc>,
+    pub product_id: String,
+    pub sequence: i64,
+    pub last_trade_id: i64,
+}
+
+#[derive(Clone, Deserialize, Serialize, Debug)]
+#[serde(rename_all = "snake_case")]
 pub struct Product {
     pub id: String,
     pub base_currency: String,

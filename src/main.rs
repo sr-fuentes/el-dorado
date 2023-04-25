@@ -1,5 +1,12 @@
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
+
+use chrono::{DateTime, Utc};
 use clap::App;
 use el_dorado::eldorado::ElDorado;
+use uuid::Uuid;
 
 #[tokio::main]
 async fn main() {
@@ -57,7 +64,10 @@ async fn main() {
             // Create new mita instance and run stream until no restart
             match ElDorado::new().await {
                 Some(eld) => {
-                    let _restart = eld.stream().await;
+                    // Initialize shared state db for hb
+                    type Db = Arc<Mutex<HashMap<Uuid, (DateTime<Utc>, i64)>>>;
+                    let db: Db = Arc::new(Mutex::new(HashMap::new()));
+                    let _restart = eld.stream(db.clone()).await;
                 }
                 None => println!("Could not create El Dorado instance."),
             }

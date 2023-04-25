@@ -16,6 +16,8 @@ use tokio::time;
 use tokio::time::{Duration, Interval};
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
+use super::gdax::Heartbeat;
+
 pub struct WebSocket {
     channels: Vec<Channel>,
     stream: WebSocketStream<MaybeTlsStream<TcpStream>>,
@@ -72,6 +74,7 @@ pub enum ResponseData {
 pub enum Data {
     FtxTrade(FtxTrade),
     GdaxTrade(GdaxTrade),
+    GdaxHb(Heartbeat),
 }
 
 impl WebSocket {
@@ -245,7 +248,22 @@ impl WebSocket {
                         }
                     }
                 } else if v["type"] == "heartbeat" {
-                    // TODO match heartbeat and put on queue
+                    let product_id: String =
+                        serde_json::from_value(v["product_id"].clone()).unwrap();
+                    // println!("V: {:?}", v);
+                    // println!("Product Id: {:?}", product_id);
+                    // let trade: GdaxTrade = serde_json::from_value(v).unwrap();
+                    // self.buf
+                    //     .push_back((Some(product_id), Data::GdaxTrade(trade)))
+                    let v2 = v.clone();
+                    match serde_json::from_value::<Heartbeat>(v) {
+                        Ok(hb) => self.buf.push_back((Some(product_id), Data::GdaxHb(hb))),
+                        Err(e) => {
+                            println!("Failed to parse gdax trade from serde json value.");
+                            println!("Value: {:?}", v2);
+                            println!("Error: {:?}", e);
+                        }
+                    }
                 } else {
                     println!("Other message: {:?}", v);
                     return Err(WsError::TimeSinceLastMsg);

@@ -343,6 +343,7 @@ impl ElDorado {
             // Sort the new trades
             new_trades.sort_by_key(|t| t.trade_id);
             // Update the last trade
+            let old_last_trade_id = last_trade_id;
             last_trade_id = new_trades.last().unwrap().trade_id as i32;
             last_dt = new_trades.last().unwrap().time;
             println!(
@@ -350,6 +351,11 @@ impl ElDorado {
                 new_trades.len(),
                 last_dt
             );
+            // Break if no new trades - this occurs when syncing trades and there has not been a
+            // new trade since the sync started
+            if old_last_trade_id == last_trade_id && new_trades.len() == 1000 {
+                break;
+            }
             // Filter out trades that are beyond the end date
             let mut filtered_trades = if last_dt >= *interval_end {
                 // There are trade to filter

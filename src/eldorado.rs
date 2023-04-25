@@ -255,17 +255,17 @@ impl ElDorado {
             sqlx::Error::Io(ioerr) => match ioerr.kind() {
                 ErrorKind::ConnectionReset => {
                     println!("Error Kind: ConnectionReset.");
-                    println!("to_string(): {:?}", ioerr.to_string());
+                    println!("{:?} {:?}", ioerr, ioerr.to_string());
                     true
                 }
                 ek => {
-                    println!("Error Kind: {}.", ek);
-                    println!("to_string(): {:?}", ioerr.to_string());
+                    println!("Error Kind Error:");
+                    println!("{:?} {:?} {:?}", ioerr, ek, ioerr.to_string());
                     true
                 }
             },
             e => {
-                println!("E to_string(): {:?}", e.to_string());
+                println!("Error: {:?} {:?}", e, e.to_string());
                 false
             }
         }

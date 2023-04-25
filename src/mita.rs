@@ -9,7 +9,13 @@ use crate::{
     utilities::{DateRange, TimeFrame},
 };
 use chrono::{DateTime, DurationRound, Utc};
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
+use uuid::Uuid;
+
+type Db = Arc<Mutex<HashMap<Uuid, (DateTime<Utc>, i64)>>>;
 
 #[derive(Debug)]
 pub struct Heartbeat {
@@ -45,10 +51,12 @@ impl ElDorado {
         // Set restart value to false, error handling must explicitly set back to true
         self.instance.restart = false;
         self.initialize_mita().await?;
+        // Initialize shared state db for hb
+        let db: Db = Arc::new(Mutex::new(HashMap::new()));
         // self.instance.update_status(&InstanceStatus::New).await;
         tokio::select! {
-            res2 = self.stream() => res2,
-            res1 = self.sync_and_run_mita() => res1,
+            res2 = self.stream(db.clone()) => res2,
+            res1 = self.sync_and_run_mita(db.clone()) => res1,
         }
     }
 
@@ -73,13 +81,13 @@ impl ElDorado {
 
     // Sync by determiniting the last good state and filling trades from that state to the current
     // first streamed trade. Then and Run Mita loop
-    async fn sync_and_run_mita(&self) -> Result<(), ElDoradoError> {
-        // Wait for 5 seconds for stream to start
-        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+    async fn sync_and_run_mita(&self, db: Db) -> Result<(), ElDoradoError> {
+        // Wait for 1 seconds for stream to start
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         // self.instance.update_status(&InstanceStatus::Sync).await;
         // Sync candles from start to current time frame
         let mut heartbeats: HashMap<String, Heartbeat> = HashMap::new();
-        self.sync(&mut heartbeats).await?;
+        self.sync(db, &mut heartbeats).await?;
         println!("Starting MITA loop.");
         // self.instance.update_status(&InstanceStatus::Active).await;
         self.run_mita(&mut heartbeats).await
