@@ -190,12 +190,22 @@ impl WebSocket {
                                 Some(t) => {
                                     if t > CDuration::seconds(5) {
                                         println!("{} since last message.", t);
-                                        self.stream.close(None).await?;
+                                        match self.stream.close(None).await {
+                                            Ok(_) => (),
+                                            Err(tokio_tungstenite::tungstenite::Error::AlreadyClosed) => (),
+                                            Err(tokio_tungstenite::tungstenite::Error::ConnectionClosed) => (),
+                                            Err(e) => return Err(WsError::Tungstenite(e)),
+                                        }
                                         return Err(WsError::TimeSinceLastMsg)}
                                 }
                                 None => {
                                     println!("No last message.");
-                                    self.stream.close(None).await?;
+                                    match self.stream.close(None).await {
+                                        Ok(_) => (),
+                                        Err(tokio_tungstenite::tungstenite::Error::AlreadyClosed) => (),
+                                        Err(tokio_tungstenite::tungstenite::Error::ConnectionClosed) => (),
+                                        Err(e) => return Err(WsError::Tungstenite(e)),
+                                    }
                                     return Err(WsError::TimeSinceLastMsg)
                                 }
                             };

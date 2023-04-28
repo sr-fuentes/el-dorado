@@ -123,6 +123,10 @@ impl ElDorado {
                         false
                     }
                 }
+                tokio_tungstenite::tungstenite::Error::AlreadyClosed => {
+                    println!("Connection AlreadyClosed");
+                    true
+                }
                 _ => {
                     println!("Other WSError::Tungstenite error {:?}", e);
                     println!("to_string(): {:?}", e.to_string());

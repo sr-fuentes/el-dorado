@@ -264,6 +264,10 @@ impl ElDorado {
                     true
                 }
             },
+            sqlx::Error::PoolTimedOut | sqlx::Error::PoolClosed => {
+                println!("Error: {:?} {:?}", e, e.to_string());
+                true
+            }
             e => {
                 println!("Error: {:?} {:?}", e, e.to_string());
                 false
