@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, collections::HashMap, fs::File, path::PathBuf};
+use std::{cmp::Ordering, collections::HashMap, fs::File, path::PathBuf, convert::TryFrom};
 
 use crate::{
     candles::ProductionCandle,
@@ -238,6 +238,20 @@ impl MetricFilter {
     }
 }
 
+
+impl TryFrom<String> for MetricFilter {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        match s.to_lowercase().as_str() {
+            "ls" => Ok(Self::LS),
+            "sl" => Ok(Self::SL),
+            "equal" => Ok(Self::Equal),
+            other => Err(format!("{} is not a supported direction type.", other)),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, sqlx::Type, Eq, PartialEq)]
 #[sqlx(rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
@@ -253,6 +267,19 @@ impl MetricDirection {
             MetricDirection::Up => "up",
             MetricDirection::Down => "down",
             MetricDirection::NC => "nc",
+        }
+    }
+}
+
+impl TryFrom<String> for MetricDirection {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        match s.to_lowercase().as_str() {
+            "up" => Ok(Self::Up),
+            "down" => Ok(Self::Down),
+            "nc" => Ok(Self::NC),
+            other => Err(format!("{} is not a supported direction type.", other)),
         }
     }
 }
