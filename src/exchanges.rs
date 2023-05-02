@@ -10,6 +10,7 @@ pub mod error;
 pub mod ftx;
 pub mod gdax;
 pub mod ws;
+pub mod kraken;
 
 #[derive(Debug, PartialEq, Eq, Clone, sqlx::Type)]
 pub struct Exchange {
@@ -30,6 +31,7 @@ pub enum ExchangeName {
     Ftx,
     FtxUs,
     Gdax,
+    Kraken,
 }
 
 impl ExchangeName {
@@ -38,6 +40,7 @@ impl ExchangeName {
             ExchangeName::Ftx => "ftx",
             ExchangeName::FtxUs => "ftxus",
             ExchangeName::Gdax => "gdax",
+            ExchangeName::Kraken => "kraken",
         }
     }
 }
@@ -50,6 +53,7 @@ impl TryFrom<String> for ExchangeName {
             "ftx" => Ok(Self::Ftx),
             "ftxus" => Ok(Self::FtxUs),
             "gdax" => Ok(Self::Gdax),
+            "kraken" => Ok(Self::Kraken),
             other => Err(format!("{} is not a supported exchange.", other)),
         }
     }
@@ -153,6 +157,7 @@ impl ElDorado {
                     println!("FTX / FTXUS API no longer active.")
                 }
                 ExchangeName::Gdax => self.refresh_gdax_markets().await,
+                ExchangeName::Kraken => self.refresh_kraken_markets().await,
             },
             None => println!("No exchange to refresh."),
         }

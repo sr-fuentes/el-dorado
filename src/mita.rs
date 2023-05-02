@@ -71,6 +71,7 @@ impl ElDorado {
                 self.create_candles_schema(&self.pools[&Database::Gdax])
                     .await?
             }
+            ExchangeName::Kraken => todo!("Kraken not implemented yet."),
         };
         // Delete metrics for markets
         for market in self.markets.iter() {

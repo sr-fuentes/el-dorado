@@ -1482,6 +1482,7 @@ impl ElDorado {
         let db = match market.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
             ExchangeName::Gdax => Database::Gdax,
+            ExchangeName::Kraken => todo!("Kraken not implemented."),
         };
         ElDorado::table_exists(&self.pools[&db], "candles", &table).await
     }
@@ -1675,6 +1676,7 @@ impl ElDorado {
     ) -> Result<Option<Vec<ResearchCandle>>, ElDoradoError> {
         // Load trade for given date and market
         match market.exchange_name {
+            ExchangeName::Kraken => todo!("Kraken not implemented."),
             ExchangeName::Ftx | ExchangeName::FtxUs => Ok(None),
             ExchangeName::Gdax => {
                 let (trades_vec, trades_hm) = self.read_gdax_trades_from_file(pb, &TimeFrame::S15);
@@ -1734,6 +1736,7 @@ impl ElDorado {
     ) -> Result<Option<Vec<ProductionCandle>>, sqlx::Error> {
         // Select trades for the given date
         match market.exchange_name {
+            ExchangeName::Kraken => todo!("Kraken not implemented."),
             ExchangeName::Ftx | ExchangeName::FtxUs => {
                 let trades = FtxTrade::select_all(&self.pools[&Database::Ftx], market, dt).await?;
                 if trades.is_empty() {
@@ -1840,6 +1843,7 @@ impl ElDorado {
         last_trade: &PrIdTi,
     ) -> Result<Option<Vec<ProductionCandle>>, ElDoradoError> {
         match market.exchange_name {
+            ExchangeName::Kraken => todo!("Kraken not implemented."),
             ExchangeName::Ftx | ExchangeName::FtxUs => Ok(None),
             ExchangeName::Gdax => {
                 // Get the trades for the interval
@@ -1908,6 +1912,7 @@ impl ElDorado {
         candles: &[ProductionCandle],
     ) -> Result<(), ElDoradoError> {
         let db = match market.exchange_name {
+            ExchangeName::Kraken => todo!("Kraken not implemented."),
             ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
             ExchangeName::Gdax => Database::Gdax,
         };
@@ -1919,6 +1924,7 @@ impl ElDorado {
 
     pub async fn insert_research_candles(&self, market: &MarketDetail, candles: &[ResearchCandle]) {
         let db = match market.exchange_name {
+            ExchangeName::Kraken => todo!("Kraken not implemented."),
             ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
             ExchangeName::Gdax => Database::Gdax,
         };
@@ -1971,6 +1977,7 @@ impl ElDorado {
         {
             // Get first production candle
             let db = match market.exchange_name {
+                ExchangeName::Kraken => todo!("Kraken not implemented."),
                 ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
                 ExchangeName::Gdax => Database::Gdax,
             };

@@ -24,25 +24,34 @@ pub struct FtxErrorResponse {
     pub error: String,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+pub struct KrakenResponse<T> {
+    pub error: Vec<String>,
+    pub result: Option<T>,
+}
+
 impl RestClient {
     pub const FTX_ENDPOINT: &'static str = "https://ftx.com/api";
     pub const FTXUS_ENDPOINT: &'static str = "https://ftx.us/api";
     pub const GDAX_ENDPOINT: &'static str = "https://api.exchange.coinbase.com";
+    pub const KRAKEN_ENDPOINT: &'static str = "https://api.kraken.com";
     pub const FTX_HEADER: &'static str = "FTX";
     pub const FTXUS_HEADER: &'static str = "FTXUS";
     pub const GDAX_HEADER: &'static str = "GDAX"; // Not needed for GDAX requests
+    pub const KRAKEN_HEADER: &'static str = "KRAKEN"; // Not needed for GDAX requests
 
     pub fn initialize_client_map() -> HashMap<ExchangeName, Self> {
         let mut clients = HashMap::new();
         clients.insert(ExchangeName::Ftx, RestClient::new(&ExchangeName::Ftx));
         clients.insert(ExchangeName::FtxUs, RestClient::new(&ExchangeName::FtxUs));
         clients.insert(ExchangeName::Gdax, RestClient::new(&ExchangeName::Gdax));
+        clients.insert(ExchangeName::Kraken, RestClient::new(&ExchangeName::Kraken));
         clients
     }
 
     pub fn new(exchange: &ExchangeName) -> Self {
         let client = match exchange {
-            ExchangeName::Ftx | ExchangeName::FtxUs => Client::builder()
+            ExchangeName::Ftx | ExchangeName::FtxUs | ExchangeName::Kraken => Client::builder()
                 .timeout(std::time::Duration::from_secs(10))
                 .build()
                 .unwrap(),
@@ -58,6 +67,7 @@ impl RestClient {
             ExchangeName::Ftx => (Self::FTX_HEADER, Self::FTX_ENDPOINT),
             ExchangeName::FtxUs => (Self::FTXUS_HEADER, Self::FTXUS_ENDPOINT),
             ExchangeName::Gdax => (Self::GDAX_HEADER, Self::GDAX_ENDPOINT),
+            ExchangeName::Kraken => (Self::KRAKEN_HEADER, Self::KRAKEN_ENDPOINT),
         };
         Self {
             header,
@@ -104,6 +114,7 @@ impl RestClient {
         match self.exchange {
             ExchangeName::Ftx | ExchangeName::FtxUs => self.handle_ftx_response(response).await,
             ExchangeName::Gdax => self.handle_gdax_response(response).await,
+            ExchangeName::Kraken => self.handle_kraken_response(response).await,
         }
     }
 
@@ -161,6 +172,33 @@ impl RestClient {
             Err(e) => {
                 println!("Reqwest status error: {:?}", e.status());
                 println!("URL: {:?}", e.url());
+                Err(e.into())
+            }
+        }
+    }
+
+    pub async fn handle_kraken_response<T: DeserializeOwned>(
+        &self,
+        response: Response,
+    ) -> Result<T, RestError> {
+        match response.error_for_status() {
+            Ok(res) => {
+                let res_bytes = res.bytes().await?;
+                match from_reader(&*res_bytes) {
+                    Ok(KrakenResponse { result, .. }) => Ok(result.unwrap()),
+                    Err(e) => {
+                        println!(
+                            "Reqwest resp: {:?}",
+                            std::str::from_utf8(&res_bytes).unwrap()
+                        );
+                        println!("Error: {:?}", e.to_string());
+                        eprintln!("Errorpl: {:?}", e);
+                        Err(e.into())
+                    }
+                }
+            },
+            Err(e) => {
+                println!("Reqwest status error: {:?}", e.status());
                 Err(e.into())
             }
         }
