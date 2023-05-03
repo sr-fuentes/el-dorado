@@ -76,6 +76,7 @@ impl ElDorado {
                 self.create_trades_schema(&self.pools[&Database::Gdax])
                     .await?;
             }
+            ExchangeName::Kraken => todo!("Kraken not implemented."),
         }
         // Create trade tables for each market for today if they don't exist
         let today = Utc::now().duration_trunc(Duration::days(1)).unwrap();
@@ -103,6 +104,7 @@ impl ElDorado {
             ExchangeName::Gdax => {
                 GdaxTrade::create_table(&self.pools[&Database::Gdax], market, dt).await?;
             }
+            ExchangeName::Kraken => todo!("Kraken not implemented."),
         }
         Ok(())
     }
@@ -147,6 +149,7 @@ impl ElDorado {
         let db = match market.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
             ExchangeName::Gdax => Database::Gdax,
+            ExchangeName::Kraken => todo!("Kraken not implemented."),
         };
         ElDorado::table_exists(&self.pools[&db], "trades", &table).await
     }
@@ -179,6 +182,7 @@ impl ElDorado {
                     Err(e) => Err(ElDoradoError::Sqlx(e)),
                 }
             }
+            ExchangeName::Kraken => todo!("Kraken not implemented."),
         }
     }
 

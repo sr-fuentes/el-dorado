@@ -2,7 +2,7 @@ use crate::{
     candles::ResearchCandle,
     configuration::Database,
     eldorado::{ElDorado, ElDoradoError},
-    exchanges::{gdax::Product, ExchangeName},
+    exchanges::{gdax::Product, kraken::AssetPair, ExchangeName},
     trades::{PrIdTi, Trade},
     utilities::TimeFrame,
 };
@@ -207,6 +207,26 @@ impl MarketDetail {
         }
     }
 
+    pub fn new_from_kraken_ap(market: &String, ap: &AssetPair) -> Self {
+        MarketDetail {
+            market_id: Uuid::new_v4(),
+            exchange_name: ExchangeName::Kraken,
+            market_name: market.clone(),
+            market_type: MarketType::Spot,
+            base: Some(ap.base.clone()),
+            base_step: ap.ordermin,
+            base_min: ap.ordermin,
+            quote: Some(ap.quote.clone()),
+            quote_step: ap.tick_size,
+            status: MarketStatus::New,
+            tradable: false,
+            mita: None,
+            tf: TimeFrame::D01,
+            last_candle: None,
+            asset_id: None,
+        }
+    }
+
     pub async fn insert(&self, pool: &PgPool) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
@@ -240,7 +260,7 @@ impl MarketDetail {
         Ok(())
     }
 
-    pub async fn update(&self, pool: &PgPool, product: &Product) -> Result<(), sqlx::Error> {
+    pub async fn update_gdax(&self, pool: &PgPool, product: &Product) -> Result<(), sqlx::Error> {
         sqlx::query!(
             r#"
             UPDATE markets
@@ -250,6 +270,23 @@ impl MarketDetail {
             product.base_increment,
             product.min_market_funds,
             product.quote_increment,
+            self.market_id,
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn update_kraken(&self, pool: &PgPool, ap: &AssetPair) -> Result<(), sqlx::Error> {
+        sqlx::query!(
+            r#"
+            UPDATE markets
+            SET (base_step, base_min, quote_step) = ($1, $2, $3)
+            WHERE market_id = $4
+            "#,
+            ap.ordermin,
+            ap.ordermin,
+            ap.tick_size,
             self.market_id,
         )
         .execute(pool)
@@ -1166,12 +1203,50 @@ impl ElDorado {
         for market in markets.iter() {
             match market_map.get(&market.id) {
                 Some(m) => m
-                    .update(&self.pools[&Database::ElDorado], market)
+                    .update_gdax(&self.pools[&Database::ElDorado], market)
                     .await
                     .expect("Failed to update market."),
                 None => {
                     println!("Adding {:?} market for Gdax", market.id);
                     let new_market = MarketDetail::new_from_gdax_product(market);
+                    new_market
+                        .insert(&self.pools[&Database::ElDorado])
+                        .await
+                        .expect("Failed to insert market.");
+                }
+            }
+        }
+    }
+
+    pub async fn refresh_kraken_markets(&self) {
+        // Get markets from kraken rest api
+        let mut markets = self.clients[&ExchangeName::Kraken]
+            .get_kraken_tradable_asset_pairs()
+            .await
+            .expect("Failed to get kraken markets.");
+        // Filter for usd markest
+        markets.retain(|_, v| v.quote == *"ZUSD");
+        // Get markets from db
+        let db_markets = MarketDetail::select_by_exchange(
+            &self.pools[&Database::ElDorado],
+            &ExchangeName::Kraken,
+        )
+        .await
+        .expect("Failed to select markets from db.");
+        let mut market_map = HashMap::new();
+        for db_market in db_markets.iter() {
+            market_map.insert(db_market.market_name.clone(), db_market.clone());
+        }
+        // If the market from api is not in the db - add it, otherwise update it
+        for (market, ap) in markets.iter() {
+            match market_map.get(market) {
+                Some(m) => m
+                    .update_kraken(&self.pools[&Database::ElDorado], ap)
+                    .await
+                    .expect("Failed to update market."),
+                None => {
+                    println!("Adding {:?} market for Kraken", market);
+                    let new_market = MarketDetail::new_from_kraken_ap(market, ap);
                     new_market
                         .insert(&self.pools[&Database::ElDorado])
                         .await

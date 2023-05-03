@@ -153,6 +153,7 @@ impl ElDorado {
                     channels.push(Channel::Heartbeat(market.market_name.to_owned()));
                     channels.push(Channel::Ticker(market.market_name.to_owned()));
                 }
+                ExchangeName::Kraken => todo!("Kraken not implemented."),
             };
         }
         channels

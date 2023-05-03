@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, collections::HashMap, fs::File, path::PathBuf, convert::TryFrom};
+use std::{cmp::Ordering, collections::HashMap, convert::TryFrom, fs::File, path::PathBuf};
 
 use crate::{
     candles::ProductionCandle,
@@ -9,7 +9,7 @@ use crate::{
     mita::Heartbeat,
     utilities::TimeFrame,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use csv::Reader;
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
@@ -237,7 +237,6 @@ impl MetricFilter {
         }
     }
 }
-
 
 impl TryFrom<String> for MetricFilter {
     type Error = String;
@@ -1223,6 +1222,15 @@ impl ResearchMetric {
         Ok(())
     }
 
+    pub async fn delete_lt_dt(pool: &PgPool, dt: DateTime<Utc>) -> Result<(), sqlx::Error> {
+        let sql = r#"
+        DELETE FROM research_metrics
+        WHERE datetime < $1
+        "#;
+        sqlx::query(sql).bind(dt).execute(pool).await?;
+        Ok(())
+    }
+
     pub fn map_by_id_tf(metrics: &[Self]) -> HashMap<Uuid, HashMap<TimeFrame, Vec<Self>>> {
         let mut map: HashMap<Uuid, HashMap<TimeFrame, Vec<ResearchMetric>>> = HashMap::new();
         for metric in metrics.iter() {
@@ -1325,6 +1333,12 @@ impl ElDorado {
             metrics.push(tf_metric)
         }
         metrics
+    }
+
+    pub async fn maintain_metrics_table(&self) -> Result<(), ElDoradoError> {
+        let dt = Utc::now() - Duration::days(3);
+        ResearchMetric::delete_lt_dt(&self.pools[&Database::ElDorado], dt).await?;
+        Ok(())
     }
 }
 

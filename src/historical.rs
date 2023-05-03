@@ -190,6 +190,7 @@ impl ElDorado {
                 ExchangeName::Gdax => {
                     self.use_gdax_start(market, heartbeats).await?;
                 }
+                ExchangeName::Kraken => todo!("Kraken not implemented."),
             }
         }
         Ok(())
@@ -208,6 +209,7 @@ impl ElDorado {
         let db = match market.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
             ExchangeName::Gdax => Database::Gdax,
+            ExchangeName::Kraken => todo!("Kraken not implemented."),
         };
         // Check for mcd
         let mcd = MarketCandleDetail::select(&self.pools[&Database::ElDorado], market).await;
@@ -486,6 +488,7 @@ impl ElDorado {
             let db = match market.exchange_name {
                 ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
                 ExchangeName::Gdax => Database::Gdax,
+                ExchangeName::Kraken => todo!("Kraken not implemented."),
             };
             ProductionCandle::create_table(&self.pools[&db], market, &market.tf).await?;
         }
@@ -501,6 +504,7 @@ impl ElDorado {
         let db = match market.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
             ExchangeName::Gdax => Database::Gdax,
+            ExchangeName::Kraken => todo!("Kraken not implemented."),
         };
         // Clean up production candles - remove any 0 volume candles
         let last_non_zero_candle =
@@ -711,6 +715,7 @@ impl ElDorado {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
                 panic!("FTX not supported.");
             }
+            ExchangeName::Kraken => todo!("Kraken not implemented."),
             ExchangeName::Gdax => {
                 // Fill trades for day
                 let interval_start = heartbeats.get(&market.market_name).unwrap().ts.max(*dt);
@@ -909,6 +914,7 @@ impl ElDorado {
                     self.create_trades_schema(&self.pools[&Database::Gdax])
                         .await?;
                 }
+                ExchangeName::Kraken => todo!("Kraken not implemented."),
             };
             // Check that production candles table is created
             println!("Checking production candle tables are created.");
@@ -920,6 +926,7 @@ impl ElDorado {
                 let db = match market.exchange_name {
                     ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
                     ExchangeName::Gdax => Database::Gdax,
+                    ExchangeName::Kraken => todo!("Kraken not implemented."),
                 };
                 ProductionCandle::create_table(&self.pools[&db], market, &market.tf).await?;
             } else {
@@ -1039,6 +1046,7 @@ impl ElDorado {
             ExchangeName::Ftx | ExchangeName::FtxUs => {
                 todo!("Refactor ftx get.")
             }
+            ExchangeName::Kraken => todo!("Kraken not implemented."),
             ExchangeName::Gdax => {
                 // Get the trades for the day
                 let trades = self
@@ -1231,6 +1239,7 @@ impl ElDorado {
             // running of the price feed.
             println!("Trade file does not exist. Checking trade table.");
             match market.exchange_name {
+                ExchangeName::Kraken => todo!("Kraken not implemented."),
                 ExchangeName::Ftx | ExchangeName::FtxUs => todo!(),
                 ExchangeName::Gdax => {
                     let trades =
@@ -1339,6 +1348,7 @@ impl ElDorado {
         )
         .await?;
         match market.exchange_name {
+            ExchangeName::Kraken => todo!("Kraken not implemented."),
             ExchangeName::Ftx | ExchangeName::FtxUs => {
                 // Read file from new location
                 let trades = self.read_ftx_trades_from_file(pb);
@@ -1399,6 +1409,7 @@ impl ElDorado {
         let db = match market.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
             ExchangeName::Gdax => Database::Gdax,
+            ExchangeName::Kraken => todo!("Kraken not implemented."),
         };
         ResearchCandle::delete_lt_dt(&self.pools[&db], market, &TimeFrame::S15, &cutoff).await?;
         // Delete candles older than the day in the db - production
@@ -1450,6 +1461,7 @@ impl ElDorado {
             let db = match market.exchange_name {
                 ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
                 ExchangeName::Gdax => Database::Gdax,
+                ExchangeName::Kraken => todo!("Kraken not implemented."),
             };
             for candle in candles.iter() {
                 candle
@@ -1473,6 +1485,7 @@ impl ElDorado {
                 GdaxTrade::drop_table(&self.pools[&Database::Gdax], market, *dt).await?;
                 Database::Gdax
             }
+            ExchangeName::Kraken => todo!("Kraken not implemented."),
         };
         // Drop the legacy trade and qc tables - remove once prod is cleaned up
         let table_pre = format!(
@@ -1552,6 +1565,7 @@ impl ElDorado {
         self.create_trade_table(market, mtd.previous_trade_day)
             .await?;
         match market.exchange_name {
+            ExchangeName::Kraken => todo!("Kraken not implemented."),
             ExchangeName::Ftx | ExchangeName::FtxUs => {
                 todo!("Migrate FTX get from Inqui.")
             }
@@ -1594,6 +1608,7 @@ impl ElDorado {
             market.market_name, mtd.previous_trade_day
         );
         match market.exchange_name {
+            ExchangeName::Kraken => todo!("Kraken not implemented."),
             ExchangeName::Ftx | ExchangeName::FtxUs => {
                 todo!("Migrate FTX validate from Inqui.")
             }
@@ -1632,6 +1647,7 @@ impl ElDorado {
         // storage but will simplify process by only dropping tables and cleaning up during the
         // forward fill as each day is validated and the research candles are created
         match market.exchange_name {
+            ExchangeName::Kraken => todo!("Kraken not implemented."),
             ExchangeName::Ftx | ExchangeName::FtxUs => {
                 todo!("Migrate FTX archive from Inqui.")
             }

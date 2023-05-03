@@ -211,6 +211,14 @@ impl ElDorado {
                         .expect("Failed to connect to El Dorado database."),
                 );
             }
+            ExchangeName::Kraken => {
+                pools.insert(
+                    Database::Gdax,
+                    PgPool::connect_with(settings.gdax_db.with_db())
+                        .await
+                        .expect("Failed to connect to El Dorado database."),
+                );
+            }
         };
         pools
     }
