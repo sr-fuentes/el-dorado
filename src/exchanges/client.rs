@@ -196,7 +196,7 @@ impl RestClient {
                         Err(e.into())
                     }
                 }
-            },
+            }
             Err(e) => {
                 println!("Reqwest status error: {:?}", e.status());
                 Err(e.into())

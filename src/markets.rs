@@ -2,7 +2,7 @@ use crate::{
     candles::ResearchCandle,
     configuration::Database,
     eldorado::{ElDorado, ElDoradoError},
-    exchanges::{gdax::Product, ExchangeName, kraken::AssetPair},
+    exchanges::{gdax::Product, kraken::AssetPair, ExchangeName},
     trades::{PrIdTi, Trade},
     utilities::TimeFrame,
 };
@@ -276,7 +276,6 @@ impl MarketDetail {
         .await?;
         Ok(())
     }
-
 
     pub async fn update_kraken(&self, pool: &PgPool, ap: &AssetPair) -> Result<(), sqlx::Error> {
         sqlx::query!(
@@ -1222,29 +1221,39 @@ impl ElDorado {
     pub async fn refresh_kraken_markets(&self) {
         // Get markets from kraken rest api
         let mut markets = self.clients[&ExchangeName::Kraken]
-            .get_kraken_tradable_asset_pairs().await.expect("Failed to get kraken markets.");
+            .get_kraken_tradable_asset_pairs()
+            .await
+            .expect("Failed to get kraken markets.");
         // Filter for usd markest
         markets.retain(|_, v| v.quote == *"ZUSD");
         // Get markets from db
-        let db_markets =
-            MarketDetail::select_by_exchange(&self.pools[&Database::ElDorado], &ExchangeName::Kraken)
-                .await
-                .expect("Failed to select markets from db.");
+        let db_markets = MarketDetail::select_by_exchange(
+            &self.pools[&Database::ElDorado],
+            &ExchangeName::Kraken,
+        )
+        .await
+        .expect("Failed to select markets from db.");
         let mut market_map = HashMap::new();
         for db_market in db_markets.iter() {
             market_map.insert(db_market.market_name.clone(), db_market.clone());
-        }   
+        }
         // If the market from api is not in the db - add it, otherwise update it
         for (market, ap) in markets.iter() {
             match market_map.get(market) {
-                Some(m) => m.update_kraken(&self.pools[&Database::ElDorado], ap).await.expect("Failed to update market."),
+                Some(m) => m
+                    .update_kraken(&self.pools[&Database::ElDorado], ap)
+                    .await
+                    .expect("Failed to update market."),
                 None => {
                     println!("Adding {:?} market for Kraken", market);
                     let new_market = MarketDetail::new_from_kraken_ap(market, ap);
-                    new_market.insert(&self.pools[&Database::ElDorado]).await.expect("Failed to insert market.");
-                },
+                    new_market
+                        .insert(&self.pools[&Database::ElDorado])
+                        .await
+                        .expect("Failed to insert market.");
+                }
             }
-        } 
+        }
     }
 }
 

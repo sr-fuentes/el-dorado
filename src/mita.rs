@@ -73,10 +73,6 @@ impl ElDorado {
             }
             ExchangeName::Kraken => todo!("Kraken not implemented yet."),
         };
-        // Delete metrics for markets
-        for market in self.markets.iter() {
-            ResearchMetric::delete_by_market(&self.pools[&Database::ElDorado], market).await?;
-        }
         Ok(())
     }
 

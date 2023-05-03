@@ -1,11 +1,9 @@
 use std::collections::HashMap;
 
 use rust_decimal::Decimal;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use crate::exchanges::{client::RestClient, error::RestError};
-
-
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AssetPair {
@@ -24,7 +22,9 @@ pub struct AssetPair {
 }
 
 impl RestClient {
-    pub async fn get_kraken_tradable_asset_pairs(&self) -> Result<HashMap<String, AssetPair>, RestError> {
+    pub async fn get_kraken_tradable_asset_pairs(
+        &self,
+    ) -> Result<HashMap<String, AssetPair>, RestError> {
         self.get("/0/public/AssetPairs", None).await
     }
 }
@@ -33,17 +33,19 @@ impl RestClient {
 mod tests {
     use crate::exchanges::{client::RestClient, ExchangeName};
 
-
     #[tokio::test]
     async fn get_tradable_asset_pairs() {
         let client = RestClient::new(&ExchangeName::Kraken);
-        let tas = client.get_kraken_tradable_asset_pairs().await.expect("Failed to get all asset paires.");
+        let tas = client
+            .get_kraken_tradable_asset_pairs()
+            .await
+            .expect("Failed to get all asset paires.");
         for (k, v) in tas.iter() {
             if v.quote == "ZUSD" {
                 println!("{} - {:?}", k, v);
             }
             // println!("{} - {:?}", k, v);
-        }   
+        }
         // println!("AssetPairs: {:?}", tas);
     }
 }
