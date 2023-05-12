@@ -1016,7 +1016,7 @@ impl ResearchMetric {
         }
     }
 
-    fn don_h(&self, don: i32) -> Option<Decimal> {
+    pub fn don_h(&self, don: i32) -> Option<Decimal> {
         match don {
             4 => self.high4,
             8 => self.high8,
@@ -1029,7 +1029,7 @@ impl ResearchMetric {
         }
     }
 
-    fn don_l(&self, don: i32) -> Option<Decimal> {
+    pub fn don_l(&self, don: i32) -> Option<Decimal> {
         match don {
             4 => self.low4,
         8 => self.low8,
