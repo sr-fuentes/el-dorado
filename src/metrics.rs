@@ -4,7 +4,6 @@ use crate::{
     candles::ProductionCandle,
     configuration::Database,
     eldorado::{ElDorado, ElDoradoError},
-    exchanges::ExchangeName,
     markets::MarketDetail,
     mita::Heartbeat,
     utilities::TimeFrame,
@@ -101,63 +100,6 @@ impl TimeFrame {
     }
 }
 
-#[derive(Debug, sqlx::FromRow)]
-pub struct MetricAP {
-    pub market_name: String,
-    pub exchange_name: ExchangeName,
-    pub datetime: DateTime<Utc>,
-    pub time_frame: TimeFrame,
-    pub lbp: i64,
-    pub high: Decimal,
-    pub low: Decimal,
-    pub close: Decimal,
-    pub r: Decimal,
-    pub h004c: Decimal,
-    pub l004c: Decimal,
-    pub h004h: Decimal,
-    pub l004l: Decimal,
-    pub h008c: Decimal,
-    pub l008c: Decimal,
-    pub h008h: Decimal,
-    pub l008l: Decimal,
-    pub h012c: Decimal,
-    pub l012c: Decimal,
-    pub h012h: Decimal,
-    pub l012l: Decimal,
-    pub h024c: Decimal,
-    pub l024c: Decimal,
-    pub h024h: Decimal,
-    pub l024l: Decimal,
-    pub h048c: Decimal,
-    pub l048c: Decimal,
-    pub h048h: Decimal,
-    pub l048l: Decimal,
-    pub h096c: Decimal,
-    pub l096c: Decimal,
-    pub h096h: Decimal,
-    pub l096l: Decimal,
-    pub h192c: Decimal,
-    pub l192c: Decimal,
-    pub h192h: Decimal,
-    pub l192l: Decimal,
-    pub ema1: Decimal,
-    pub ema2: Decimal,
-    pub ema3: Decimal,
-    pub mv1: Decimal,
-    pub mv2: Decimal,
-    pub mv3: Decimal,
-    pub atr: Decimal,
-    pub vw: Decimal,
-    pub ma: Decimal,
-    pub ofz: Decimal,
-    pub vz: Decimal,
-    pub rz: Decimal,
-    pub trz: Decimal,
-    pub uwz: Decimal,
-    pub bz: Decimal,
-    pub lwz: Decimal,
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ResearchMetric {
     pub market_id: Uuid,
@@ -217,6 +159,20 @@ pub struct ResearchMetric {
     pub liq_count_net_z_s: Decimal,
     pub liq_count_pct_z_l: Decimal,
     pub liq_count_pct_z_s: Decimal,
+    pub high4: Option<Decimal>,
+    pub high8: Option<Decimal>,
+    pub high16: Option<Decimal>,
+    pub high32: Option<Decimal>,
+    pub high64: Option<Decimal>,
+    pub high128: Option<Decimal>,
+    pub high256: Option<Decimal>,
+    pub low4: Option<Decimal>,
+    pub low8: Option<Decimal>,
+    pub low16: Option<Decimal>,
+    pub low32: Option<Decimal>,
+    pub low64: Option<Decimal>,
+    pub low128: Option<Decimal>,
+    pub low256: Option<Decimal>, 
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, sqlx::Type, Eq, PartialEq)]
@@ -313,16 +269,14 @@ impl Metric {
             .unwrap_or(Decimal::ZERO)
     }
 
-    pub fn dons(c: &[Decimal], h: &[Decimal], l: &[Decimal]) -> Vec<Decimal> {
+    pub fn dons(ranges: &[i32], c: &[Decimal]) -> Vec<Option<Decimal>> {
         // For each of the ranges below, calc the higheset and lowest value
         let mut dons = Vec::new();
-        let ranges = [4, 8, 12, 24, 48, 96, 192];
+        // let ranges = [4, 8, 12, 24, 48, 96, 192];
         // Set min and max to last element of vecs (first item to check)
         let mut i = 2; // Set to 2 to skip the last element in DON calc
         let mut min_c = Decimal::MAX;
-        let mut min_l = Decimal::MAX;
         let mut max_c = Decimal::MIN;
-        let mut max_h = Decimal::MIN;
         // For each item in range (don window), check min and max until next range skipping the last
         // item which is the current c/h/l price
         for range in ranges.iter() {
@@ -334,314 +288,23 @@ impl Metric {
             // 5 <= (4 + 1)     5 <= 5 = True, i += 1
             // 6 <= (4 + 1)     6 <= 5 = False, push dons for range
             // 6 <= (8 + 1)     6 <= 9 = True, i += 1...
+            // If the range is greater than availble closes -> None
+            println!("Range: {}, #Closes: {}", range, c.len());
+            if *range as usize <= c.len() - 1 {
             while i <= (*range as usize + 1) && i <= c.len() {
                 // Compare current min/max to len()-i value
                 min_c = min_c.min(c[c.len() - i]);
-                min_l = min_l.min(l[l.len() - i]);
                 max_c = max_c.max(c[c.len() - i]);
-                max_h = max_h.max(h[h.len() - i]);
                 i += 1;
             }
-            dons.push(max_c);
-            dons.push(min_c);
-            dons.push(max_h);
-            dons.push(min_l);
+            dons.push(Some(max_c));
+            dons.push(Some(min_c));
+        } else {
+            dons.push(None);
+            dons.push(None);
+        }
         }
         dons
-    }
-}
-
-impl MetricAP {
-    // Takes vec of candles for a time frame and calculates metrics for the period
-    pub fn new(
-        market: &MarketDetail,
-        tf: TimeFrame,
-        candles: &[ProductionCandle],
-    ) -> Vec<MetricAP> {
-        // Get look back periods for TimeFrame
-        let lbps = tf.lbps();
-        let n = candles.len();
-        let n_i64 = n as i64;
-        let datetime = candles[n - 1].datetime;
-        // Iterate through candles and return Vecs of Decimals to use for calculations
-        let vecs = candles.iter().fold(
-            (
-                dec!(0),    // close
-                Vec::new(), // [close]
-                Vec::new(), // [high]
-                Vec::new(), // [low]
-                Vec::new(), // [volume]
-                Vec::new(), // [value]
-                Vec::new(), // [netvol]
-                Vec::new(), // [return]
-                Vec::new(), // [true range]
-                Vec::new(), // [upper wick % of candle]
-                Vec::new(), // [body % of candle]
-                Vec::new(), // [lower wick % of candle]
-                dec!(0),    // high
-                dec!(0),    // low
-            ),
-            |(
-                c,
-                mut vc,
-                mut vh,
-                mut vl,
-                mut vv,
-                mut va,
-                mut vn,
-                mut vr,
-                mut vtr,
-                mut vuw,
-                mut vb,
-                mut vlw,
-                _h,
-                _l,
-            ),
-             can| {
-                // Map close, high and low to their vecs
-                vc.push(can.close);
-                vh.push(can.high);
-                vl.push(can.low);
-                vv.push(can.volume);
-                va.push(can.value);
-                vn.push(can.volume);
-                // Calc return as current candle close / previous candle close - 1. If first candle
-                // return 0. The initial zero should not be used when calculating mean.
-                let r = match c.is_zero() {
-                    true => c,
-                    false => can.close / c - dec!(1),
-                };
-                vr.push(r);
-                let hl = can.high - can.low;
-                // True range is max of high - low, abs(high - previous close),
-                // and abs(previous close - low). If it is the first one then put high - low
-                let tr = match c.is_zero() {
-                    true => hl,
-                    false => {
-                        let hpdc = (can.high - c).abs();
-                        let pdcl = (c - can.low).abs();
-                        hl.max(hpdc).max(pdcl)
-                    }
-                };
-                vtr.push(tr);
-                // Upper wick as the % of the candle (h - l) that is attributed to the upper wick
-                // If the candle has no change (h = l) return 0
-                let uwp = match hl.is_zero() {
-                    true => dec!(0),
-                    false => (can.high - can.open.max(can.close)) / hl,
-                };
-                vuw.push(uwp);
-                // Body as the % of candle
-                // If the candle has no change return 0
-                let bp = match hl.is_zero() {
-                    true => dec!(0),
-                    false => (can.open - can.close).abs() / hl,
-                };
-                vb.push(bp);
-                // Lower wick as the % of the candle
-                let lwp = match hl.is_zero() {
-                    true => dec!(0),
-                    false => (can.open.min(can.close) - can.low) / hl,
-                };
-                vlw.push(lwp);
-                (
-                    can.close, vc, vh, vl, vv, va, vn, vr, vtr, vuw, vb, vlw, can.high, can.low,
-                )
-            },
-        );
-        // Create empty vec to hold metrics
-        let mut metrics = Vec::new();
-        // Calculate the metrics
-        let dons = Metric::dons(&vecs.1, &vecs.2, &vecs.3);
-        let ema1 = Metric::ewma(&vecs.1, 7).round_dp(8);
-        let ema2 = Metric::ewma(&vecs.1, 30).round_dp(8);
-        let ema3 = Metric::ewma(&vecs.1, 90).round_dp(8);
-        let mvr = if n_i64.ge(&7) { n - 7 } else { 0 };
-        let mv1: Decimal = (vecs.5[mvr..].iter().sum::<Decimal>()
-            / vecs.4[mvr..].iter().sum::<Decimal>())
-        .round_dp(8);
-        let mvr = if n_i64.ge(&30) { n - 30 } else { 0 };
-        let mv2: Decimal = (vecs.5[mvr..].iter().sum::<Decimal>()
-            / vecs.4[mvr..].iter().sum::<Decimal>())
-        .round_dp(8);
-        let mvr = if n_i64.ge(&90) { n - 90 } else { 0 };
-        let mv3: Decimal = (vecs.5[mvr..].iter().sum::<Decimal>()
-            / vecs.4[mvr..].iter().sum::<Decimal>())
-        .round_dp(8);
-        // For each look back period, calc period specific metrics
-        for lbp in lbps.iter() {
-            // Set slice ranges
-            let range_start = if n_i64.ge(lbp) {
-                n - *lbp as usize
-            } else {
-                usize::MIN
-            };
-            let range_shift_start = if range_start == 0 { 0 } else { range_start - 1 };
-            let range_shift_end = n - 1;
-            // println!(
-            //     "N / n_i64 / LBP / range_start / rss / rse: {} {} {} {} {} {}",
-            //     n, n_i64, lbp, range_start, range_shift_start, range_shift_end
-            // );
-            // println!("Look Back Period: {}", lbp);
-            // Calc metrics
-            let atr = Metric::ewma(&vecs.8, *lbp);
-            let vw = (vecs.5[range_start..].iter().sum::<Decimal>()
-                / vecs.4[range_start..].iter().sum::<Decimal>())
-            .round_dp(8);
-            let ma = Metric::ewma(&vecs.1[..range_shift_end], *lbp).round_dp(8);
-            let ofz = Metric::z(&vecs.6, range_shift_start, range_shift_end).round_dp(2);
-            let vz = Metric::z(&vecs.4, range_shift_start, range_shift_end).round_dp(2);
-            let rz = Metric::z(&vecs.7, range_shift_start, range_shift_end).round_dp(2);
-            let trz = Metric::z(&vecs.8, range_shift_start, range_shift_end).round_dp(2);
-            let uwz = Metric::z(&vecs.9, range_shift_start, range_shift_end).round_dp(2);
-            let bz = Metric::z(&vecs.10, range_shift_start, range_shift_end).round_dp(2);
-            let lwz = Metric::z(&vecs.11, range_shift_start, range_shift_end).round_dp(2);
-            let new_metric = MetricAP {
-                market_name: market.market_name.clone(),
-                exchange_name: market.exchange_name,
-                datetime,
-                time_frame: tf,
-                lbp: *lbp,
-                high: vecs.12,
-                low: vecs.13,
-                close: vecs.0,
-                r: vecs.7[n - 1].round_dp(8),
-                h004c: dons[0],
-                l004c: dons[1],
-                h004h: dons[2],
-                l004l: dons[3],
-                h008c: dons[4],
-                l008c: dons[5],
-                h008h: dons[6],
-                l008l: dons[7],
-                h012c: dons[8],
-                l012c: dons[9],
-                h012h: dons[10],
-                l012l: dons[11],
-                h024c: dons[12],
-                l024c: dons[13],
-                h024h: dons[14],
-                l024l: dons[15],
-                h048c: dons[16],
-                l048c: dons[17],
-                h048h: dons[18],
-                l048l: dons[19],
-                h096c: dons[20],
-                l096c: dons[21],
-                h096h: dons[22],
-                l096l: dons[23],
-                h192c: dons[24],
-                l192c: dons[25],
-                h192h: dons[26],
-                l192l: dons[27],
-                ema1,
-                ema2,
-                ema3,
-                mv1,
-                mv2,
-                mv3,
-                atr: atr.round_dp(8),
-                vw,
-                ma,
-                ofz,
-                vz,
-                rz,
-                trz,
-                uwz,
-                bz,
-                lwz,
-            };
-            metrics.push(new_metric);
-        }
-        metrics
-    }
-
-    pub async fn insert(&self, pool: &PgPool) -> Result<(), sqlx::Error> {
-        let sql = r#"
-            INSERT INTO metrics_ap (
-                exchange_name, market_name, datetime, time_frame, lbp, high, low, close, r, H004R, 
-                H004C, L004R,
-                L004C, H008R, H008C, L008R, L008C, H012R, H012C, L012R,
-                L012C, H024R, H024C, L024R, L024C, H048R, H048C, L048R,
-                L048C, H096R, H096C, L096R, L096C, H192R, H192C, L192R,
-                L192C, EMA1, EMA2, EMA3, MV1, MV2, MV3,
-                ofs, vs, rs, n, trs, uws, mbs, lws, ma, vw, insert_ts)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-                $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35,
-                $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52,
-                $53, now())
-            "#;
-        sqlx::query(sql)
-            .bind(self.exchange_name.as_str())
-            .bind(&self.market_name)
-            .bind(self.datetime)
-            .bind(self.time_frame.as_str())
-            .bind(self.lbp)
-            .bind(self.high)
-            .bind(self.low)
-            .bind(self.close)
-            .bind(self.r)
-            .bind(self.h004h)
-            .bind(self.h004c)
-            .bind(self.l004l)
-            .bind(self.l004c)
-            .bind(self.h008h)
-            .bind(self.h008c)
-            .bind(self.l008l)
-            .bind(self.l008c)
-            .bind(self.h012h)
-            .bind(self.h012c)
-            .bind(self.l012l)
-            .bind(self.l012c)
-            .bind(self.h024h)
-            .bind(self.h024c)
-            .bind(self.l024l)
-            .bind(self.l024c)
-            .bind(self.h048h)
-            .bind(self.h048c)
-            .bind(self.l048l)
-            .bind(self.l048c)
-            .bind(self.h096h)
-            .bind(self.h096c)
-            .bind(self.l096l)
-            .bind(self.l096c)
-            .bind(self.h192h)
-            .bind(self.h192c)
-            .bind(self.l192l)
-            .bind(self.l192c)
-            .bind(self.ema1)
-            .bind(self.ema2)
-            .bind(self.ema3)
-            .bind(self.mv1)
-            .bind(self.mv2)
-            .bind(self.mv3)
-            .bind(self.ofz)
-            .bind(self.vz)
-            .bind(self.rz)
-            .bind(self.atr)
-            .bind(self.trz)
-            .bind(self.uwz)
-            .bind(self.bz)
-            .bind(self.lwz)
-            .bind(self.ma)
-            .bind(self.vw)
-            .execute(pool)
-            .await?;
-        Ok(())
-    }
-
-    pub async fn delete_by_market(pool: &PgPool, market: &MarketDetail) -> Result<(), sqlx::Error> {
-        let sql = r#"
-            DELETE FROM metrics_ap
-            WHERE exchange_name = $1
-            AND market_name = $2
-            "#;
-        sqlx::query(sql)
-            .bind(market.exchange_name.as_str())
-            .bind(&market.market_name)
-            .execute(pool)
-            .await?;
-        Ok(())
     }
 }
 
@@ -893,6 +556,8 @@ impl ResearchMetric {
         let liq_count_net_z_s = Metric::z(&vecs.25, range_start_s, range_end).round_dp(4);
         let liq_count_pct_z_l = Metric::z(&vecs.26, range_start_l, range_end).round_dp(4);
         let liq_count_pct_z_s = Metric::z(&vecs.26, range_start_s, range_end).round_dp(4);
+        // Calc dons
+        let dons = Metric::dons(&[4, 8, 16, 32, 64, 128, 256], &vecs.11);
         Self {
             market_id: market.market_id,
             tf,
@@ -951,6 +616,20 @@ impl ResearchMetric {
             liq_count_net_z_s,
             liq_count_pct_z_l,
             liq_count_pct_z_s,
+            high4: dons[0],
+            low4: dons[1],
+            high8: dons[2],
+            low8: dons[3],
+            high16: dons[4],
+            low16: dons[5],
+            high32: dons[6],
+            low32: dons[7],
+            high64: dons[8],
+            low64: dons[9],
+            high128: dons[10],
+            low128: dons[11],
+            high256: dons[12],
+            low256: dons[13],
         }
     }
 
@@ -1025,6 +704,20 @@ impl ResearchMetric {
                 liq_count_net_z_s NUMERIC NOT NULL,
                 liq_count_pct_z_l NUMERIC NOT NULL,
                 liq_count_pct_z_s NUMERIC NOT NULL,
+                high4 NUMERIC,
+                high8 NUMERIC,
+                high16 NUMERIC,
+                high32 NUMERIC,
+                high64 NUMERIC,
+                high128 NUMERIC,
+                high256 NUMERIC,
+                low4 NUMERIC,
+                low8 NUMERIC,
+                low16 NUMERIC,
+                low32 NUMERIC,
+                low64 NUMERIC,
+                low128 NUMERIC,
+                low256 NUMERIC,
                 insert_dt timestamptz NOT NULL
             )
             "#;
@@ -1045,7 +738,8 @@ impl ResearchMetric {
                 value_liq_pct_z_l, value_liq_pct_z_s, trade_count_z_l, trade_count_z_s,
                 trade_count_net_z_l, trade_count_net_z_s, trade_count_pct_z_l, trade_count_pct_z_s,
                 liq_count_z_l, liq_count_z_s, liq_count_net_z_l, liq_count_net_z_s,
-                liq_count_pct_z_l, liq_count_pct_z_s, insert_dt
+                liq_count_pct_z_l, liq_count_pct_z_s, high4, high8, high16, high32, high64, high128,
+                high256, low4, low8, low16, low32, low64, low128, low256, insert_dt
             )
             VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
@@ -1053,7 +747,9 @@ impl ResearchMetric {
                 $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
                 $31, $32, $33, $34, $35, $36, $37, $38, $39, $40,
                 $41, $42, $43, $44, $45, $46, $47, $48, $49, $50,
-                $51, $52, $53, $54, $55, $56, $57, now()
+                $51, $52, $53, $54, $55, $56, $57, $58, $59, $60,
+                $61, $62, $63, $64, $65, $66, $67, $68, $69, $70,
+                $71, now()
             )
             "#;
         sqlx::query(sql)
@@ -1114,6 +810,20 @@ impl ResearchMetric {
             .bind(self.liq_count_net_z_s)
             .bind(self.liq_count_pct_z_l)
             .bind(self.liq_count_pct_z_s)
+            .bind(self.high4)
+            .bind(self.high8)
+            .bind(self.high16)
+            .bind(self.high32)
+            .bind(self.high64)
+            .bind(self.high128)
+            .bind(self.high256)
+            .bind(self.low4)
+            .bind(self.low8)
+            .bind(self.low16)
+            .bind(self.low32)
+            .bind(self.low64)
+            .bind(self.low128)
+            .bind(self.low256)
             .execute(pool)
             .await?;
         Ok(())
@@ -1138,7 +848,8 @@ impl ResearchMetric {
                 value_liq_pct_z_l, value_liq_pct_z_s, trade_count_z_l, trade_count_z_s,
                 trade_count_net_z_l, trade_count_net_z_s, trade_count_pct_z_l, trade_count_pct_z_s,
                 liq_count_z_l, liq_count_z_s, liq_count_net_z_l, liq_count_net_z_s,
-                liq_count_pct_z_l, liq_count_pct_z_s
+                liq_count_pct_z_l, liq_count_pct_z_s, high4, high8, high16, high32, high64, high128,
+                high256, low4, low8, low16, low32, low64, low128, low256
             FROM research_metrics
             "#,
         )
@@ -1166,7 +877,8 @@ impl ResearchMetric {
                 value_liq_pct_z_l, value_liq_pct_z_s, trade_count_z_l, trade_count_z_s,
                 trade_count_net_z_l, trade_count_net_z_s, trade_count_pct_z_l, trade_count_pct_z_s,
                 liq_count_z_l, liq_count_z_s, liq_count_net_z_l, liq_count_net_z_s,
-                liq_count_pct_z_l, liq_count_pct_z_s
+                liq_count_pct_z_l, liq_count_pct_z_s, high4, high8, high16, high32, high64, high128,
+                high256, low4, low8, low16, low32, low64, low128, low256
             FROM research_metrics
             WHERE market_id = $1
             "#,
@@ -1199,7 +911,8 @@ impl ResearchMetric {
                 value_liq_pct_z_l, value_liq_pct_z_s, trade_count_z_l, trade_count_z_s,
                 trade_count_net_z_l, trade_count_net_z_s, trade_count_pct_z_l, trade_count_pct_z_s,
                 liq_count_z_l, liq_count_z_s, liq_count_net_z_l, liq_count_net_z_s,
-                liq_count_pct_z_l, liq_count_pct_z_s
+                liq_count_pct_z_l, liq_count_pct_z_s, high4, high8, high16, high32, high64, high128,
+                high256, low4, low8, low16, low32, low64, low128, low256
             FROM research_metrics
             WHERE market_id = ANY($1)
             "#,
@@ -1302,6 +1015,32 @@ impl ResearchMetric {
             _ => panic!("{} not a valid metric.", metric),
         }
     }
+
+    fn don_h(&self, don: i32) -> Option<Decimal> {
+        match don {
+            4 => self.high4,
+            8 => self.high8,
+            16 => self.high16,
+            32 => self.high32,
+            64 => self.high64,
+            128 => self.high128,
+            256 => self.high256,
+            _ => panic!("{} no a valid don range.", don),
+        }
+    }
+
+    fn don_l(&self, don: i32) -> Option<Decimal> {
+        match don {
+            4 => self.low4,
+        8 => self.low8,
+        16 => self.low16,
+        32 => self.low32,
+        64 => self.low64,
+        128 => self.low128,
+        256 => self.low256,
+        _ => panic!("{} no a valid don range.", don),
+    }
+}
 }
 
 impl ElDorado {
@@ -1344,7 +1083,8 @@ impl ElDorado {
 
 #[cfg(test)]
 mod tests {
-    use crate::{configuration::Database, eldorado::ElDorado, metrics::ResearchMetric};
+    use crate::{configuration::Database, eldorado::ElDorado, metrics::{ResearchMetric, Metric}};
+    use rust_decimal_macros::dec;
     use uuid::Uuid;
 
     #[tokio::test]
@@ -1527,23 +1267,14 @@ mod tests {
     //     println!("z: {:?}", z);
     // }
 
-    // #[tokio::test]
-    // pub async fn calc_dons() {
-    //     todo!("Use sample file and calc / compare");
-    //     // Get daily BTC-PERP candles from FTX
-    //     let client = crate::exchanges::client::RestClient::new(&ExchangeName::Ftx);
-    //     let mut candles = client
-    //         .get_ftx_candles::<crate::exchanges::ftx::Candle>("BTC-PERP", Some(86400), None, None)
-    //         .await
-    //         .expect("Failed to get candles.");
-    //     // Sort candles and put close prices into vector
-    //     candles.sort_by(|c1, c2| c1.time.cmp(&c2.time));
-    //     let vc: Vec<Decimal> = candles.iter().map(|c| c.close).collect();
-    //     // let slice = &vc[0..50];
-    //     let dons = Metric::dons(&vc, &vc, &vc);
-    //     println!("Closes: {:?}", vc);
-    //     println!("Dons: {:?}", dons);
-    // }
+    #[tokio::test]
+    pub async fn calc_dons() {
+        let vc = vec![dec!(1.1), dec!(2.2), dec!(3.3), dec!(4.4)];
+        let dons = Metric::dons(&[2, 3], &vc);
+        println!("Closes.len() {}", vc.len());
+        println!("Closes: {:?}", vc);
+        println!("Dons: {:?}", dons);
+    }
 
     // #[tokio::test]
     // pub async fn select_metrics_ap_by_exchange_market_maps_to_struct() {
