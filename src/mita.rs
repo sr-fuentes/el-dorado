@@ -279,7 +279,7 @@ impl ElDorado {
                     tf
                 );
                 let mut resampled_candles = self.resample_production_candles(&new_candles, tf);
-                println!("Filtered new candles for {}: {:?}", tf, new_candles);
+                // println!("Filtered new candles for {}: {:?}", tf, new_candles);
                 println!("{} new {} resampled candles.", resampled_candles.len(), tf);
                 println!("Appending resampled candles to candles.");
                 heartbeats
@@ -305,7 +305,7 @@ impl ElDorado {
                 // // Interval end does not create new interval for timeframe
                 // println!("Interval end of {} does not create new interval for {}. Last candle datetime for {}: {}",
                 //     )
-                println!("No resample for {} tf.", tf);
+                // println!("No resample for {} tf.", tf);
             }
         }
         // Insert metrics to db
