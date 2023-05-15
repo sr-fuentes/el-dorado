@@ -289,7 +289,7 @@ impl Metric {
             // 6 <= (4 + 1)     6 <= 5 = False, push dons for range
             // 6 <= (8 + 1)     6 <= 9 = True, i += 1...
             // If the range is greater than availble closes -> None
-            println!("Range: {}, #Closes: {}", range, c.len());
+            // println!("Range: {}, #Closes: {}", range, c.len());
             if *range as usize <= c.len() - 1 {
             while i <= (*range as usize + 1) && i <= c.len() {
                 // Compare current min/max to len()-i value
