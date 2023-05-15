@@ -134,11 +134,11 @@ impl ElDorado {
                 "New heartbeat interval for {}: {}",
                 market.market_name, trunc_dt
             );
-            println!("Returning {} for 'process_interval'", trunc_dt);
+            // println!("Returning {} for 'process_interval'", trunc_dt);
             Some(trunc_dt)
         } else if heartbeat.metrics.is_none() {
             println!("No metrics, calculating from current heartbeat.");
-            println!("Returning {} for 'process_interval'", trunc_dt);
+            // println!("Returning {} for 'process_interval'", trunc_dt);
             Some(trunc_dt)
         } else {
             None
