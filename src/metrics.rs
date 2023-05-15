@@ -172,7 +172,7 @@ pub struct ResearchMetric {
     pub low32: Option<Decimal>,
     pub low64: Option<Decimal>,
     pub low128: Option<Decimal>,
-    pub low256: Option<Decimal>, 
+    pub low256: Option<Decimal>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, sqlx::Type, Eq, PartialEq)]
@@ -291,18 +291,18 @@ impl Metric {
             // If the range is greater than availble closes -> None
             // println!("Range: {}, #Closes: {}", range, c.len());
             if *range as usize <= c.len() - 1 {
-            while i <= (*range as usize + 1) && i <= c.len() {
-                // Compare current min/max to len()-i value
-                min_c = min_c.min(c[c.len() - i]);
-                max_c = max_c.max(c[c.len() - i]);
-                i += 1;
+                while i <= (*range as usize + 1) && i <= c.len() {
+                    // Compare current min/max to len()-i value
+                    min_c = min_c.min(c[c.len() - i]);
+                    max_c = max_c.max(c[c.len() - i]);
+                    i += 1;
+                }
+                dons.push(Some(max_c));
+                dons.push(Some(min_c));
+            } else {
+                dons.push(None);
+                dons.push(None);
             }
-            dons.push(Some(max_c));
-            dons.push(Some(min_c));
-        } else {
-            dons.push(None);
-            dons.push(None);
-        }
         }
         dons
     }
@@ -557,7 +557,7 @@ impl ResearchMetric {
         let liq_count_pct_z_l = Metric::z(&vecs.26, range_start_l, range_end).round_dp(4);
         let liq_count_pct_z_s = Metric::z(&vecs.26, range_start_s, range_end).round_dp(4);
         // Calc dons
-        let dons = Metric::dons(&[4, 8, 16, 32, 64, 128, 256], &vecs.11);
+        let dons = Metric::dons(&[4, 8, 16, 32, 64, 128, 256], &vecs.1);
         Self {
             market_id: market.market_id,
             tf,
@@ -1032,15 +1032,15 @@ impl ResearchMetric {
     pub fn don_l(&self, don: i32) -> Option<Decimal> {
         match don {
             4 => self.low4,
-        8 => self.low8,
-        16 => self.low16,
-        32 => self.low32,
-        64 => self.low64,
-        128 => self.low128,
-        256 => self.low256,
-        _ => panic!("{} no a valid don range.", don),
+            8 => self.low8,
+            16 => self.low16,
+            32 => self.low32,
+            64 => self.low64,
+            128 => self.low128,
+            256 => self.low256,
+            _ => panic!("{} no a valid don range.", don),
+        }
     }
-}
 }
 
 impl ElDorado {
@@ -1083,7 +1083,11 @@ impl ElDorado {
 
 #[cfg(test)]
 mod tests {
-    use crate::{configuration::Database, eldorado::ElDorado, metrics::{ResearchMetric, Metric}};
+    use crate::{
+        configuration::Database,
+        eldorado::ElDorado,
+        metrics::{Metric, ResearchMetric},
+    };
     use rust_decimal_macros::dec;
     use uuid::Uuid;
 
