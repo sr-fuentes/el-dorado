@@ -76,7 +76,7 @@ impl ElDorado {
                 self.create_trades_schema(&self.pools[&Database::Gdax])
                     .await?;
             }
-            ExchangeName::Kraken => todo!("Kraken not implemented."),
+            name => panic!("{:?} not supported for trades.", name),
         }
         // Create trade tables for each market for today if they don't exist
         let today = Utc::now().duration_trunc(Duration::days(1)).unwrap();
@@ -104,7 +104,7 @@ impl ElDorado {
             ExchangeName::Gdax => {
                 GdaxTrade::create_table(&self.pools[&Database::Gdax], market, dt).await?;
             }
-            ExchangeName::Kraken => todo!("Kraken not implemented."),
+            name => panic!("{:?} not supported for trades.", name),
         }
         Ok(())
     }
@@ -149,7 +149,7 @@ impl ElDorado {
         let db = match market.exchange_name {
             ExchangeName::Ftx | ExchangeName::FtxUs => Database::Ftx,
             ExchangeName::Gdax => Database::Gdax,
-            ExchangeName::Kraken => todo!("Kraken not implemented."),
+            name => panic!("{:?} not supported for trades.", name),
         };
         ElDorado::table_exists(&self.pools[&db], "trades", &table).await
     }
@@ -182,7 +182,7 @@ impl ElDorado {
                     Err(e) => Err(ElDoradoError::Sqlx(e)),
                 }
             }
-            ExchangeName::Kraken => todo!("Kraken not implemented."),
+            name => panic!("{:?} not supported for trades.", name),
         }
     }
 
@@ -497,11 +497,11 @@ impl ElDorado {
         dr: &DateRange,
     ) -> Result<Option<Vec<GdaxTrade>>, ElDoradoError> {
         // Assert that the dr has dates and is not empty
-        println!(
-            "Selecting trades gte {} and lt {}",
-            dr.first,
-            dr.last + market.tf.as_dur()
-        );
+        // println!(
+        //     "Selecting trades gte {} and lt {}",
+        //     dr.first,
+        //     dr.last + market.tf.as_dur()
+        // );
         let mut trades = Vec::new();
         match DateRange::new(
             &dr.first.duration_trunc(Duration::days(1)).unwrap(),
@@ -511,10 +511,10 @@ impl ElDorado {
             Some(days) => {
                 for d in days.dts.iter() {
                     // Select trades
-                    println!(
-                        "Selecting {} trades on day {} for interval.",
-                        market.market_name, d
-                    );
+                    // println!(
+                    //     "Selecting {} trades on day {} for interval.",
+                    //     market.market_name, d
+                    // );
                     let mut db_trades = GdaxTrade::select_gte_and_lt_dts(
                         &self.pools[&Database::Gdax],
                         market,

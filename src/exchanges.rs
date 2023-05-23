@@ -32,6 +32,10 @@ pub enum ExchangeName {
     FtxUs,
     Gdax,
     Kraken,
+    Hyperliquid,
+    Drift,
+    Mango,
+    Dydx,
 }
 
 impl ExchangeName {
@@ -41,6 +45,10 @@ impl ExchangeName {
             ExchangeName::FtxUs => "ftxus",
             ExchangeName::Gdax => "gdax",
             ExchangeName::Kraken => "kraken",
+            ExchangeName::Hyperliquid => "hyperliquid",
+            ExchangeName::Drift => "drift",
+            ExchangeName::Mango => "mango",
+            ExchangeName::Dydx => "dydx",
         }
     }
 }
@@ -54,6 +62,10 @@ impl TryFrom<String> for ExchangeName {
             "ftxus" => Ok(Self::FtxUs),
             "gdax" => Ok(Self::Gdax),
             "kraken" => Ok(Self::Kraken),
+            "hyperliquid" => Ok(Self::Ftx),
+            "drift" => Ok(Self::FtxUs),
+            "mango" => Ok(Self::Gdax),
+            "dydx" => Ok(Self::Kraken),
             other => Err(format!("{} is not a supported exchange.", other)),
         }
     }
@@ -158,6 +170,7 @@ impl ElDorado {
                 }
                 ExchangeName::Gdax => self.refresh_gdax_markets().await,
                 ExchangeName::Kraken => self.refresh_kraken_markets().await,
+                name => panic!("{:?} not supported for exchange refresh.", name),
             },
             None => println!("No exchange to refresh."),
         }

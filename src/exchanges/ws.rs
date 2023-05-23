@@ -87,7 +87,7 @@ impl WebSocket {
             ExchangeName::Ftx => Self::FTX_ENDPOINT,
             ExchangeName::FtxUs => Self::FTXUS_ENDPOINT,
             ExchangeName::Gdax => Self::GDAX_ENDPOINT,
-            ExchangeName::Kraken => todo!("Kraken not implemented."),
+            name => panic!("{:?} not supported for ws.", name),
         };
         let (stream, _) = connect_async(endpoint).await?;
         Ok(Self {
@@ -123,7 +123,6 @@ impl WebSocket {
                 Channel::Heartbeat(s) => ("heartbeat", s),
             };
             let message = match self.exchange {
-                ExchangeName::Kraken => todo!("Kraken not implemented."),
                 ExchangeName::Ftx | ExchangeName::FtxUs => Message::Text(
                     json!({"op": "subscribe", "channel": channel, "market": symbol}).to_string(),
                 ),
@@ -137,6 +136,7 @@ impl WebSocket {
                     })
                     .to_string(),
                 ),
+                name => panic!("{:?} not supported for ws.", name),
             };
             println!("Message: {}", message);
             self.stream.send(message).await?;
@@ -166,7 +166,6 @@ impl WebSocket {
     async fn next_response(&mut self) -> Result<Response, WsError> {
         loop {
             match self.exchange {
-                ExchangeName::Kraken => todo!("Kraken not implemented."),
                 ExchangeName::Ftx | ExchangeName::FtxUs => {
                     tokio::select! {
                         _ = self.ping_timer.tick() => {
@@ -224,6 +223,7 @@ impl WebSocket {
                         },
                     }
                 }
+                name => panic!("{:?} not supported for ws.", name),
             }
         }
     }

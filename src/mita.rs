@@ -71,7 +71,7 @@ impl ElDorado {
                 self.create_candles_schema(&self.pools[&Database::Gdax])
                     .await?
             }
-            ExchangeName::Kraken => todo!("Kraken not implemented yet."),
+            name => panic!("{:?} not supported for mita.", name),
         };
         Ok(())
     }
@@ -125,19 +125,24 @@ impl ElDorado {
         let trunc_dt = dt.duration_trunc(market.tf.as_dur()).unwrap();
         if trunc_dt > heartbeat.ts + market.tf.as_dur() {
             println!(
-                "{} - Checking interval.\tTrunc dt: {}\tHeartbeat TS: {}",
+                "{} - Checking interval for {}.\nTrunc dt: {}\tHeartbeat TS: {}",
                 Utc::now(),
+                market.market_name,
                 trunc_dt,
                 heartbeat.ts
             );
-            println!(
-                "New heartbeat interval for {}: {}",
-                market.market_name, trunc_dt
-            );
+            // println!(
+            //     "New heartbeat interval for {}: {}",
+            //     market.market_name, trunc_dt
+            // );
             // println!("Returning {} for 'process_interval'", trunc_dt);
             Some(trunc_dt)
         } else if heartbeat.metrics.is_none() {
-            println!("No metrics, calculating from current heartbeat.");
+            println!(
+                "{} - No metrics for {}, calculating from current heartbeat.",
+                Utc::now(),
+                market.market_name
+            );
             // println!("Returning {} for 'process_interval'", trunc_dt);
             Some(trunc_dt)
         } else {
@@ -175,12 +180,12 @@ impl ElDorado {
         interval_end: &DateTime<Utc>,
     ) -> Result<(), ElDoradoError> {
         println!(
-            "Process new interval for {} with dt {}.",
+            "Process new interval for {} for {}.",
             market.market_name, interval_end
         );
         let interval_start = heartbeats.get(&market.market_name).unwrap().ts + market.tf.as_dur();
         if let Some(dr) = DateRange::new(&interval_start, interval_end, &market.tf) {
-            println!("Process interval dr: {:?}", dr);
+            // println!("Process interval dr: {:?}", dr);
             // There are intervals to process, process then run metrics
             if let Some(candles) = self
                 .make_production_candles_for_interval(
@@ -190,9 +195,9 @@ impl ElDorado {
                 )
                 .await?
             {
-                println!("Inserting {} production candles.", candles.len());
+                // println!("Inserting {} production candles.", candles.len());
                 self.insert_production_candles(market, &candles).await?;
-                println!("Updating heartbeat.");
+                // println!("Updating heartbeat.");
                 self.update_heartbeat(market, heartbeats, candles, interval_end)
                     .await?;
             }
@@ -206,7 +211,7 @@ impl ElDorado {
         heartbeats: &mut HashMap<String, Heartbeat>,
     ) -> Result<(), ElDoradoError> {
         // There are no intervals to process but metrics need to be updated
-        println!("Updating and inserting metrics.");
+        // println!("Updating and inserting metrics.");
         let metrics = self.calc_metrics_all_tfs(market, heartbeats);
         self.insert_metrics(&metrics).await?;
         heartbeats
@@ -226,7 +231,7 @@ impl ElDorado {
         let last = candles.last().expect("Expected candle in Vec.");
         let last_ts = last.datetime;
         let last_pridti = last.close_as_pridti();
-        println!("Appending new candles to base candles in heartbeat.");
+        // println!("Appending new candles to base candles in heartbeat.");
         heartbeats
             .entry(market.market_name.clone())
             .and_modify(|hb| {
@@ -235,7 +240,11 @@ impl ElDorado {
                     .and_modify(|v| v.append(&mut candles));
             });
         // Start metrics vec
-        println!("Creating metrics for base tf.");
+        println!(
+            "{} - Create {} metrics for base tf.",
+            Utc::now(),
+            market.market_name
+        );
         let mut metrics = vec![ResearchMetric::new(
             market,
             market.tf,
@@ -259,7 +268,7 @@ impl ElDorado {
             if hb_last.datetime + tf.as_dur() < interval_end.duration_trunc(tf.as_dur()).unwrap() {
                 // Resample new candles to tf from base_tf and add to tf candles
                 // Assumes tf is divisible by base tf
-                println!("Filtering new candles for {} tf.", tf);
+                // println!("Filtering new candles for {} tf.", tf);
                 let new_candles: Vec<_> = heartbeats
                     .get(&market.market_name)
                     .unwrap()
@@ -273,15 +282,15 @@ impl ElDorado {
                     })
                     .cloned()
                     .collect();
-                println!(
-                    "Resampling {} new base candles for {} tf",
-                    new_candles.len(),
-                    tf
-                );
+                // println!(
+                //     "Resampling {} new base candles for {} tf",
+                //     new_candles.len(),
+                //     tf
+                // );
                 let mut resampled_candles = self.resample_production_candles(&new_candles, tf);
                 // println!("Filtered new candles for {}: {:?}", tf, new_candles);
-                println!("{} new {} resampled candles.", resampled_candles.len(), tf);
-                println!("Appending resampled candles to candles.");
+                // println!("{} new {} resampled candles.", resampled_candles.len(), tf);
+                // println!("Appending resampled candles to candles.");
                 heartbeats
                     .entry(market.market_name.clone())
                     .and_modify(|hb| {
@@ -290,7 +299,12 @@ impl ElDorado {
                             .and_modify(|v| v.append(&mut resampled_candles));
                     });
                 // Calc metrics on new candle vec
-                println!("Creating metrics for {} tf.", tf);
+                println!(
+                    "{} - Create {} metrics for {} tf.",
+                    Utc::now(),
+                    market.market_name,
+                    tf
+                );
                 metrics.push(ResearchMetric::new(
                     market,
                     *tf,
@@ -309,15 +323,15 @@ impl ElDorado {
             }
         }
         // Insert metrics to db
-        println!("Inserting {} metrics into db", metrics.len());
+        // println!("Inserting {} metrics into db", metrics.len());
         self.insert_metrics(&metrics).await?;
         // Update the market last candle
-        println!("Update market last candle dt.");
+        // println!("Update market last candle dt.");
         market
             .update_last_candle(&self.pools[&Database::ElDorado], &last_ts)
             .await?;
         // Updateing the new heartbeat
-        println!("Updating heartbeat with new metrics.");
+        // println!("Updating heartbeat with new metrics.");
         heartbeats
             .entry(market.market_name.clone())
             .and_modify(|hb| {

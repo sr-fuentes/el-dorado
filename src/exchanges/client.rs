@@ -62,12 +62,14 @@ impl RestClient {
                     .build()
                     .unwrap()
             }
+            name => panic!("{:?} not supported for rest client.", name),
         };
         let (header, endpoint) = match exchange {
             ExchangeName::Ftx => (Self::FTX_HEADER, Self::FTX_ENDPOINT),
             ExchangeName::FtxUs => (Self::FTXUS_HEADER, Self::FTXUS_ENDPOINT),
             ExchangeName::Gdax => (Self::GDAX_HEADER, Self::GDAX_ENDPOINT),
             ExchangeName::Kraken => (Self::KRAKEN_HEADER, Self::KRAKEN_ENDPOINT),
+            name => panic!("{:?} not supported for rest client.", name),
         };
         Self {
             header,
@@ -115,6 +117,7 @@ impl RestClient {
             ExchangeName::Ftx | ExchangeName::FtxUs => self.handle_ftx_response(response).await,
             ExchangeName::Gdax => self.handle_gdax_response(response).await,
             ExchangeName::Kraken => self.handle_kraken_response(response).await,
+            name => panic!("{:?} not supported for rest client.", name),
         }
     }
 

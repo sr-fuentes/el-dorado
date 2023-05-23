@@ -376,6 +376,8 @@ impl TimeFrame {
             TimeFrame::T15,
             TimeFrame::H01,
             TimeFrame::H04,
+            TimeFrame::H06,
+            TimeFrame::H08,
             TimeFrame::H12,
             TimeFrame::D01,
         ];

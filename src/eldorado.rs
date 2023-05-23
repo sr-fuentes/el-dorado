@@ -219,6 +219,7 @@ impl ElDorado {
                         .expect("Failed to connect to El Dorado database."),
                 );
             }
+            name => panic!("{:?} not supported for El-Dorado instance.", name),
         };
         pools
     }
