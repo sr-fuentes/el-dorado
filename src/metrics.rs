@@ -474,7 +474,7 @@ impl ResearchMetric {
             },
         );
         // Set filters
-        let direction = match vecs.7.last() {
+        let direction = match vecs.5.last() {
             Some(r) => match r.cmp(&Decimal::ZERO) {
                 Ordering::Less => MetricDirection::Down,
                 Ordering::Equal => MetricDirection::NC,
