@@ -5,6 +5,7 @@ use sqlx::PgPool;
 use std::convert::{TryFrom, TryInto};
 use uuid::Uuid;
 
+pub mod bybit;
 pub mod client;
 pub mod error;
 pub mod ftx;
@@ -36,6 +37,7 @@ pub enum ExchangeName {
     Drift,
     Mango,
     Dydx,
+    Bybit,
 }
 
 impl ExchangeName {
@@ -49,6 +51,7 @@ impl ExchangeName {
             ExchangeName::Drift => "drift",
             ExchangeName::Mango => "mango",
             ExchangeName::Dydx => "dydx",
+            ExchangeName::Bybit => "bybit",
         }
     }
 }
@@ -66,6 +69,7 @@ impl TryFrom<String> for ExchangeName {
             "drift" => Ok(Self::FtxUs),
             "mango" => Ok(Self::Gdax),
             "dydx" => Ok(Self::Kraken),
+            "bybit" => Ok(Self::Bybit),
             other => Err(format!("{} is not a supported exchange.", other)),
         }
     }
