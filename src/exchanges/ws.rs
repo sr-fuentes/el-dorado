@@ -1,7 +1,8 @@
 use crate::exchanges::{
-    error::WsError, ftx::Trade as FtxTrade, gdax::Trade as GdaxTrade, ExchangeName,
+    bybit::Trade as BybitTrade, error::WsError, ftx::Trade as FtxTrade, gdax::Trade as GdaxTrade,
+    ExchangeName,
 };
-use chrono::{DateTime, Duration as CDuration, Utc};
+use chrono::{serde::ts_milliseconds, DateTime, Duration as CDuration, Utc};
 use futures::{
     ready,
     task::{Context, Poll},
@@ -15,6 +16,7 @@ use tokio::net::TcpStream;
 use tokio::time;
 use tokio::time::{Duration, Interval};
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use uuid::Uuid;
 
 use super::gdax::Heartbeat;
 
@@ -33,11 +35,14 @@ pub enum Channel {
     Trades(String),
     Ticker(String),
     Heartbeat(String),
+    Args(String),
 }
 
 pub enum Response {
     Ftx(FtxResponse),
     Gdax(Value),
+    BybitOp(BybitOpResponse),
+    BybitTopic(BybitTopicResponse),
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -46,6 +51,24 @@ pub struct FtxResponse {
     pub market: Option<String>,
     pub r#type: Type,
     pub data: Option<ResponseData>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct BybitOpResponse {
+    op: String,
+    _success: bool,
+    _ret_msg: Option<String>,
+    _conn_id: Uuid,
+    _req_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct BybitTopicResponse {
+    topic: String,
+    _type: String,
+    #[serde(with = "ts_milliseconds")]
+    _ts: DateTime<Utc>,
+    data: Vec<BybitTrade>,
 }
 
 #[derive(Copy, Clone, Debug, Deserialize)]
@@ -75,18 +98,21 @@ pub enum Data {
     FtxTrade(FtxTrade),
     GdaxTrade(GdaxTrade),
     GdaxHb(Heartbeat),
+    BybitTrade(BybitTrade),
 }
 
 impl WebSocket {
     pub const FTX_ENDPOINT: &'static str = "wss://ftx.com/ws";
     pub const FTXUS_ENDPOINT: &'static str = "wss://ftx.us/ws";
     pub const GDAX_ENDPOINT: &'static str = "wss://ws-feed.pro.coinbase.com";
+    pub const BYBIT_ENDPOINT: &'static str = "wss://stream.bybit.com/v5/public/linear";
 
     pub async fn connect(exchange: &ExchangeName) -> Result<Self, WsError> {
         let endpoint = match exchange {
             ExchangeName::Ftx => Self::FTX_ENDPOINT,
             ExchangeName::FtxUs => Self::FTXUS_ENDPOINT,
             ExchangeName::Gdax => Self::GDAX_ENDPOINT,
+            ExchangeName::Bybit => Self::BYBIT_ENDPOINT,
             name => panic!("{:?} not supported for ws.", name),
         };
         let (stream, _) = connect_async(endpoint).await?;
@@ -121,6 +147,7 @@ impl WebSocket {
                 Channel::Trades(s) => ("trades", s),
                 Channel::Ticker(s) => ("ticker", s),
                 Channel::Heartbeat(s) => ("heartbeat", s),
+                Channel::Args(s) => ("args", s),
             };
             let message = match self.exchange {
                 ExchangeName::Ftx | ExchangeName::FtxUs => Message::Text(
@@ -135,6 +162,10 @@ impl WebSocket {
                         ]
                     })
                     .to_string(),
+                ),
+                ExchangeName::Bybit => Message::Text(
+                    json!({"op": "subscribe", channel: [ format!("publicTrade.{}",symbol) ]})
+                        .to_string(),
                 ),
                 name => panic!("{:?} not supported for ws.", name),
             };
@@ -156,6 +187,15 @@ impl WebSocket {
                             self.handle_response(Response::Gdax(v))?
                         }
                     }
+                    Response::BybitOp(r) => {
+                        println!("R: {:?}", r);
+                        if r.op == "subscribe".to_string() {
+                            continue 'channels;
+                        } else {
+                            self.handle_response(Response::BybitOp(r))?
+                        }
+                    }
+                    Response::BybitTopic(r) => self.handle_response(Response::BybitTopic(r))?,
                 }
             }
             return Err(WsError::MissingSubscriptionConfirmation);
@@ -180,6 +220,30 @@ impl WebSocket {
                                 // Don't return pong responses
                                 if let FtxResponse {r#type: Type::Pong, ..} = response { continue;}
                                 return Ok(Response::Ftx(response))
+                            }
+                        },
+                    }
+                }
+                ExchangeName::Bybit => {
+                    tokio::select! {
+                        _ = self.ping_timer.tick() => {
+                            self.ping().await?;
+                        },
+                        Some(msg) = self.stream.next() => {
+                            self.last_msg = Some(Utc::now());
+                            let msg = msg?;
+                            if let Message::Text(text) = msg {
+                                let response_val: Value = serde_json::from_str(&text)?;
+                                    match response_val.get("op") {
+                                    Some(_) => {
+                                        let op_response: BybitOpResponse = serde_json::from_value(response_val)?;
+                                        return Ok(Response::BybitOp(op_response))
+                                    },
+                                    None => {
+                                        let top_response: BybitTopicResponse = serde_json::from_value(response_val)?;
+                                        return Ok(Response::BybitTopic(top_response))
+                                    },
+                                }
                             }
                         },
                     }
@@ -282,6 +346,16 @@ impl WebSocket {
                     return Err(WsError::TimeSinceLastMsg);
                 }
             }
+            Response::BybitTopic(r) => {
+                let ticker = r.topic.strip_prefix("publicTrade.").unwrap().clone();
+                for trade in r.data {
+                    self.buf
+                        .push_back((Some(ticker.to_string()), Data::BybitTrade(trade)))
+                }
+            }
+            Response::BybitOp(r) => {
+                println!("{:?}", r);
+            }
         }
         Ok(())
     }
@@ -361,6 +435,32 @@ mod tests {
                     );
                 }
                 _ => panic!("Unexpected data type"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn stream_bybit_trades() {
+        let mut ws = WebSocket::connect(&ExchangeName::Bybit)
+            .await
+            .expect("Could not connect ws");
+        let market = "BTCUSDT".to_string();
+        ws.subscribe(vec![Channel::Args(market.to_owned())])
+            .await
+            .expect("Could not subscribe to market.");
+        loop {
+            let data = ws.next().await.expect("No data received.");
+            match data {
+                Ok((_, Data::BybitTrade(trade))) => {
+                    println!(
+                        "\n{:?} {} {} at {}",
+                        trade.side, trade.size, market, trade.price
+                    );
+                }
+                _ => {
+                    println!("{:?}", data);
+                    // panic!("Unexpected data type");
+                }
             }
         }
     }

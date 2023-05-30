@@ -73,6 +73,10 @@ impl ElDorado {
                 );
                 Ok(())
             }
+            (Some(_market), Data::BybitTrade(trade)) => {
+                println!("{:?}", trade);
+                Ok(())
+            }
             (None, d) => panic!("Market missing from ws data: {:?}", d),
         }
     }
@@ -152,6 +156,9 @@ impl ElDorado {
                 ExchangeName::Gdax => {
                     channels.push(Channel::Heartbeat(market.market_name.to_owned()));
                     channels.push(Channel::Ticker(market.market_name.to_owned()));
+                }
+                ExchangeName::Bybit => {
+                    channels.push(Channel::Args(market.market_name.to_owned()));
                 }
                 name => panic!("{:?} not supported for stream.", name),
             };
