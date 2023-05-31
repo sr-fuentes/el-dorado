@@ -525,11 +525,7 @@ impl ElDorado {
                     .await?;
                     trades.append(&mut db_trades);
                 }
-                if !trades.is_empty() {
-                    Ok(Some(trades))
-                } else {
-                    Ok(None)
-                }
+                Ok(Some(trades))
             }
             None => Ok(None),
         }
