@@ -858,6 +858,37 @@ impl ResearchMetric {
         Ok(rows)
     }
 
+    pub async fn select_all_distinct(pool: &PgPool) -> Result<Vec<Self>, sqlx::Error> {
+        let rows = sqlx::query_as!(
+            Self,
+            r#"
+            SELECT DISTINCT ON (market_id, tf)
+                market_id,
+                tf as "tf: TimeFrame",
+                datetime, high, low, close, atr_l, atr_s, 
+                ma_filter as "ma_filter: MetricFilter",
+                atr_filter as "atr_filter: MetricFilter", 
+                direction as "direction: MetricDirection",
+                return_z_l, return_z_s, tr_z_l, tr_z_s, upper_wick_z_l, upper_wick_z_s, body_z_l,
+                body_z_s, lower_wick_z_l, lower_wick_z_s, volume_z_l, volume_z_s, volume_net_z_l,
+                volume_net_z_s, volume_pct_z_l, volume_pct_z_s, volume_liq_z_l, volume_liq_z_s,
+                volume_liq_net_z_l, volume_liq_net_z_s, volume_liq_pct_z_l, volume_liq_pct_z_s,
+                value_z_l, value_z_s, value_net_z_l, value_net_z_s, value_pct_z_l, value_pct_z_s,
+                value_liq_z_l, value_liq_z_s, value_liq_net_z_l, value_liq_net_z_s,
+                value_liq_pct_z_l, value_liq_pct_z_s, trade_count_z_l, trade_count_z_s,
+                trade_count_net_z_l, trade_count_net_z_s, trade_count_pct_z_l, trade_count_pct_z_s,
+                liq_count_z_l, liq_count_z_s, liq_count_net_z_l, liq_count_net_z_s,
+                liq_count_pct_z_l, liq_count_pct_z_s, high4, high8, high16, high32, high64, high128,
+                high256, low4, low8, low16, low32, low64, low128, low256
+            FROM research_metrics
+            ORDER BY market_id, tf, datetime desc, insert_dt desc
+            "#,
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(rows)
+    }
+
     pub async fn select_by_id(pool: &PgPool, market_id: &Uuid) -> Result<Vec<Self>, sqlx::Error> {
         let rows = sqlx::query_as!(
             Self,
@@ -923,6 +954,42 @@ impl ResearchMetric {
         Ok(rows)
     }
 
+    pub async fn select_by_ids_distinct(
+        pool: &PgPool,
+        market_ids: &[Uuid],
+    ) -> Result<Vec<Self>, sqlx::Error> {
+        let rows = sqlx::query_as!(
+            Self,
+            r#"
+            SELECT DISTINCT ON (market_id, tf)
+                market_id,                
+                tf as "tf: TimeFrame",
+                datetime, high, low, close, atr_l, atr_s, 
+                ma_filter as "ma_filter: MetricFilter",
+                atr_filter as "atr_filter: MetricFilter", 
+                direction as "direction: MetricDirection",
+                return_z_l, return_z_s, tr_z_l, tr_z_s, upper_wick_z_l, upper_wick_z_s, body_z_l,
+                body_z_s, lower_wick_z_l, lower_wick_z_s, volume_z_l, volume_z_s, volume_net_z_l,
+                volume_net_z_s, volume_pct_z_l, volume_pct_z_s, volume_liq_z_l, volume_liq_z_s,
+                volume_liq_net_z_l, volume_liq_net_z_s, volume_liq_pct_z_l, volume_liq_pct_z_s,
+                value_z_l, value_z_s, value_net_z_l, value_net_z_s, value_pct_z_l, value_pct_z_s,
+                value_liq_z_l, value_liq_z_s, value_liq_net_z_l, value_liq_net_z_s,
+                value_liq_pct_z_l, value_liq_pct_z_s, trade_count_z_l, trade_count_z_s,
+                trade_count_net_z_l, trade_count_net_z_s, trade_count_pct_z_l, trade_count_pct_z_s,
+                liq_count_z_l, liq_count_z_s, liq_count_net_z_l, liq_count_net_z_s,
+                liq_count_pct_z_l, liq_count_pct_z_s, high4, high8, high16, high32, high64, high128,
+                high256, low4, low8, low16, low32, low64, low128, low256
+            FROM research_metrics
+            WHERE market_id = ANY($1)
+            ORDER BY market_id, tf, datetime desc, insert_dt desc
+            "#,
+            market_ids
+        )
+        .fetch_all(pool)
+        .await?;
+        Ok(rows)
+    }
+
     pub async fn delete_by_market(pool: &PgPool, market: &MarketDetail) -> Result<(), sqlx::Error> {
         let sql = r#"
             DELETE FROM research_metrics
@@ -954,6 +1021,18 @@ impl ResearchMetric {
                         .or_insert_with(|| vec![metric.clone()]);
                 })
                 .or_insert_with(|| HashMap::from([(metric.tf, vec![metric.clone()])]));
+        }
+        map
+    }
+
+    pub fn map_by_id_tf_distinct(metrics: &[Self]) -> HashMap<Uuid, HashMap<TimeFrame, Self>> {
+        let mut map: HashMap<Uuid, HashMap<TimeFrame, ResearchMetric>> = HashMap::new();
+        for metric in metrics.iter() {
+            map.entry(metric.market_id)
+                .and_modify(|hm| {
+                    hm.insert(metric.tf, metric.clone());
+                })
+                .or_insert_with(||HashMap::from([(metric.tf, metric.clone())]));
         }
         map
     }
